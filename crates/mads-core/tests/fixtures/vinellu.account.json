@@ -1,0 +1,1511 @@
+{
+ "brand_kit": {
+  "headlines": [
+   "Escaneie o rótulo e descubra",
+   "Reviews de quem já provou",
+   "Safras, notas e harmonização",
+   "Sua adega social de vinhos",
+   "Mais de 170 mil rótulos",
+   "Registre os vinhos que provou",
+   "Foto do rótulo, info na hora",
+   "App de vinhos grátis",
+   "Vinellu: sua adega social",
+   "Descubra antes de abrir"
+  ],
+  "descriptions": [
+   "Fotografe o rótulo e veja nota, safra e reviews na hora. Monte sua adega no app.",
+   "Registre o que provou, siga amigos e descubra rótulos novos. Baixe grátis.",
+   "Mais de 170 mil rótulos com safras, notas e harmonização. Tudo num app só."
+  ]
+ },
+ "campaigns": [
+  {
+   "name": "Vinellu - Rotulos - Search",
+   "slug": "vinellu-rotulos-search",
+   "intent": "catalog",
+   "daily_budget": 5000,
+   "bid_strategy": {
+    "type": "manual_cpc"
+   },
+   "rationale": "",
+   "planned_ad_groups": [
+    {
+     "name": "rotulo-alamos",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/Wv3T9ngB8S/malbec"
+    },
+    {
+     "name": "rotulo-luigi-bosca",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/uMm7sBLgDV/malbec"
+    },
+    {
+     "name": "rotulo-dv-catena",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/CjHn8hVT3r/d-v-catena-cabernet-sauvignon-malbec"
+    },
+    {
+     "name": "rotulo-angelica-zapata",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/KYddWdfzzg/angelica-zapata"
+    },
+    {
+     "name": "rotulo-gran-enemigo",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/rCKtZTTXjF/gran-enemigo-malbec"
+    },
+    {
+     "name": "rotulo-montes-alpha",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/cqq2q3SrE8/alpha-cabernet-sauvignon"
+    },
+    {
+     "name": "rotulo-casa-concha",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/SmVPv7DzD5/marques-de-casa-concha-cabernet-sauvignon"
+    },
+    {
+     "name": "rotulo-cartuxa",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/ZR6rrUWVzC/cartuxa-ea-tinto-red-alentejano"
+    },
+    {
+     "name": "rotulo-esporao",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/rLNyNz2XTs/reserva"
+    },
+    {
+     "name": "rotulo-miolo",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/yEsypGbeZi/selecao-cabernet-sauvignon-merlot"
+    },
+    {
+     "name": "rotulo-casillero",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/6uKU3N4gHZ/cabernet-sauvignon"
+    },
+    {
+     "name": "rotulo-reservado",
+     "theme": "",
+     "entity_ids": [],
+     "final_url": "https://vinellu.com/w/KGSEPknyTg/reservado-cabernet-sauvignon"
+    }
+   ],
+   "ad_groups": [
+    {
+     "name": "rotulo-alamos",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/Wv3T9ngB8S/malbec",
+     "keywords": [
+      {
+       "text": "alamos",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos malbec",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos malbec harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos malbec review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos malbec safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos malbec vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos malbec é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "alamos malbec",
+       "match_type": "exact"
+      },
+      {
+       "text": "alamos",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Alamos Malbec vale a pena?",
+       "Alamos Malbec: reviews reais",
+       "Reviews de Alamos Malbec",
+       "Alamos Malbec: nota e safras",
+       "Harmonize o Alamos Malbec"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Alamos Malbec: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "alamos"
+     }
+    },
+    {
+     "name": "rotulo-luigi-bosca",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/uMm7sBLgDV/malbec",
+     "keywords": [
+      {
+       "text": "luigi bosca",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca malbec",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca malbec harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca malbec review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca malbec safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca malbec vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca malbec é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "luigi bosca malbec",
+       "match_type": "exact"
+      },
+      {
+       "text": "luigi bosca",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Reviews de Luigi Bosca Malbec",
+       "Harmonize o Luigi Bosca Malbec",
+       "Luigi Bosca vale a pena?",
+       "Luigi Bosca: reviews reais",
+       "Reviews de Luigi Bosca"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Luigi Bosca Malbec: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "luigi-bosca"
+     }
+    },
+    {
+     "name": "rotulo-dv-catena",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/CjHn8hVT3r/d-v-catena-cabernet-sauvignon-malbec",
+     "keywords": [
+      {
+       "text": "d.v. catena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "d.v. catena harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "d.v. catena review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "d.v. catena safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "d.v. catena vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "d.v. catena é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena cabernet malbec",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena cabernet malbec harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena cabernet malbec review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena cabernet malbec safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena cabernet malbec vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena cabernet malbec é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "dv catena",
+       "match_type": "exact"
+      },
+      {
+       "text": "d.v. catena",
+       "match_type": "exact"
+      },
+      {
+       "text": "dv catena cabernet malbec",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "DV Catena vale a pena?",
+       "DV Catena: reviews reais",
+       "Reviews de DV Catena",
+       "DV Catena: nota e safras",
+       "Harmonize o DV Catena"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu DV Catena: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "dv-catena"
+     }
+    },
+    {
+     "name": "rotulo-angelica-zapata",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/KYddWdfzzg/angelica-zapata",
+     "keywords": [
+      {
+       "text": "angelica zapata",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angelica zapata harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angelica zapata review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angelica zapata safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angelica zapata vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angelica zapata é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angélica zapata",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angélica zapata harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angélica zapata review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angélica zapata safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angélica zapata vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angélica zapata é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "angelica zapata",
+       "match_type": "exact"
+      },
+      {
+       "text": "angélica zapata",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Angélica Zapata vale a pena?",
+       "Angélica Zapata: reviews reais",
+       "Reviews de Angélica Zapata",
+       "Angélica Zapata: nota e safras",
+       "Harmonize o Angélica Zapata"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Angélica Zapata: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "angelica-zapata"
+     }
+    },
+    {
+     "name": "rotulo-gran-enemigo",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/rCKtZTTXjF/gran-enemigo-malbec",
+     "keywords": [
+      {
+       "text": "el enemigo malbec",
+       "match_type": "phrase"
+      },
+      {
+       "text": "el enemigo malbec harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "el enemigo malbec review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "el enemigo malbec safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "el enemigo malbec vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "el enemigo malbec é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "gran enemigo",
+       "match_type": "phrase"
+      },
+      {
+       "text": "gran enemigo harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "gran enemigo review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "gran enemigo safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "gran enemigo vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "gran enemigo é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "gran enemigo",
+       "match_type": "exact"
+      },
+      {
+       "text": "el enemigo malbec",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Gran Enemigo vale a pena?",
+       "Gran Enemigo: reviews reais",
+       "Reviews de Gran Enemigo",
+       "Gran Enemigo: nota e safras",
+       "Harmonize o Gran Enemigo"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Gran Enemigo: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "gran-enemigo"
+     }
+    },
+    {
+     "name": "rotulo-montes-alpha",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/cqq2q3SrE8/alpha-cabernet-sauvignon",
+     "keywords": [
+      {
+       "text": "montes alpha",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha cabernet",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha cabernet harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha cabernet review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha cabernet safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha cabernet vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha cabernet é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "montes alpha",
+       "match_type": "exact"
+      },
+      {
+       "text": "montes alpha cabernet",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Montes Alpha vale a pena?",
+       "Montes Alpha: reviews reais",
+       "Reviews de Montes Alpha",
+       "Montes Alpha: nota e safras",
+       "Harmonize o Montes Alpha"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Montes Alpha: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "montes-alpha"
+     }
+    },
+    {
+     "name": "rotulo-casa-concha",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/SmVPv7DzD5/marques-de-casa-concha-cabernet-sauvignon",
+     "keywords": [
+      {
+       "text": "casa concha cabernet",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casa concha cabernet harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casa concha cabernet review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casa concha cabernet safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casa concha cabernet vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casa concha cabernet é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "marques de casa concha",
+       "match_type": "phrase"
+      },
+      {
+       "text": "marques de casa concha harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "marques de casa concha review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "marques de casa concha safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "marques de casa concha vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "marques de casa concha é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "marques de casa concha",
+       "match_type": "exact"
+      },
+      {
+       "text": "casa concha cabernet",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Casa Concha vale a pena?",
+       "Casa Concha: reviews reais",
+       "Reviews de Casa Concha",
+       "Casa Concha: nota e safras",
+       "Harmonize o Casa Concha"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Casa Concha: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "casa-concha"
+     }
+    },
+    {
+     "name": "rotulo-cartuxa",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/ZR6rrUWVzC/cartuxa-ea-tinto-red-alentejano",
+     "keywords": [
+      {
+       "text": "cartuxa",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa tinto",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa tinto harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa tinto review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa tinto safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa tinto vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa tinto é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "cartuxa",
+       "match_type": "exact"
+      },
+      {
+       "text": "cartuxa tinto",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Cartuxa vale a pena?",
+       "Cartuxa: reviews reais",
+       "Reviews de Cartuxa",
+       "Cartuxa: nota e safras",
+       "Harmonize o Cartuxa"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Cartuxa: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "cartuxa"
+     }
+    },
+    {
+     "name": "rotulo-esporao",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/rLNyNz2XTs/reserva",
+     "keywords": [
+      {
+       "text": "esporao reserva",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporao reserva harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporao reserva review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporao reserva safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporao reserva vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporao reserva é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporão reserva",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporão reserva harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporão reserva review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporão reserva safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporão reserva vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporão reserva é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "esporao reserva",
+       "match_type": "exact"
+      },
+      {
+       "text": "esporão reserva",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Esporão Reserva vale a pena?",
+       "Esporão Reserva: reviews reais",
+       "Reviews de Esporão Reserva",
+       "Esporão Reserva: nota e safras",
+       "Harmonize o Esporão Reserva"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Esporão Reserva: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "esporao"
+     }
+    },
+    {
+     "name": "rotulo-miolo",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/yEsypGbeZi/selecao-cabernet-sauvignon-merlot",
+     "keywords": [
+      {
+       "text": "miolo cabernet merlot",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo cabernet merlot harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo cabernet merlot review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo cabernet merlot safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo cabernet merlot vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo cabernet merlot é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo selecao",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo selecao harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo selecao review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo selecao safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo selecao vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo selecao é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo seleção",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo seleção harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo seleção review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo seleção safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo seleção vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo seleção é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "miolo selecao",
+       "match_type": "exact"
+      },
+      {
+       "text": "miolo seleção",
+       "match_type": "exact"
+      },
+      {
+       "text": "miolo cabernet merlot",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Miolo Seleção vale a pena?",
+       "Miolo Seleção: reviews reais",
+       "Reviews de Miolo Seleção",
+       "Miolo Seleção: nota e safras",
+       "Harmonize o Miolo Seleção"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Miolo Seleção: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "miolo"
+     }
+    },
+    {
+     "name": "rotulo-casillero",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/6uKU3N4gHZ/cabernet-sauvignon",
+     "keywords": [
+      {
+       "text": "casillero",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero del diablo",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero del diablo harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero del diablo review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero del diablo safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero del diablo vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero del diablo é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "casillero del diablo",
+       "match_type": "exact"
+      },
+      {
+       "text": "casillero",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Casillero vale a pena?",
+       "Casillero: reviews reais",
+       "Reviews de Casillero",
+       "Casillero: nota e safras",
+       "Harmonize o Casillero"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Casillero del Diablo: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "casillero"
+     }
+    },
+    {
+     "name": "rotulo-reservado",
+     "default_cpc": 150,
+     "cpc_rationale": "",
+     "final_url": "https://vinellu.com/w/KGSEPknyTg/reservado-cabernet-sauvignon",
+     "keywords": [
+      {
+       "text": "reservado concha y toro",
+       "match_type": "phrase"
+      },
+      {
+       "text": "reservado concha y toro harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "reservado concha y toro review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "reservado concha y toro safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "reservado concha y toro vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "reservado concha y toro é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinho reservado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinho reservado harmonização",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinho reservado review",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinho reservado safra",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinho reservado vale a pena",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinho reservado é bom",
+       "match_type": "phrase"
+      },
+      {
+       "text": "reservado concha y toro",
+       "match_type": "exact"
+      },
+      {
+       "text": "vinho reservado",
+       "match_type": "exact"
+      }
+     ],
+     "negatives": [
+      {
+       "text": "emprego",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vaga",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vagas",
+       "match_type": "phrase"
+      },
+      {
+       "text": "atacado",
+       "match_type": "phrase"
+      },
+      {
+       "text": "distribuidor",
+       "match_type": "phrase"
+      },
+      {
+       "text": "representante",
+       "match_type": "phrase"
+      },
+      {
+       "text": "receita",
+       "match_type": "phrase"
+      },
+      {
+       "text": "vinagre",
+       "match_type": "phrase"
+      }
+     ],
+     "rsa": {
+      "headlines": [
+       "Reservado vale a pena?",
+       "Reservado: reviews reais",
+       "Reviews de Reservado",
+       "Reservado: nota e safras",
+       "Harmonize o Reservado"
+      ],
+      "descriptions": [
+       "O que achou quem bebeu Reservado Concha y Toro: reviews, safras e harmonização. Grátis."
+      ],
+      "path1": "vinhos",
+      "path2": "reservado"
+     }
+    }
+   ],
+   "negatives": [],
+   "assets": null
+  }
+ ]
+}

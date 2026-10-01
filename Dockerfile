@@ -29,7 +29,7 @@ RUN find crates -name '*.rs' -exec touch {} + \
 
 # Runtime stage. Alpine, not scratch: the CLI providers need a temp dir, and
 # anything that talks HTTPS needs the CA certificates.
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates
 

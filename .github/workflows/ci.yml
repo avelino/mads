@@ -45,7 +45,7 @@ jobs:
       # path filters only make sense for push and pull_request
       - id: filter
         if: github.event_name == 'push' || github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             rust:

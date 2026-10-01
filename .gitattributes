@@ -1,0 +1,3 @@
+# the golden csv files are CRLF on purpose; never let git normalize them
+data/*.csv -text
+crates/mads-core/tests/fixtures/* -text

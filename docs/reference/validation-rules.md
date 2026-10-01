@@ -1,0 +1,86 @@
+# Validation rules
+
+This page lists every validation code mads emits, what it checks and where.
+
+Errors block the export. Warnings go to the report, to progress output and, on GitHub Actions, to annotations. Each issue has a `code`, a `path` into the account, for example `campaigns[0].ad_groups[3].rsa.headlines[2]`, and a `message`.
+
+## Where rules run
+
+- **During a mission.** Every tool checks its input before it changes state. A failing call returns the errors to the agent and changes nothing.
+- **At the end.** mads validates the whole account again. Any error means exit code `3` and no CSV.
+- **URL check.** `E15` runs only in the end step, and only without `--skip-url-check`.
+
+## How text is measured
+
+- Length is the number of Unicode scalar values after NFC normalization, on the trimmed text. Google counts some CJK characters as 2. mads targets Latin scripts and ignores that.
+- Comparisons (duplicates, avoid terms, negatives) use `normalize`. NFC, lowercase, trim and collapse inner whitespace to one space.
+
+## Errors
+
+| Code | Rule | Notes |
+|---|---|---|
+| `E01` | Text longer than its limit. | Headline 30, description 90, path 15, sitelink text 25, sitelink description 35, callout 25, snippet value 25, campaign name 255, ad group name 255, keyword 80. Message `<n> chars, limit is <limit>`. |
+| `E02` | Required text is empty after trim. | Message `text is empty`. Same fields as `E01`. |
+| `E03` | Duplicate text inside one list. | Brand kit headlines and descriptions, specific RSA headlines and descriptions, sitelink texts, callouts, snippet values. Compared after `normalize`. Message `duplicate of [<index>]`. |
+| `E04` | `!` in a headline. | Brand kit and specific headlines. Message `headlines cannot contain '!'`. |
+| `E05` | Ad or asset text contains a `business.avoid` term. | Substring match after `normalize`. Checks headlines, descriptions, sitelink text and descriptions, callouts and snippet values. Not keywords or paths. Message `text contains avoided term '<term>'`. |
+| `E06` | Budgets. | Campaign budgets do not sum exactly to `budget.daily`, a campaign budget is below 1.00, or a budget is not greater than 0 with at most 2 decimals. |
+| `E07` | URL outside the allowed set. | Planned final URLs, ad group final URLs and sitelink URLs. The set is `business.url`, `business.pages` and the catalog. Message `URL not in business.url, business.pages or catalog: <url>`. |
+| `E08` | Bad keyword syntax. | More than 10 words, or any of ``! @ % ^ * ( ) = { } ; ~ ` < > ? \ \| , [ ] "``. Applies to keywords and negatives. |
+| `E09` | A negative blocks a keyword in its scope. | A phrase negative blocks a keyword when its words appear contiguously in the keyword's words. An exact negative blocks a keyword with equal text. Ad group negatives apply to their ad group. Campaign negatives apply to every ad group in the campaign. Message `negative '<n>' blocks keyword '<k>'`. |
+| `E10` | `maximize_conversions` while `business.conversion_tracking` is `false`. | The rule is in place. Today the plan tool accepts only `manual_cpc`, so no run reaches it. |
+| `E11` | CPC problems. | A CPC of zero, an ad group CPC that is not greater than 0 with at most 2 decimals, or a CPC above `budget.max_cpc` when set. |
+| `E12` | Structure. | Duplicate campaign name in the account. Duplicate ad group name in a campaign. An ad group not in the plan. A planned ad group missing at finish. An ad group without keywords. A missing brand kit or missing campaign assets at finish. An unknown catalog id in `entity_ids`. A campaign with no planned ad groups. A name with no letters or digits, or two names that give the same slug. |
+| `E13` | Count out of range. | See the table below. |
+| `E14` | `path2` without `path1`, or a sitelink with exactly one description. | |
+| `E15` | URL check failed. | A final or sitelink URL did not answer 2xx after redirects. Message `URL check failed: HTTP <status>` or `URL check failed: unreachable`. The path is the URL. |
+
+### E13 limits
+
+| What | Allowed |
+|---|---|
+| Campaigns in the account | 1 to 5 |
+| Planned ad groups in the account | up to `--max-ad-groups` (default 50) |
+| Brand kit headlines | 8 to 12 |
+| Brand kit descriptions | 2 to 3 |
+| Specific RSA headlines | 3 to 7 |
+| Specific RSA descriptions | 1 to 2 |
+| Keywords per ad group | 1 to 50 |
+| Keyword spec `variants` | 1 to 6 |
+| Keyword spec `modifiers` | 0 to 10 |
+| Keyword spec `extra` | 0 to 20 |
+| Negatives per scope (campaign or ad group) | 0 to 100 |
+| Sitelinks | 2 to 8 |
+| Callouts | 2 to 10 |
+| Structured snippets | 0 to 2 |
+| Values per snippet | 3 to 10 |
+
+## Warnings
+
+| Code | Rule | Notes |
+|---|---|---|
+| `W01` | Ad or asset text contains a third-party term. | The terms are every `business.competitors` entry and the name and aliases of every catalog item with `third_party = true`. The match is on whole words, in order, after `normalize`. Trademark policy risk. Message `third-party term '<term>' in ad text (trademark policy risk)`. |
+| `W02` | A word of 4 or more letters fully in uppercase that is not part of a brand term. | Words split on any non-letter. Message `word in all caps`. |
+| `W03` | The same keyword (text and match type) in two ad groups of the same campaign. | Message `keyword '<k>' is also in ad_groups[<index>]`. |
+| `W04` | Merged RSA with fewer than 15 headlines or fewer than 4 descriptions. | Message `merged ad has <h> headlines and <d> descriptions (15 and 4 recommended)`. |
+| `W05` | Fewer than 4 sitelinks, fewer than 4 callouts or no structured snippet. | Message `recommended: 4+ sitelinks, 4+ callouts and 1 structured snippet`. |
+
+## Tool-only codes
+
+These come from the tool layer, not the rule set. The agent sees them in tool results.
+
+| Code | Meaning |
+|---|---|
+| `ARGS` | The arguments did not parse. Unknown field, missing field or wrong type. The message is the parser error. |
+| `UNKNOWN_TOOL` | The tool does not exist or is not in this mission's toolset. |
+| `LIMIT` | The mission used its tool call budget (`--max-turns` times 4). |
+| `UNSUPPORTED` | A bid strategy other than `manual_cpc`. |
+| `NOT_FOUND` | The campaign of this mission no longer exists in the plan. |
+| `PERSIST` | The workspace could not be saved to disk. |
+| `HOST`, `FETCH` | Init only. The URL is outside the site, or the request failed. |
+| `INPUT` | Init only. The draft does not parse like `business.toml` or `catalog.csv`. |
+| `EXPORT` | The final export failed. Seen in the end step, for example when the brand kit is missing. |
+
+## Cross negatives
+
+The end step adds brand and competitor terms as campaign negatives before validation. A term that would trigger `E09` in a campaign is skipped and reported as a note in the Validation section of `report.md`.

@@ -1,0 +1,447 @@
+use std::collections::BTreeMap;
+
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use super::{
+    MissionTools, ToolOutput, ToolSpec,
+    output::{cents_to_f64, parse_args, split},
+    rules_summary,
+    schema::schema_for,
+};
+use crate::{
+    google::{
+        Account, BidStrategy, BrandKit, Campaign, Cents, Intent, Issue, PlannedAdGroup, Rules,
+    },
+    input::slugify,
+    workspace::Workspace,
+};
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Empty {}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct QueryCatalogArgs {
+    /// Only items of this category (exact, case-insensitive). Empty for all.
+    #[serde(default)]
+    category: String,
+    /// Case-insensitive text searched in id, name and aliases. Empty for all.
+    #[serde(default)]
+    contains: String,
+    #[serde(default)]
+    offset: usize,
+    /// Page size, at most 200.
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+fn default_limit() -> usize {
+    50
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SetBrandKitArgs {
+    /// 8 to 12 headlines of at most 30 characters, shared by every ad.
+    headlines: Vec<String>,
+    /// 2 to 3 descriptions of at most 90 characters, shared by every ad.
+    descriptions: Vec<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SetAccountPlanArgs {
+    /// 1 to 5 campaigns. Replaces the previous plan.
+    campaigns: Vec<PlanCampaign>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct PlanCampaign {
+    name: String,
+    intent: Intent,
+    /// Daily budget in account currency units, at most 2 decimals. All campaigns must sum to the account budget.
+    daily_budget: f64,
+    bid_strategy: PlanBid,
+    /// Why this budget share and this bidding.
+    rationale: String,
+    ad_groups: Vec<PlanAdGroup>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct PlanBid {
+    /// Only manual_cpc is accepted for now.
+    #[serde(rename = "type")]
+    kind: PlanBidType,
+}
+
+#[derive(Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum PlanBidType {
+    ManualCpc,
+    MaximizeClicks,
+    MaximizeConversions,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct PlanAdGroup {
+    name: String,
+    theme: String,
+    /// Catalog ids this ad group covers.
+    #[serde(default)]
+    entity_ids: Vec<String>,
+    /// Landing page. Empty to use the entity page (one entity) or the business URL.
+    #[serde(default)]
+    final_url: String,
+}
+
+pub fn specs() -> Vec<ToolSpec> {
+    let spec = |name: &str, description: &str, input_schema: Value| ToolSpec {
+        name: name.into(),
+        description: description.into(),
+        input_schema,
+    };
+    vec![
+        spec(
+            "get_business",
+            "Business profile, account budget and the rules every tool enforces. Call this first.",
+            schema_for::<Empty>(),
+        ),
+        spec(
+            "query_catalog",
+            "List catalog items (entities that can get their own ad group), with categories and pagination.",
+            schema_for::<QueryCatalogArgs>(),
+        ),
+        spec(
+            "set_brand_kit",
+            "Set the headlines and descriptions shared by every ad. Replaces the previous kit.",
+            schema_for::<SetBrandKitArgs>(),
+        ),
+        spec(
+            "set_account_plan",
+            "Define campaigns by intent, budget split, bidding and the planned ad groups. Replaces the previous plan.",
+            schema_for::<SetAccountPlanArgs>(),
+        ),
+        spec(
+            "finish",
+            "Finish the plan mission. Needs the brand kit and the account plan.",
+            schema_for::<Empty>(),
+        ),
+    ]
+}
+
+pub async fn call(t: &MissionTools, name: &str, args: Value) -> ToolOutput {
+    match name {
+        "get_business" => get_business(t).await,
+        "query_catalog" => match parse_args(args) {
+            Ok(a) => query_catalog(t, a).await,
+            Err(e) => e,
+        },
+        "set_brand_kit" => match parse_args(args) {
+            Ok(a) => set_brand_kit(t, a).await,
+            Err(e) => e,
+        },
+        "set_account_plan" => match parse_args(args) {
+            Ok(a) => set_account_plan(t, a).await,
+            Err(e) => e,
+        },
+        "finish" => finish(t).await,
+        _ => ToolOutput::fail("UNKNOWN_TOOL", name),
+    }
+}
+
+async fn get_business(t: &MissionTools) -> ToolOutput {
+    let ws = t.ws.lock().await;
+    let b = &ws.input.budget;
+    let result = json!({
+        "business": ws.input.business,
+        "budget": {
+            "daily": cents_to_f64(b.daily),
+            "currency": b.currency,
+            "max_cpc": b.max_cpc.map(cents_to_f64),
+        },
+        "catalog_size": ws.input.catalog.len(),
+        "rules": rules_summary(&t.settings),
+    });
+    ToolOutput::ok(result, &[], "get_business")
+}
+
+async fn query_catalog(t: &MissionTools, a: QueryCatalogArgs) -> ToolOutput {
+    let ws = t.ws.lock().await;
+    let (category, needle) = (
+        a.category.trim().to_lowercase(),
+        a.contains.trim().to_lowercase(),
+    );
+    let matches = |c: &&crate::input::CatalogItem| {
+        let cat_ok = category.is_empty() || c.category.to_lowercase() == category;
+        let text_ok = needle.is_empty()
+            || c.id.contains(&needle)
+            || c.name.to_lowercase().contains(&needle)
+            || c.aliases
+                .iter()
+                .any(|al| al.to_lowercase().contains(&needle));
+        cat_ok && text_ok
+    };
+    let filtered: Vec<_> = ws.input.catalog.iter().filter(matches).collect();
+    let limit = a.limit.clamp(1, 200);
+    let items: Vec<_> = filtered.iter().skip(a.offset).take(limit).collect();
+
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for c in ws.input.catalog.iter().filter(|c| !c.category.is_empty()) {
+        *counts.entry(c.category.as_str()).or_default() += 1;
+    }
+    let categories: Vec<_> = counts
+        .into_iter()
+        .map(|(name, count)| json!({"name": name, "count": count}))
+        .collect();
+    let summary = format!("query_catalog: {} of {} items", items.len(), filtered.len());
+    ToolOutput::ok(
+        json!({"total": filtered.len(), "offset": a.offset, "items": items, "categories": categories}),
+        &[],
+        summary,
+    )
+}
+
+async fn set_brand_kit(t: &MissionTools, a: SetBrandKitArgs) -> ToolOutput {
+    let mut guard = t.ws.lock().await;
+    let ws: &mut Workspace = &mut guard;
+    let kit = BrandKit {
+        headlines: a.headlines,
+        descriptions: a.descriptions,
+    };
+    let (errors, warnings) = split(Rules::new(&ws.input, t.settings.max_ad_groups).brand_kit(&kit));
+    if !errors.is_empty() {
+        return ToolOutput::fail_issues(
+            &errors,
+            &warnings,
+            format!("set_brand_kit: {} errors", errors.len()),
+        );
+    }
+    let summary = format!(
+        "brand kit: {} headlines, {} descriptions",
+        kit.headlines.len(),
+        kit.descriptions.len()
+    );
+    ws.account.brand_kit = Some(kit);
+    if let Err(e) = t.persist(ws) {
+        return e;
+    }
+    ToolOutput::ok(
+        json!({"headlines": ws.account.brand_kit.as_ref().map(|k| k.headlines.len()), "descriptions": ws.account.brand_kit.as_ref().map(|k| k.descriptions.len())}),
+        &warnings,
+        summary,
+    )
+}
+
+async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput {
+    let mut guard = t.ws.lock().await;
+    let ws: &mut Workspace = &mut guard;
+    let rules = Rules::new(&ws.input, t.settings.max_ad_groups);
+    let mut issues = Vec::new();
+    let campaigns: Vec<Campaign> = a
+        .campaigns
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| build_campaign(ws, &rules, c, i, &mut issues))
+        .collect();
+    check_slugs(&campaigns, &mut issues);
+    let candidate = Account {
+        brand_kit: ws.account.brand_kit.clone(),
+        campaigns,
+    };
+    issues.extend(
+        rules
+            .account(&candidate, false)
+            .into_iter()
+            .filter(|i| i.path.starts_with("campaigns")),
+    );
+    let (errors, warnings) = split(issues);
+    if !errors.is_empty() {
+        return ToolOutput::fail_issues(
+            &errors,
+            &warnings,
+            format!("set_account_plan: {} errors", errors.len()),
+        );
+    }
+    let groups: usize = candidate
+        .campaigns
+        .iter()
+        .map(|c| c.planned_ad_groups.len())
+        .sum();
+    let summary = format!(
+        "plan: {} campaigns, {groups} ad groups",
+        candidate.campaigns.len()
+    );
+    let overview: Vec<Value> = candidate
+        .campaigns
+        .iter()
+        .map(|c| json!({"name": c.name, "slug": c.slug, "ad_groups": c.planned_ad_groups.len()}))
+        .collect();
+    ws.account.campaigns = candidate.campaigns;
+    if let Err(e) = t.persist(ws) {
+        return e;
+    }
+    ToolOutput::ok(json!({"campaigns": overview}), &warnings, summary)
+}
+
+fn build_campaign(
+    ws: &Workspace,
+    rules: &Rules,
+    c: PlanCampaign,
+    i: usize,
+    issues: &mut Vec<Issue>,
+) -> Campaign {
+    let path = format!("campaigns[{i}]");
+    let daily_budget = Cents::from_f64(c.daily_budget).unwrap_or_else(|| {
+        let msg = format!(
+            "{} must be greater than 0 with at most 2 decimals",
+            c.daily_budget
+        );
+        issues.push(Issue::error("E06", format!("{path}.daily_budget"), msg));
+        Cents(0)
+    });
+    if c.bid_strategy.kind != PlanBidType::ManualCpc {
+        let msg = "only manual_cpc is supported until the Google Ads bulk templates are verified";
+        issues.push(Issue::error(
+            "UNSUPPORTED",
+            format!("{path}.bid_strategy.type"),
+            msg,
+        ));
+    }
+    let slug = slugify(&c.name);
+    if slug.is_empty() {
+        issues.push(Issue::error(
+            "E12",
+            format!("{path}.name"),
+            "name needs letters or digits",
+        ));
+    }
+    if c.ad_groups.is_empty() {
+        issues.push(Issue::error(
+            "E12",
+            format!("{path}.ad_groups"),
+            "campaign has no planned ad groups",
+        ));
+    }
+    let planned = plan_ad_groups(ws, rules, &c.ad_groups, &path, issues);
+    Campaign {
+        name: c.name,
+        slug,
+        intent: c.intent,
+        daily_budget,
+        bid_strategy: BidStrategy::ManualCpc,
+        rationale: c.rationale,
+        planned_ad_groups: planned,
+        ad_groups: Vec::new(),
+        negatives: Vec::new(),
+        assets: None,
+    }
+}
+
+fn plan_ad_groups(
+    ws: &Workspace,
+    rules: &Rules,
+    groups: &[PlanAdGroup],
+    path: &str,
+    issues: &mut Vec<Issue>,
+) -> Vec<PlannedAdGroup> {
+    let mut seen = std::collections::BTreeSet::new();
+    groups
+        .iter()
+        .enumerate()
+        .map(|(j, g)| {
+            let at = format!("{path}.ad_groups[{j}]");
+            if !seen.insert(crate::google::normalize(&g.name)) {
+                issues.push(Issue::error(
+                    "E12",
+                    format!("{at}.name"),
+                    format!("duplicate planned ad group '{}'", g.name),
+                ));
+            }
+            for id in g
+                .entity_ids
+                .iter()
+                .filter(|id| !ws.input.catalog.iter().any(|c| &c.id == *id))
+            {
+                issues.push(Issue::error(
+                    "E12",
+                    format!("{at}.entity_ids"),
+                    format!("unknown catalog id '{id}'"),
+                ));
+            }
+            PlannedAdGroup {
+                name: g.name.clone(),
+                theme: g.theme.clone(),
+                entity_ids: g.entity_ids.clone(),
+                final_url: resolve_url(ws, rules, g, &at, issues),
+            }
+        })
+        .collect()
+}
+
+fn resolve_url(
+    ws: &Workspace,
+    rules: &Rules,
+    g: &PlanAdGroup,
+    at: &str,
+    issues: &mut Vec<Issue>,
+) -> String {
+    if !g.final_url.trim().is_empty() {
+        if !rules.url_allowed(&g.final_url) {
+            issues.push(Issue::error(
+                "E07",
+                format!("{at}.final_url"),
+                format!("URL not allowed: {}", g.final_url),
+            ));
+        }
+        return g.final_url.clone();
+    }
+    let single = match g.entity_ids.as_slice() {
+        [id] => ws
+            .input
+            .catalog
+            .iter()
+            .find(|c| &c.id == id)
+            .map(|c| c.url.clone()),
+        _ => None,
+    };
+    single.unwrap_or_else(|| ws.input.business.url.clone())
+}
+
+fn check_slugs(campaigns: &[Campaign], issues: &mut Vec<Issue>) {
+    let mut seen = std::collections::BTreeSet::new();
+    for (i, c) in campaigns.iter().enumerate() {
+        if !c.slug.is_empty() && !seen.insert(c.slug.clone()) {
+            issues.push(Issue::error(
+                "E12",
+                format!("campaigns[{i}].name"),
+                format!("name '{}' collides with another campaign", c.name),
+            ));
+        }
+    }
+}
+
+async fn finish(t: &MissionTools) -> ToolOutput {
+    let ws = t.ws.lock().await;
+    let mut errors = Vec::new();
+    if ws.account.brand_kit.is_none() {
+        errors.push(Issue::error("E12", "brand_kit", "brand kit is not set"));
+    }
+    if ws.account.campaigns.is_empty() {
+        errors.push(Issue::error("E12", "campaigns", "account plan is not set"));
+    }
+    if !errors.is_empty() {
+        return ToolOutput::fail_issues(&errors, &[], "finish: plan incomplete");
+    }
+    t.mark_finished();
+    ToolOutput::ok(
+        json!({"campaigns": ws.account.campaigns.len()}),
+        &[],
+        "plan finished",
+    )
+}

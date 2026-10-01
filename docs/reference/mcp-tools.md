@@ -42,6 +42,8 @@ No arguments. Returns the business profile, the budget and the rules every tool 
 
 `rules` has the text limits, the count ranges, the intents (`brand`, `catalog`, `generic`, `competitor`), the match types (`phrase`, `exact`), `bid_strategies` (`["manual_cpc"]`), the snippet headers and `max_ad_groups`.
 
+When `business.toml` has a `[research]` table, the result also has `research`, the Markdown text of that file. Without notes the key is absent.
+
 ### query_catalog
 
 | Argument | Type | Default | Description |
@@ -221,7 +223,9 @@ No arguments. Needs every planned ad group, assets and zero errors in the campai
 
 ## Init mission
 
-Used by `mads init`. Tools: `fetch_page`, `fetch_sitemap`, `write_business`, `add_catalog_items`, `finish`. See [Init from a URL](../guides/init-from-url.md).
+Used by `mads init`. Tools: `fetch_page`, `fetch_sitemap`, `search_site`, `write_business`, `write_research`, `add_catalog_items`, `finish`. See [Init from a URL](../guides/init-from-url.md).
+
+With an agent CLI the init agent can also use the CLI's own web search. That tool is not a mads tool and does not go through the MCP server. See [Agent CLIs](../guides/agent-clis.md#web-search-in-init).
 
 The agent only reaches the start host and its `www.` or apex sibling. `robots.txt` is respected. IP-literal hosts and hosts that resolve to loopback, private or link-local addresses are refused. `MADS_ALLOW_PRIVATE_HOSTS=1` lifts that for local development.
 
@@ -248,7 +252,24 @@ Result.
 | `offset` | integer | `0` | URLs to skip. |
 | `limit` | integer | `50` | Page size. Clamped to 1 to 200. |
 
-Result `{"total": 8657, "offset": 0, "urls": []}`. `total` counts URLs that match `contains`. Indexes are followed 2 levels, with at most 50 child sitemaps. `.xml.gz` is supported. The parsed result is cached for the mission. Returned URLs join the set of seen URLs. Errors `HOST`, `FETCH`.
+Result `{"total": 8657, "offset": 0, "urls": [], "skipped": []}`. `total` counts URLs that match `contains`. `skipped` lists each sitemap file that could not be read as `url: reason`. Files up to 50 MB are read. Indexes are followed 2 levels, with at most 50 child sitemaps. `.xml.gz` is supported. The parsed result is cached for the mission. Returned URLs join the set of seen URLs. Errors `HOST`, `FETCH`.
+
+### search_site
+
+Finds the pages of a list of names in the sitemap. One call checks up to 50 names, so a long list of candidates costs one turn, not fifty.
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `names` | string array | | The names to look for, as people write them. 1 to 50. Required. |
+| `limit` | integer | `5` | URLs returned per name. Clamped to 1 to 20. |
+
+Each name and each URL path are turned into slugs first. Accents and case drop, and `%C3%A9` in a URL counts as `é`. A URL matches when every word of the name is in its path. Shorter paths come first, so `alamos-malbec` beats `alamos-malbec-2022`. It reads the default sitemap and shares the `fetch_sitemap` cache. Returned URLs join the set of seen URLs, so they can become catalog items.
+
+```json
+{"checked": 2, "found": 1, "results": [{"name": "Alamos Malbec", "total": 2, "urls": []}, {"name": "Nope", "total": 0, "urls": []}], "skipped": []}
+```
+
+`checked` and `found` are what the agent saves as `names_checked` and `names_found` in the research. `skipped` is the same list as in `fetch_sitemap`. When it is not empty, a name with `total` 0 may still have a page. Errors `QUERY` (an empty list, more than 50 names, or a name with no letters or digits, with the path `names[i]`) and `FETCH`. A failed call marks no URL as seen.
 
 ### write_business
 
@@ -262,7 +283,35 @@ Saves the business profile. Replaces the previous one.
 | `brand_terms`, `competitors`, `avoid` | string array | no |
 | `pages` | array of `{"name", "url"}` | no |
 
-The draft is validated like `business.toml`. Page URLs must have been fetched or listed in the sitemap. Errors `E07` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
+The draft is validated like `business.toml`. Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
+
+### write_research
+
+Saves what the agent learned. Replaces the previous research.
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `summary` | string | yes | 40 to 3000 characters. |
+| `opportunities` | array | no | At most 20, best expected return first. |
+| `open_questions` | string array | no | At most 10, each 1 to 300 characters. |
+
+Each opportunity has these fields.
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `name` | string | yes | 1 to 80 characters. |
+| `intent` | string | yes | `brand`, `catalog`, `generic` or `competitor`. |
+| `searches` | string array | yes | 1 to 10, each 1 to 80 characters. |
+| `demand` | string | yes | `high`, `medium` or `low`. |
+| `competition` | string | yes | `high`, `medium` or `low`. |
+| `evidence` | string | yes | 1 to 600 characters. |
+| `sources` | string array | no | At most 10 absolute http(s) URLs, on the site or elsewhere. |
+| `names_checked` | integer | no | Names from outside the site looked up with `search_site`. Default `0`. |
+| `names_found` | integer | no | How many of them have a page. Cannot pass `names_checked`. Default `0`. |
+
+Every problem comes back at once, each with its path, such as `opportunities[0].demand`. Error code `INPUT`.
+
+When the mission has web search, the research must cite at least 3 distinct pages outside the business site across all `sources`. Pages on the site, with or without `www.`, do not count. Fewer fail with the path `opportunities[].sources`. Without web search there is no such rule. A failed call keeps the previous research. Result `{"saved": true}`. mads writes the research as `research.md`.
 
 ### add_catalog_items
 
@@ -270,11 +319,11 @@ The draft is validated like `business.toml`. Page URLs must have been fetched or
 |---|---|---|---|
 | `items` | array | yes | Catalog items. |
 
-Each item has `name` and `url` (required) and `category`, `aliases` (string array), `third_party` (boolean) and `notes`. The checks match `catalog.csv`. URLs must have been fetched or listed in the sitemap (`E07`). Duplicates by URL are skipped. More items than `--catalog-limit` fail with `E13`. Result `{"added": 20, "skipped": 0, "total": 20}`.
+Each item has `name` and `url` (required) and `category`, `aliases` (string array), `third_party` (boolean) and `notes`. The checks match `catalog.csv`. URLs must have been fetched, listed in the sitemap or returned by `search_site` (`E07`). Duplicates by URL are skipped. More items than `--catalog-limit` fail with `E13`. Result `{"added": 20, "skipped": 0, "total": 20}`.
 
 ### finish
 
-No arguments. Fails with `E12` when `write_business` was not called. Result `{"catalog_items": 20}`. After it succeeds, mads writes `business.toml` and, when there are items, `catalog.csv`.
+No arguments. Fails with `E12` when `write_business` or `write_research` was not called. The error path is `business` or `research`. Result `{"catalog_items": 20}`. After it succeeds, mads writes `business.toml`, `research.md` and, when there are items, `catalog.csv`.
 
 ## Progress summaries
 

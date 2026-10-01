@@ -64,7 +64,7 @@ Let an agent read your website and write `business.toml` and `catalog.csv`. The 
 mads init --from-url https://vinellu.com --daily-budget 50 --currency BRL --provider claude-cli
 ```
 
-init writes the two files into the current folder, or into `--out-dir`. It refuses to overwrite existing files unless you pass `--force`. Open both files and fix what is wrong before you go on. See [Init from a URL](guides/init-from-url.md).
+init writes `business.toml`, `catalog.csv` and `research.md` into the current folder, or into `--out-dir`. It refuses to overwrite existing files unless you pass `--force`. Read `research.md` first, then fix what is wrong in the other two before you go on. See [Init from a URL](guides/init-from-url.md).
 
 Skip this step if you prefer to write the file yourself.
 

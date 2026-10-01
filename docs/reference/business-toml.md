@@ -59,6 +59,14 @@ The whole table is optional.
 
 Without `[catalog]` the catalog is empty.
 
+## [research]
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `file` | path | no | Path to the research notes, relative to the directory that holds `business.toml`. `mads init` writes `research.md` and this key. |
+
+The file is Markdown. `generate` reads it and the plan agent gets it from `get_business` as `research`. At most 20000 characters, because it goes into every plan prompt. A longer file fails with the key `research.file`. A missing file is an error. Without `[research]` the plan runs without notes.
+
 ## Complete example
 
 ```toml
@@ -93,6 +101,9 @@ eu_political_ads = false
 
 [catalog]
 file = "catalog.csv"
+
+[research]
+file = "research.md"
 ```
 
 ## Allowed URLs

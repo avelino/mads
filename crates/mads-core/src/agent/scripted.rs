@@ -164,6 +164,7 @@ mod tests {
             id: "m".into(),
             system: String::new(),
             user: "u".into(),
+            web_search: false,
         };
         let report = driver.run_mission(&mission, Arc::new(Done), &ctx).await;
         assert_eq!(report.outcome, MissionOutcome::Finished);
@@ -172,6 +173,7 @@ mod tests {
             id: "other".into(),
             system: String::new(),
             user: "u".into(),
+            web_search: false,
         };
         let report = driver.run_mission(&missing, Arc::new(Done), &ctx).await;
         assert!(matches!(report.outcome, MissionOutcome::Failed(ref m) if m.contains("no script")));

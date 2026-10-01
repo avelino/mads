@@ -6,7 +6,7 @@ LLM agents make the marketing decisions. Deterministic Rust code enforces the ru
 
 ## What it does
 
-- Drafts `business.toml` and `catalog.csv` from your website with `mads init --from-url`, or you write them.
+- Studies your business with `mads init --from-url`: reads the site, searches the web for demand, ranks campaign ideas by expected return and drafts `business.toml`, `catalog.csv` and `research.md`. Or you write the files yourself.
 - Reads `business.toml` and an optional `catalog.csv` (the products, labels or pages people search for by name).
 - Runs one plan mission and one mission per campaign. Campaigns run in parallel.
 - Validates 15 error rules and 5 warning rules: text lengths, `!` in headlines, URLs outside your site, negatives that block your own keywords, budgets that do not add up.
@@ -37,7 +37,7 @@ Let an agent read your site and draft the two input files. The budget is a flag 
 mads init --from-url https://vinellu.com --daily-budget 50 --currency BRL --provider claude-cli
 ```
 
-Review `business.toml` and `catalog.csv`. Fix the goal, the competitors and anything the site got wrong. See [Init from a URL](docs/guides/init-from-url.md).
+Read `research.md` to see what the agent found. Then review `business.toml` and `catalog.csv`. Fix the goal, the competitors and anything the site got wrong. See [Init from a URL](docs/guides/init-from-url.md).
 
 Then generate the campaigns.
 
@@ -193,6 +193,15 @@ On GitHub Actions `--format auto` picks `github`. Validation issues become annot
 ## Documentation
 
 Start at [docs/](docs/README.md). The table of contents is in [docs/SUMMARY.md](docs/SUMMARY.md).
+
+## Sponsors
+
+These companies support mads financially. Thank you.
+
+<a href="https://vinellu.com"><img src="docs/assets/sponsors/vinellu.svg" alt="Vinellu" height="48"></a>&nbsp;&nbsp;&nbsp;
+<a href="https://www.buser.com.br"><img src="docs/assets/sponsors/buser.svg" alt="Buser" height="32"></a>
+
+Want to support mads too? Open an issue. See [Sponsors](docs/sponsors.md).
 
 ## Contributing
 

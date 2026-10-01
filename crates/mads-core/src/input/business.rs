@@ -22,6 +22,9 @@ fn invalid(key: &str, message: impl Into<String>) -> InputError {
     }
 }
 
+/// Research notes reach every plan prompt, so they stay short enough to be cheap.
+pub const RESEARCH_MAX_CHARS: usize = 20_000;
+
 const DEFAULT_URL_SUFFIX: &str = "utm_source=google&utm_medium=cpc&utm_campaign={mads_campaign}&utm_content={adgroupid}&utm_term={keyword}";
 
 #[derive(Deserialize)]
@@ -32,6 +35,7 @@ struct RawFile {
     #[serde(default)]
     export: RawExport,
     catalog: Option<RawCatalog>,
+    research: Option<RawResearch>,
 }
 
 #[derive(Deserialize)]
@@ -81,6 +85,12 @@ struct RawExport {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawCatalog {
+    file: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawResearch {
     file: String,
 }
 
@@ -149,6 +159,8 @@ pub struct InputFile {
     pub budget: Budget,
     pub export: ExportConfig,
     pub catalog_file: Option<String>,
+    /// Markdown notes from `mads init`, relative to the TOML file.
+    pub research_file: Option<String>,
 }
 
 /// Everything `generate` consumes.
@@ -158,6 +170,9 @@ pub struct Input {
     pub budget: Budget,
     pub export: ExportConfig,
     pub catalog: Vec<CatalogItem>,
+    /// What `mads init` learned about the business and its demand. Empty when there are no notes.
+    #[serde(default)]
+    pub research: String,
 }
 
 fn check_len(key: &str, s: &str, min: usize, max: usize) -> Result<(), InputError> {
@@ -291,6 +306,7 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
         },
         export,
         catalog_file: raw.catalog.map(|c| c.file),
+        research_file: raw.research.map(|r| r.file),
     })
 }
 
@@ -299,21 +315,43 @@ pub fn load_input(path: &Path) -> Result<Input, InputError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| InputError::Io(format!("{}: {e}", path.display())))?;
     let file = parse_input_toml(&text)?;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let catalog = match &file.catalog_file {
         Some(rel) => {
-            let p = path.parent().unwrap_or_else(|| Path::new(".")).join(rel);
+            let p = dir.join(rel);
             let bytes =
                 std::fs::read(&p).map_err(|e| InputError::Io(format!("{}: {e}", p.display())))?;
             parse_catalog(&bytes)?
         }
         None => Vec::new(),
     };
+    let research = match &file.research_file {
+        Some(rel) => load_research(&dir.join(rel))?,
+        None => String::new(),
+    };
     Ok(Input {
         business: file.business,
         budget: file.budget,
         export: file.export,
         catalog,
+        research,
     })
+}
+
+fn load_research(path: &Path) -> Result<String, InputError> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| InputError::Io(format!("{}: {e}", path.display())))?;
+    let n = text.chars().count();
+    if n > RESEARCH_MAX_CHARS {
+        return Err(invalid(
+            "research.file",
+            format!(
+                "{} has {n} chars, at most {RESEARCH_MAX_CHARS}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(text)
 }
 
 #[cfg(test)]
@@ -471,6 +509,67 @@ currency = "BRL"
         let input = load_input(&dir.path().join("business.toml")).unwrap();
         assert_eq!(input.catalog.len(), 1);
         assert_eq!(input.catalog[0].id, "alamos");
+    }
+
+    #[test]
+    fn load_input_reads_the_research_notes_relative_to_the_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = format!("{MINIMAL}\n[research]\nfile = \"notes.md\"\n");
+        std::fs::write(dir.path().join("business.toml"), toml).unwrap();
+        std::fs::write(
+            dir.path().join("notes.md"),
+            "# Research\n\nPeople search labels.",
+        )
+        .unwrap();
+        let input = load_input(&dir.path().join("business.toml")).unwrap();
+        assert_eq!(input.research, "# Research\n\nPeople search labels.");
+    }
+
+    #[test]
+    fn without_research_the_notes_are_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("business.toml"), MINIMAL).unwrap();
+        assert_eq!(
+            load_input(&dir.path().join("business.toml"))
+                .unwrap()
+                .research,
+            ""
+        );
+    }
+
+    #[test]
+    fn a_missing_research_file_is_an_io_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = format!("{MINIMAL}\n[research]\nfile = \"gone.md\"\n");
+        std::fs::write(dir.path().join("business.toml"), toml).unwrap();
+        assert!(matches!(
+            load_input(&dir.path().join("business.toml")),
+            Err(InputError::Io(_))
+        ));
+    }
+
+    #[test]
+    fn research_notes_over_the_limit_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = format!("{MINIMAL}\n[research]\nfile = \"notes.md\"\n");
+        std::fs::write(dir.path().join("business.toml"), toml).unwrap();
+        std::fs::write(
+            dir.path().join("notes.md"),
+            "x".repeat(RESEARCH_MAX_CHARS + 1),
+        )
+        .unwrap();
+        match load_input(&dir.path().join("business.toml")) {
+            Err(InputError::Invalid { key, .. }) => assert_eq!(key, "research.file"),
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_workspace_written_before_research_existed_still_loads() {
+        let mut v = serde_json::to_value(crate::testutil::input()).unwrap();
+        v.as_object_mut().unwrap().remove("research");
+        let input: Input = serde_json::from_value(v).unwrap();
+        assert_eq!(input.research, "");
     }
 
     #[test]

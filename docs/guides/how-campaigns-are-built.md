@@ -27,6 +27,8 @@ The plan mission splits the account by search intent. There are four.
 | `generic` | People searching the category or the problem without a name | Broader terms. |
 | `competitor` | People typing a competitor's name | Only when `business.competitors` is not empty. Carries trademark risk, so it stays small. |
 
+The intent follows the words people type. A search for the kind of product or the need, such as "app to scan a label", is `generic` even when it competes with a known brand. The plan agent is told never to put searches with a competitor name and searches without one in the same campaign, so the trademark risk of one does not shrink the budget of the other.
+
 The agent skips an intent that does not fit. A business with no catalog has no `catalog` campaign. An account has 1 to 5 campaigns.
 
 ## Budget

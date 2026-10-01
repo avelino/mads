@@ -158,7 +158,7 @@ pub async fn call(t: &MissionTools, name: &str, args: Value) -> ToolOutput {
 async fn get_business(t: &MissionTools) -> ToolOutput {
     let ws = t.ws.lock().await;
     let b = &ws.input.budget;
-    let result = json!({
+    let mut result = json!({
         "business": ws.input.business,
         "budget": {
             "daily": cents_to_f64(b.daily),
@@ -168,6 +168,9 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
         "catalog_size": ws.input.catalog.len(),
         "rules": rules_summary(&t.settings),
     });
+    if !ws.input.research.is_empty() {
+        result["research"] = json!(ws.input.research);
+    }
     ToolOutput::ok(result, &[], "get_business")
 }
 

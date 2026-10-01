@@ -37,6 +37,8 @@ pub struct CliContext<'a> {
     pub max_turns: usize,
     /// True when `ANTHROPIC_API_KEY` is set (lets claude run in bare mode).
     pub api_key_set: bool,
+    /// Opens the CLI's own web search, and nothing else, next to the mads tools.
+    pub web_search: bool,
 }
 
 /// The process to start: program, arguments, extra environment and the files to write first
@@ -222,6 +224,10 @@ async fn tail_of(stream: impl AsyncRead + Unpin) -> String {
 
 #[async_trait]
 impl<A: CliAgent> Driver for CliDriver<A> {
+    fn web_search(&self) -> bool {
+        true
+    }
+
     async fn run_mission(
         &self,
         mission: &MissionSpec,
@@ -260,6 +266,7 @@ impl<A: CliAgent> Driver for CliDriver<A> {
             model: self.model.as_deref(),
             max_turns: ctx.max_turns,
             api_key_set: std::env::var_os("ANTHROPIC_API_KEY").is_some_and(|v| !v.is_empty()),
+            web_search: mission.web_search,
         };
         let inv = self.agent.build(&cli);
         for (name, content) in &inv.files {
@@ -515,7 +522,15 @@ esac
             id: "campaign:x".into(),
             system: "sys".into(),
             user: "go".into(),
+            web_search: false,
         }
+    }
+
+    #[test]
+    fn agent_clis_offer_web_search() {
+        assert!(CliDriver::new(Claude).web_search());
+        assert!(CliDriver::new(Codex).web_search());
+        assert!(CliDriver::new(Gemini).web_search());
     }
 
     fn drain(

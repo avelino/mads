@@ -43,20 +43,21 @@ Every format also appends each event to `events.ndjson` in the run directory.
 mads init [OPTIONS] --from-url <FROM_URL> --daily-budget <DAILY_BUDGET> --currency <CURRENCY>
 ```
 
-An agent reads the website and writes `business.toml` and `catalog.csv`. See [Init from a URL](../guides/init-from-url.md).
+An agent studies the business and writes `business.toml`, `catalog.csv` and `research.md`. See [Init from a URL](../guides/init-from-url.md).
 
 | Flag | Default | Description |
 |---|---|---|
 | `--from-url <FROM_URL>` | | Website to read. The agent only requests pages on this host. Required. |
 | `--daily-budget <DAILY_BUDGET>` | | Daily budget in the account currency. Required. Greater than 0, at most 2 decimals. |
 | `--currency <CURRENCY>` | | ISO 4217 code, 3 uppercase letters. Required. |
-| `--out-dir <OUT_DIR>` | `.` | Where `business.toml` and `catalog.csv` are written. |
+| `--out-dir <OUT_DIR>` | `.` | Where `business.toml`, `catalog.csv` and `research.md` are written. |
 | `--catalog-limit <CATALOG_LIMIT>` | `50` | Catalog items the agent may add. |
 | `--force` | off | Overwrite existing files. |
+| `--no-web-search` | off | Keep the agent off the web. Agent CLIs search the web by default. API providers never do. |
 
 It also takes the agent flags of `generate` (`--provider`, `--model`, `--plan-model`, `--base-url`, `--max-turns`, `--mission-timeout`, `--max-tokens`, `--mission-retries`) with the same defaults. When `--plan-model` is set, init uses it instead of `--model`.
 
-init writes only the two files. It creates no run directory. It refuses to overwrite existing files without `--force` and exits `2`. Exit codes are `0` (files written), `1` (the mission failed) and `2` (bad flags, input or existing files). Set `MADS_ALLOW_PRIVATE_HOSTS=1` to let it read loopback and private hosts, for local development only.
+init writes only its own files and keeps the agent's transcript in `<out-dir>/.mads/transcripts/`. It creates no run directory. It refuses to overwrite existing files without `--force` and exits `2`. Exit codes are `0` (files written), `1` (the mission failed) and `2` (bad flags, input or existing files). Set `MADS_ALLOW_PRIVATE_HOSTS=1` to let it read loopback and private hosts, for local development only.
 
 ## mads generate
 

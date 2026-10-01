@@ -9,14 +9,21 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use super::{BusinessDraft, CatalogDraft, FetchedPage, InitState, SiteFetch};
+use super::{
+    BusinessDraft, CatalogDraft, FetchedPage, InitState, ResearchDraft, SiteFetch, SitemapUrls,
+};
 use crate::{
     google::Issue,
-    input::normalize_url,
+    input::{normalize_url, slugify},
     tools::{ToolHost, ToolOutput, ToolSpec, parse_args, schema::schema_for},
 };
 
 const SITEMAP_PAGE_MAX: usize = 200;
+const SEARCH_URLS_MAX: usize = 20;
+const SEARCH_NAMES_MAX: usize = 50;
+
+/// `(path slug, url)` for every sitemap URL.
+type SlugIndex = Arc<Vec<(String, String)>>;
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -51,6 +58,79 @@ fn default_limit() -> usize {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct SearchSiteArgs {
+    /// The names to look for, as people write them. Accents and case do not matter. 1 to 50 names.
+    names: Vec<String>,
+    /// URLs returned per name, at most 20.
+    #[serde(default = "default_search_limit")]
+    limit: usize,
+}
+
+fn default_search_limit() -> usize {
+    5
+}
+
+fn name_list_issues(names: &[String]) -> Option<Vec<Issue>> {
+    if names.is_empty() || names.len() > SEARCH_NAMES_MAX {
+        let msg = format!("needs 1 to {SEARCH_NAMES_MAX} names, got {}", names.len());
+        return Some(vec![Issue::error("QUERY", "names", msg)]);
+    }
+    let issues: Vec<Issue> = names
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| slugify(n).is_empty())
+        .map(|(i, _)| Issue::error("QUERY", format!("names[{i}]"), "no letters or digits"))
+        .collect();
+    (!issues.is_empty()).then_some(issues)
+}
+
+/// URLs whose path slug holds every word of `name`, the shortest path first.
+fn matching_urls<'a>(index: &'a [(String, String)], name: &str) -> Vec<&'a String> {
+    let slug = slugify(name);
+    let words: Vec<&str> = slug.split('-').collect();
+    let mut hits: Vec<(usize, &String)> = index
+        .iter()
+        .filter(|(s, _)| words.iter().all(|w| s.contains(w)))
+        .map(|(s, u)| (s.len(), u))
+        .collect();
+    hits.sort_by_key(|(len, _)| *len);
+    hits.into_iter().map(|(_, u)| u).collect()
+}
+
+/// `%C3%A9` back to `é`, so an encoded slug matches the name. Bad escapes stay as they are.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = bytes
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (bytes[i], hex) {
+            (b'%', Some(b)) => {
+                out.push(b);
+                i += 3;
+            }
+            (b, _) => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The slug of everything after the host: what a page name looks like inside its URL.
+fn path_slug(url: &str) -> String {
+    let path = url::Url::parse(url)
+        .map(|u| format!("{}?{}", u.path(), u.query().unwrap_or_default()))
+        .unwrap_or_default();
+    slugify(&percent_decode(&path))
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct AddItemsArgs {
     /// Catalog items found on the site. URLs must come from fetched pages or the sitemap.
     items: Vec<CatalogDraft>,
@@ -65,7 +145,9 @@ pub struct InitTools {
     calls: AtomicUsize,
     pages: AtomicUsize,
     finished: AtomicBool,
-    sitemap: Mutex<Option<(String, Vec<String>)>>,
+    sitemap: Mutex<Option<(String, Arc<SitemapUrls>)>>,
+    /// The default sitemap's slugs, built on the first `search_site`.
+    slugs: Mutex<Option<SlugIndex>>,
 }
 
 impl InitTools {
@@ -84,6 +166,7 @@ impl InitTools {
             pages: AtomicUsize::new(0),
             finished: AtomicBool::new(false),
             sitemap: Mutex::new(None),
+            slugs: Mutex::new(None),
         }
     }
 
@@ -118,14 +201,9 @@ impl InitTools {
         )
     }
 
-    async fn fetch_sitemap(&self, a: FetchSitemapArgs) -> ToolOutput {
-        let requested = (!a.url.trim().is_empty()).then(|| a.url.trim().to_string());
-        if let Some(u) = &requested
-            && !self.host_ok(u)
-        {
-            return ToolOutput::fail("HOST", format!("{u} is not on the business website"));
-        }
-        let key = requested.clone().unwrap_or_default();
+    /// The sitemap's URLs, fetched once per sitemap and kept for the next calls.
+    async fn sitemap_urls(&self, requested: Option<&str>) -> Result<Arc<SitemapUrls>, String> {
+        let key = requested.unwrap_or_default().to_string();
         let cached = self
             .sitemap
             .lock()
@@ -133,18 +211,28 @@ impl InitTools {
             .as_ref()
             .filter(|(k, _)| *k == key)
             .map(|(_, v)| v.clone());
-        let urls = match cached {
-            Some(v) => v,
-            None => match self.site.fetch_sitemap(requested.as_deref()).await {
-                Ok(v) => {
-                    *self.sitemap.lock().await = Some((key, v.clone()));
-                    v
-                }
-                Err(e) => return ToolOutput::fail("FETCH", e),
-            },
+        if let Some(v) = cached {
+            return Ok(v);
+        }
+        let v = Arc::new(self.site.fetch_sitemap(requested).await?);
+        *self.sitemap.lock().await = Some((key, v.clone()));
+        Ok(v)
+    }
+
+    async fn fetch_sitemap(&self, a: FetchSitemapArgs) -> ToolOutput {
+        let requested = (!a.url.trim().is_empty()).then(|| a.url.trim().to_string());
+        if let Some(u) = &requested
+            && !self.host_ok(u)
+        {
+            return ToolOutput::fail("HOST", format!("{u} is not on the business website"));
+        }
+        let read = match self.sitemap_urls(requested.as_deref()).await {
+            Ok(v) => v,
+            Err(e) => return ToolOutput::fail("FETCH", e),
         };
         let needle = a.contains.trim().to_lowercase();
-        let matching: Vec<&String> = urls
+        let matching: Vec<&String> = read
+            .urls
             .iter()
             .filter(|u| needle.is_empty() || u.to_lowercase().contains(&needle))
             .collect();
@@ -158,10 +246,76 @@ impl InitTools {
         page.iter().for_each(|u| state.note_seen(u));
         let summary = format!("fetch_sitemap {} of {} URLs", page.len(), matching.len());
         ToolOutput::ok(
-            json!({"total": matching.len(), "offset": a.offset, "urls": page}),
+            json!({"total": matching.len(), "offset": a.offset, "urls": page, "skipped": read.skipped}),
             &[],
             summary,
         )
+    }
+
+    /// Slugs of the default sitemap, computed once: a large site has hundreds of thousands of URLs.
+    async fn slug_index(&self) -> Result<SlugIndex, String> {
+        if let Some(index) = self.slugs.lock().await.clone() {
+            return Ok(index);
+        }
+        let read = self.sitemap_urls(None).await?;
+        let index: SlugIndex = Arc::new(
+            read.urls
+                .iter()
+                .map(|u| (path_slug(u), u.clone()))
+                .collect(),
+        );
+        *self.slugs.lock().await = Some(index.clone());
+        Ok(index)
+    }
+
+    /// Finds the pages of each name in the sitemap: every word of a name must be in the URL path.
+    async fn search_site(&self, a: SearchSiteArgs) -> ToolOutput {
+        if let Some(issues) = name_list_issues(&a.names) {
+            return ToolOutput::fail_issues(&issues, &[], "search_site: bad names");
+        }
+        let index = match self.slug_index().await {
+            Ok(v) => v,
+            Err(e) => return ToolOutput::fail("FETCH", e),
+        };
+        let skipped = match self.sitemap_urls(None).await {
+            Ok(read) => read.skipped.clone(),
+            Err(e) => return ToolOutput::fail("FETCH", e),
+        };
+        let per_name = a.limit.clamp(1, SEARCH_URLS_MAX);
+        let mut state = self.state.lock().await;
+        let results: Vec<Value> = a
+            .names
+            .iter()
+            .map(|name| {
+                let hits = matching_urls(&index, name);
+                let urls: Vec<&String> = hits.iter().take(per_name).copied().collect();
+                urls.iter().for_each(|u| state.note_seen(u));
+                json!({"name": name, "total": hits.len(), "urls": urls})
+            })
+            .collect();
+        let found = results.iter().filter(|r| r["total"] != 0).count();
+        let summary = format!("search_site: {found} of {} names found", a.names.len());
+        ToolOutput::ok(
+            json!({"checked": a.names.len(), "found": found, "results": results, "skipped": skipped}),
+            &[],
+            summary,
+        )
+    }
+
+    async fn write_research(&self, draft: ResearchDraft) -> ToolOutput {
+        let n = draft.opportunities.len();
+        match self.state.lock().await.set_research(draft) {
+            Ok(()) => ToolOutput::ok(
+                json!({"saved": true}),
+                &[],
+                format!("research: {n} opportunities"),
+            ),
+            Err(issues) => ToolOutput::fail_issues(
+                &issues,
+                &[],
+                format!("write_research: {} errors", issues.len()),
+            ),
+        }
     }
 
     async fn write_business(&self, draft: BusinessDraft) -> ToolOutput {
@@ -205,6 +359,10 @@ impl InitTools {
             let issue = Issue::error("E12", "business", "write_business was not called");
             return ToolOutput::fail_issues(&[issue], &[], "finish: no business");
         }
+        if state.research().is_none() {
+            let issue = Issue::error("E12", "research", "write_research was not called");
+            return ToolOutput::fail_issues(&[issue], &[], "finish: no research");
+        }
         self.finished.store(true, Ordering::SeqCst);
         ToolOutput::ok(
             json!({"catalog_items": state.catalog_len()}),
@@ -234,9 +392,19 @@ impl ToolHost for InitTools {
                 schema_for::<FetchSitemapArgs>(),
             ),
             spec(
+                "search_site",
+                "Find the pages of up to 50 names on the business website, from its sitemap. Every word of a name must appear in the URL. Use it to turn names found on the web into pages of the site, and to count how many of them the site has.",
+                schema_for::<SearchSiteArgs>(),
+            ),
+            spec(
                 "write_business",
                 "Save the business profile. Replaces the previous one. Page URLs must come from fetched pages or the sitemap.",
                 schema_for::<BusinessDraft>(),
+            ),
+            spec(
+                "write_research",
+                "Save what you learned: how the business works, the campaign opportunities ranked by expected return, and the open questions. Replaces the previous research.",
+                schema_for::<ResearchDraft>(),
             ),
             spec(
                 "add_catalog_items",
@@ -245,7 +413,7 @@ impl ToolHost for InitTools {
             ),
             spec(
                 "finish",
-                "Finish the init mission. Needs write_business.",
+                "Finish the init mission. Needs write_business and write_research.",
                 schema_for::<Empty>(),
             ),
         ]
@@ -266,6 +434,8 @@ impl ToolHost for InitTools {
         match name {
             "fetch_page" => with_args!(FetchPageArgs, |a| self.fetch_page(a)),
             "fetch_sitemap" => with_args!(FetchSitemapArgs, |a| self.fetch_sitemap(a)),
+            "search_site" => with_args!(SearchSiteArgs, |a| self.search_site(a)),
+            "write_research" => with_args!(ResearchDraft, |a| self.write_research(a)),
             "write_business" => with_args!(BusinessDraft, |a| self.write_business(a)),
             "add_catalog_items" => with_args!(AddItemsArgs, |a| self.add_items(a)),
             "finish" => self.finish_tool().await,
@@ -295,6 +465,7 @@ mod tests {
     struct FakeSite {
         pages: HashMap<String, FetchedPage>,
         sitemap: Vec<String>,
+        skipped: Vec<String>,
         calls: std::sync::atomic::AtomicUsize,
     }
 
@@ -321,13 +492,37 @@ mod tests {
                 .cloned()
                 .ok_or_else(|| format!("HTTP 404 for {url}"))
         }
-        async fn fetch_sitemap(&self, _url: Option<&str>) -> Result<Vec<String>, String> {
+        async fn fetch_sitemap(&self, _url: Option<&str>) -> Result<SitemapUrls, String> {
             if self.sitemap.is_empty() {
                 Err("no sitemap".into())
             } else {
-                Ok(self.sitemap.clone())
+                Ok(SitemapUrls {
+                    urls: self.sitemap.clone(),
+                    skipped: self.skipped.clone(),
+                })
             }
         }
+    }
+
+    fn site_with(sitemap: &[&str]) -> Arc<FakeSite> {
+        let mut pages = HashMap::new();
+        pages.insert(
+            "https://vinellu.com".to_string(),
+            page("https://vinellu.com", &[]),
+        );
+        Arc::new(FakeSite {
+            pages,
+            sitemap: sitemap.iter().map(|u| u.to_string()).collect(),
+            skipped: vec![],
+            calls: Default::default(),
+        })
+    }
+
+    fn research_args() -> Value {
+        json!({"summary": "A social app for wine lovers. People rate labels and follow friends.",
+               "opportunities": [{"name": "Labels by name", "intent": "catalog", "searches": ["alamos malbec"],
+                                  "demand": "high", "competition": "low", "evidence": "Bestsellers get searched by name.",
+                                  "sources": ["https://example.com/ranking"]}]})
     }
 
     fn site() -> Arc<FakeSite> {
@@ -349,6 +544,7 @@ mod tests {
         Arc::new(FakeSite {
             pages,
             sitemap,
+            skipped: vec![],
             calls: Default::default(),
         })
     }
@@ -381,18 +577,152 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn toolset_is_the_documented_five() {
+    async fn toolset_is_the_documented_seven() {
         let names: Vec<String> = tools(site()).specs().into_iter().map(|s| s.name).collect();
         assert_eq!(
             names,
             [
                 "fetch_page",
                 "fetch_sitemap",
+                "search_site",
                 "write_business",
+                "write_research",
                 "add_catalog_items",
                 "finish"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn search_site_checks_many_names_whatever_the_accents_and_case() {
+        let t = tools(site_with(&[
+            "https://vinellu.com/w/a1/alamos-malbec-2022",
+            "https://vinellu.com/w/b2/alamos-malbec",
+            "https://vinellu.com/w/c3/catena-malbec",
+            "https://vinellu.com/w/d4/carm%C3%A9n%C3%A8re-reserva",
+        ]));
+        let out = t
+            .call(
+                "search_site",
+                json!({"names": ["Álamos MALBEC", "Carménère", "Nope Nothing"]}),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let r = &out.content["result"];
+        assert_eq!(
+            (r["checked"].as_u64(), r["found"].as_u64()),
+            (Some(3), Some(2))
+        );
+        assert_eq!(r["results"][0]["name"], "Álamos MALBEC");
+        assert_eq!(r["results"][0]["total"], 2);
+        assert_eq!(
+            r["results"][0]["urls"],
+            json!([
+                "https://vinellu.com/w/b2/alamos-malbec",
+                "https://vinellu.com/w/a1/alamos-malbec-2022"
+            ]),
+            "the tighter match comes first"
+        );
+        assert_eq!(r["results"][1]["total"], 1, "an encoded slug matches");
+        assert_eq!(r["results"][2]["total"], 0);
+    }
+
+    #[tokio::test]
+    async fn search_site_results_become_known_urls() {
+        let t = tools(site_with(&["https://vinellu.com/w/b2/alamos-malbec"]));
+        let add = json!({"items": [{"name": "Alamos Malbec", "url": "https://vinellu.com/w/b2/alamos-malbec"}]});
+        assert_eq!(
+            codes(&t.call("add_catalog_items", add.clone()).await),
+            ["E07"]
+        );
+        t.call("search_site", json!({"names": ["alamos"]})).await;
+        let after = t.call("add_catalog_items", add).await;
+        assert!(!after.is_error, "{}", after.content);
+    }
+
+    #[tokio::test]
+    async fn search_site_caps_the_urls_per_name() {
+        let t = tools(site());
+        let out = t
+            .call("search_site", json!({"names": ["item"], "limit": 500}))
+            .await;
+        assert_eq!(out.content["result"]["results"][0]["total"], 300);
+        assert_eq!(
+            out.content["result"]["results"][0]["urls"]
+                .as_array()
+                .unwrap()
+                .len(),
+            20
+        );
+    }
+
+    #[tokio::test]
+    async fn search_site_refuses_bad_name_lists_and_changes_nothing() {
+        let t = tools(site_with(&["https://vinellu.com/w/b2/alamos-malbec"]));
+        let blank = t
+            .call("search_site", json!({"names": ["alamos", " -- "]}))
+            .await;
+        assert_eq!(codes(&blank), ["QUERY"]);
+        assert_eq!(blank.content["errors"][0]["path"], "names[1]");
+        let add =
+            json!({"items": [{"name": "Alamos", "url": "https://vinellu.com/w/b2/alamos-malbec"}]});
+        assert_eq!(
+            codes(&t.call("add_catalog_items", add).await),
+            ["E07"],
+            "a failed call marks nothing as seen"
+        );
+        assert_eq!(
+            codes(&t.call("search_site", json!({"names": []})).await),
+            ["QUERY"]
+        );
+        let many: Vec<String> = (0..51).map(|i| format!("name {i}")).collect();
+        assert_eq!(
+            codes(&t.call("search_site", json!({"names": many})).await),
+            ["QUERY"]
+        );
+    }
+
+    #[tokio::test]
+    async fn sitemaps_that_could_not_be_read_are_shown_to_the_agent() {
+        let mut fake = Arc::try_unwrap(site_with(&["https://vinellu.com/w/b2/alamos-malbec"]))
+            .ok()
+            .unwrap();
+        fake.skipped =
+            vec!["https://vinellu.com/sitemap-items-1.xml: response is too large".into()];
+        let t = tools(Arc::new(fake));
+        let listed = t.call("fetch_sitemap", json!({})).await;
+        assert_eq!(
+            listed.content["result"]["skipped"][0],
+            "https://vinellu.com/sitemap-items-1.xml: response is too large"
+        );
+        let searched = t.call("search_site", json!({"names": ["nope"]})).await;
+        assert_eq!(
+            searched.content["result"]["skipped"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1,
+            "a name not found may live in a sitemap that was not read"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_site_without_a_sitemap_is_a_fetch_error() {
+        let out = tools(site_with(&[]))
+            .call("search_site", json!({"names": ["alamos"]}))
+            .await;
+        assert_eq!(codes(&out), ["FETCH"]);
+    }
+
+    #[tokio::test]
+    async fn write_research_validates_and_saves() {
+        let t = tools(site());
+        let mut bad = research_args();
+        bad["opportunities"][0]["demand"] = json!("huge");
+        let out = t.call("write_research", bad).await;
+        assert!(out.is_error);
+        assert_eq!(out.content["errors"][0]["path"], "opportunities[0].demand");
+        assert!(!t.call("write_research", research_args()).await.is_error);
     }
 
     #[tokio::test]
@@ -575,13 +905,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finish_needs_a_business() {
+    async fn finish_needs_a_business_and_the_research() {
         let t = tools(site());
         assert!(t.call("finish", json!({})).await.is_error);
         assert!(!t.finished());
         t.call("fetch_page", json!({"url": "https://vinellu.com"}))
             .await;
         t.call("write_business", business_args()).await;
+        let early = t.call("finish", json!({})).await;
+        assert!(early.is_error, "the research is the point of init");
+        assert_eq!(early.content["errors"][0]["path"], "research");
+        t.call("write_research", research_args()).await;
         assert!(!t.call("finish", json!({})).await.is_error);
         assert!(t.finished());
     }

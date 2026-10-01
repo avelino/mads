@@ -1,6 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::{RESEARCH_FILE, ResearchDraft};
 use crate::{
     google::Issue,
     input::{AllowedUrls, InputError, normalize_url, parse_catalog, parse_input_toml},
@@ -78,7 +79,7 @@ struct OutBudget<'a> {
 }
 
 #[derive(Serialize)]
-struct OutCatalog {
+struct OutFileRef {
     file: &'static str,
 }
 
@@ -87,7 +88,17 @@ struct OutFile<'a> {
     business: &'a BusinessDraft,
     budget: OutBudget<'a>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    catalog: Option<OutCatalog>,
+    catalog: Option<OutFileRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    research: Option<OutFileRef>,
+}
+
+/// The files `init` writes. `csv` and `research` are absent when there is nothing to put in them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderedFiles {
+    pub toml: String,
+    pub csv: Option<String>,
+    pub research: Option<String>,
 }
 
 pub const CATALOG_FILE: &str = "catalog.csv";
@@ -101,6 +112,17 @@ pub struct InitState {
     seen: AllowedUrls,
     business: Option<BusinessDraft>,
     catalog: Vec<CatalogDraft>,
+    research: Option<ResearchDraft>,
+    /// The business host without `www.`: sources there are not web research.
+    site_host: String,
+    /// Distinct sources outside the site the research must cite. 0 when the agent cannot search.
+    web_sources: usize,
+}
+
+fn bare_host(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_lowercase();
+    Some(host.trim_start_matches("www.").to_string())
 }
 
 fn issue_of(e: InputError) -> Issue {
@@ -126,7 +148,36 @@ impl InitState {
             seen,
             business: None,
             catalog: Vec::new(),
+            research: None,
+            site_host: bare_host(start_url).unwrap_or_default(),
+            web_sources: 0,
         }
+    }
+
+    /// Makes `set_research` refuse notes that cite fewer than `n` distinct pages outside the site.
+    pub fn require_web_sources(&mut self, n: usize) {
+        self.web_sources = n;
+    }
+
+    fn web_source_issue(&self, draft: &ResearchDraft) -> Option<Issue> {
+        let external: std::collections::BTreeSet<&str> = draft
+            .opportunities
+            .iter()
+            .flat_map(|o| o.sources.iter())
+            .filter(|u| bare_host(u).is_some_and(|h| h != self.site_host))
+            .map(String::as_str)
+            .collect();
+        (external.len() < self.web_sources).then(|| {
+            Issue::error(
+                "INPUT",
+                "opportunities[].sources",
+                format!(
+                    "cites {} of {} web pages outside the business site: search the web for demand and competition, then cite what you used",
+                    external.len(),
+                    self.web_sources
+                ),
+            )
+        })
     }
 
     pub fn note_seen(&mut self, url: &str) {
@@ -152,14 +203,33 @@ impl InitState {
         &self.catalog
     }
 
-    fn render_toml(&self, business: &BusinessDraft, with_catalog: bool) -> Result<String, String> {
+    pub fn research(&self) -> Option<&ResearchDraft> {
+        self.research.as_ref()
+    }
+
+    /// Replaces the notes. A draft with any issue changes nothing.
+    pub fn set_research(&mut self, draft: ResearchDraft) -> Result<(), Vec<Issue>> {
+        let mut issues = draft.validate();
+        issues.extend(self.web_source_issue(&draft));
+        if !issues.is_empty() {
+            return Err(issues);
+        }
+        self.research = Some(draft);
+        Ok(())
+    }
+
+    fn render_toml(&self, business: &BusinessDraft, complete: bool) -> Result<String, String> {
         let file = OutFile {
             business,
             budget: OutBudget {
                 daily: self.daily.0 as f64 / 100.0,
                 currency: &self.currency,
             },
-            catalog: with_catalog.then_some(OutCatalog { file: CATALOG_FILE }),
+            catalog: (complete && !self.catalog.is_empty())
+                .then_some(OutFileRef { file: CATALOG_FILE }),
+            research: (complete && self.research.is_some()).then_some(OutFileRef {
+                file: RESEARCH_FILE,
+            }),
         };
         toml::to_string(&file).map_err(|e| e.to_string())
     }
@@ -242,13 +312,13 @@ impl InitState {
         Ok(Added { added, skipped })
     }
 
-    /// `business.toml` and, when there are items, `catalog.csv`.
-    pub fn render_files(&self) -> Result<(String, Option<String>), String> {
+    /// `business.toml`, plus `catalog.csv` and `research.md` when there is something to put in them.
+    pub fn render_files(&self) -> Result<RenderedFiles, String> {
         let business = self
             .business
             .as_ref()
             .ok_or("write_business was not called")?;
-        let toml = self.render_toml(business, !self.catalog.is_empty())?;
+        let toml = self.render_toml(business, true)?;
         let csv = if self.catalog.is_empty() {
             None
         } else {
@@ -257,7 +327,15 @@ impl InitState {
                     .map_err(|i| i.first().map(|x| x.message.clone()).unwrap_or_default())?,
             )
         };
-        Ok((toml, csv))
+        let research = self
+            .research
+            .as_ref()
+            .map(|r| r.to_markdown(&business.name));
+        Ok(RenderedFiles {
+            toml,
+            csv,
+            research,
+        })
     }
 }
 
@@ -350,7 +428,7 @@ mod tests {
         s.set_business(business()).unwrap();
         s.add_catalog(vec![item("Alamos Malbec", "https://vinellu.com/w/alamos")])
             .unwrap();
-        let (toml, csv) = s.render_files().unwrap();
+        let RenderedFiles { toml, csv, .. } = s.render_files().unwrap();
         let parsed = parse_input_toml(&toml).unwrap();
         assert_eq!(parsed.business.name, "Vinellu");
         assert_eq!(parsed.business.description, business().description);
@@ -368,7 +446,7 @@ mod tests {
     fn without_catalog_items_there_is_no_csv_and_no_catalog_key() {
         let mut s = state();
         s.set_business(business()).unwrap();
-        let (toml, csv) = s.render_files().unwrap();
+        let RenderedFiles { toml, csv, .. } = s.render_files().unwrap();
         assert!(csv.is_none());
         assert_eq!(parse_input_toml(&toml).unwrap().catalog_file, None);
     }
@@ -467,6 +545,99 @@ mod tests {
         assert_eq!(s.catalog_len(), 3);
     }
 
+    fn research() -> ResearchDraft {
+        ResearchDraft {
+            summary: "A social app for wine lovers. People rate labels and follow friends.".into(),
+            opportunities: vec![],
+            open_questions: vec![],
+        }
+    }
+
+    fn research_citing(sources: &[&str]) -> ResearchDraft {
+        let mut r = research();
+        r.opportunities = vec![super::super::Opportunity {
+            name: "Items by name".into(),
+            intent: "catalog".into(),
+            searches: vec!["item review".into()],
+            demand: "high".into(),
+            competition: "low".into(),
+            evidence: "Bestsellers are searched by name.".into(),
+            sources: sources.iter().map(|s| s.to_string()).collect(),
+            names_checked: 0,
+            names_found: 0,
+        }];
+        r
+    }
+
+    #[test]
+    fn with_web_search_the_research_must_cite_the_web() {
+        let mut s = state();
+        s.require_web_sources(3);
+        let err = s
+            .set_research(research_citing(&[
+                "https://vinellu.com/vinhos",
+                "https://www.vinellu.com/app",
+                "https://example.com/ranking",
+                "https://example.com/ranking",
+            ]))
+            .unwrap_err();
+        assert_eq!(err[0].path, "opportunities[].sources");
+        assert!(err[0].message.contains("1 of 3"), "{}", err[0].message);
+        assert!(s.research().is_none());
+        let ok = research_citing(&[
+            "https://example.com/ranking",
+            "https://news.example.org/top",
+            "https://shop.example.net/bestsellers",
+        ]);
+        assert_eq!(s.set_research(ok), Ok(()));
+    }
+
+    #[test]
+    fn without_web_search_site_sources_are_enough() {
+        let mut s = state();
+        assert_eq!(
+            s.set_research(research_citing(&["https://vinellu.com/vinhos"])),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn research_is_validated_and_a_bad_one_keeps_the_previous() {
+        let mut s = state();
+        assert_eq!(s.set_research(research()), Ok(()));
+        let mut bad = research();
+        bad.summary = "short".into();
+        let err = s.set_research(bad).unwrap_err();
+        assert_eq!(err[0].path, "summary");
+        assert_eq!(s.research(), Some(&research()));
+    }
+
+    #[test]
+    fn research_becomes_a_markdown_file_the_input_loader_points_at() {
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        s.set_research(research()).unwrap();
+        let RenderedFiles {
+            toml, research: md, ..
+        } = s.render_files().unwrap();
+        assert_eq!(
+            parse_input_toml(&toml).unwrap().research_file.as_deref(),
+            Some("research.md")
+        );
+        assert!(md.unwrap().starts_with("# Research: Vinellu"));
+    }
+
+    #[test]
+    fn without_research_there_is_no_research_key() {
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        let RenderedFiles {
+            toml, research: md, ..
+        } = s.render_files().unwrap();
+        assert_eq!(parse_input_toml(&toml).unwrap().research_file, None);
+        assert!(md.is_none());
+    }
+
     #[test]
     fn rendering_needs_a_business() {
         assert!(state().render_files().is_err());
@@ -479,7 +650,7 @@ mod tests {
         let mut it = item("Casa, Vinho & Cia", "https://vinellu.com/w/alamos");
         it.notes = "tem \"aspas\", vírgula".into();
         s.add_catalog(vec![it]).unwrap();
-        let (_, csv) = s.render_files().unwrap();
+        let RenderedFiles { csv, .. } = s.render_files().unwrap();
         let items = parse_catalog(csv.unwrap().as_bytes()).unwrap();
         assert_eq!(items[0].name, "Casa, Vinho & Cia");
         assert_eq!(items[0].notes, "tem \"aspas\", vírgula");

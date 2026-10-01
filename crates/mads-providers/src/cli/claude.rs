@@ -27,6 +27,11 @@ impl CliAgent for Claude {
 
     fn build(&self, c: &CliContext<'_>) -> CliInvocation {
         let path = |name: &str| c.dir.join(name).display().to_string();
+        let (builtin, allowed) = if c.web_search {
+            ("WebSearch,WebFetch", "mcp__mads__* WebSearch WebFetch")
+        } else {
+            ("", "mcp__mads__*")
+        };
         let mut args: Vec<String> = [
             "-p",
             c.user,
@@ -39,9 +44,9 @@ impl CliAgent for Claude {
             "project",
             "--disable-slash-commands",
             "--tools",
-            "",
+            builtin,
             "--allowedTools",
-            "mcp__mads__*",
+            allowed,
             "--permission-prompts",
             "none",
             "--output-format",
@@ -149,6 +154,7 @@ mod tests {
             model,
             max_turns: 40,
             api_key_set: api_key,
+            web_search: false,
         }
     }
 
@@ -212,6 +218,27 @@ mod tests {
             vec![("ENABLE_TOOL_SEARCH".to_string(), "false".to_string())],
             "MCP tools must load upfront"
         );
+    }
+
+    #[test]
+    fn web_search_opens_the_search_tools_and_nothing_else() {
+        let mut c = ctx(false, None);
+        c.web_search = true;
+        let inv = Claude.build(&c);
+        assert_eq!(
+            pairs(&inv.args, "--tools").as_deref(),
+            Some("WebSearch,WebFetch")
+        );
+        assert_eq!(
+            pairs(&inv.args, "--allowedTools").as_deref(),
+            Some("mcp__mads__* WebSearch WebFetch")
+        );
+        for flag in ["--strict-mcp-config", "--disable-slash-commands"] {
+            assert!(
+                inv.args.iter().any(|a| a == flag),
+                "isolation stays: {flag}"
+            );
+        }
     }
 
     #[test]

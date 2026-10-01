@@ -283,6 +283,7 @@ mod tests {
                 eu_political_ads: true,
                 decimal_comma: false,
             },
+            research: String::new(),
             catalog: vec![],
         }
     }

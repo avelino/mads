@@ -24,6 +24,7 @@ fn reference_input() -> Input {
             eu_political_ads: false,
             decimal_comma: true,
         },
+        research: String::new(),
         catalog: vec![],
     }
 }

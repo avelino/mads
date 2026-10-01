@@ -55,7 +55,7 @@ The dependency rule is strict. `mads-cli` depends on `mads-providers` and `mads-
 
 ## Mission flow
 
-`mads init` runs `init::run_init`. It starts one `init` mission with `InitTools`, retries it like any mission, and writes `business.toml` and `catalog.csv` only when the mission finishes. It creates no run directory.
+`mads init` runs `init::run_init`. It starts one `init` mission with `InitTools`, retries it like any mission, and writes `business.toml`, `catalog.csv` and `research.md` only when the mission finishes. The mission asks for web search only when the driver says it can give it (`Driver::web_search`), and the agent is told which case it is in. It creates no run directory. The transcript goes to `<out-dir>/.mads/transcripts/`.
 
 `run::generate` does this.
 

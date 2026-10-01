@@ -225,6 +225,19 @@ async fn get_business_reports_profile_budget_and_rules() {
     assert_eq!(r["budget"]["currency"], "BRL");
     assert_eq!(r["rules"]["headline_max_chars"], 30);
     assert_eq!(r["rules"]["bid_strategies"], json!(["manual_cpc"]));
+    assert!(r.get("research").is_none(), "no notes, no key");
+}
+
+#[tokio::test]
+async fn get_business_carries_the_research_notes() {
+    let mut input = testutil::input();
+    input.research = "# Research\n\nPeople search labels by name.".into();
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    assert_eq!(
+        out.content["result"]["research"],
+        "# Research\n\nPeople search labels by name."
+    );
 }
 
 #[tokio::test]

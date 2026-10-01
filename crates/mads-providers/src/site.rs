@@ -8,7 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use flate2::read::GzDecoder;
-use mads_core::init::{FetchedPage, SiteFetch};
+use mads_core::init::{FetchedPage, SiteFetch, SitemapUrls};
 use quick_xml::{Reader, events::Event};
 use reqwest::{Client, redirect::Policy};
 use scraper::{ElementRef, Html, Selector};
@@ -19,10 +19,13 @@ use url::{Host, Url};
 const TEXT_LIMIT: usize = 8000;
 const LINK_LIMIT: usize = 200;
 const BODY_LIMIT: u64 = 5 * 1024 * 1024;
+/// The sitemap protocol allows 50 MB per file. A 45k-URL file with hreflang links is about 22 MB.
+const SITEMAP_BODY_LIMIT: u64 = 50 * 1024 * 1024;
 const REDIRECT_LIMIT: usize = 5;
 const SITEMAP_DEPTH: usize = 2;
 const SITEMAP_CHILDREN: usize = 50;
-const SITEMAP_URL_CAP: usize = 200_000;
+/// A large catalog lists every item in two or three languages: 500k keeps a 170k-item site whole.
+const SITEMAP_URL_CAP: usize = 500_000;
 const ROBOTS_AGENT: &str = "mads";
 const SKIPPED_TAGS: [&str; 6] = ["script", "style", "noscript", "template", "svg", "head"];
 
@@ -246,7 +249,7 @@ impl SiteClient {
         robot
     }
 
-    async fn get_bytes(&self, url: &Url) -> Result<Vec<u8>, String> {
+    async fn get_bytes(&self, url: &Url, limit: u64) -> Result<Vec<u8>, String> {
         let resp = self
             .client
             .get(url.clone())
@@ -256,12 +259,12 @@ impl SiteClient {
         if !resp.status().is_success() {
             return Err(format!("HTTP {}", resp.status().as_u16()));
         }
-        if resp.content_length().is_some_and(|n| n > BODY_LIMIT) {
-            return Err("response is too large".into());
+        if resp.content_length().is_some_and(|n| n > limit) {
+            return Err(format!("response is larger than {limit} bytes"));
         }
         let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-        if bytes.len() as u64 > BODY_LIMIT {
-            return Err("response is too large".into());
+        if bytes.len() as u64 > limit {
+            return Err(format!("response is larger than {limit} bytes"));
         }
         Ok(bytes.to_vec())
     }
@@ -276,11 +279,11 @@ impl SiteClient {
     /// One sitemap file: the child sitemaps it lists and the page URLs it holds.
     async fn read_sitemap(&self, url: &Url) -> Result<(Vec<String>, Vec<String>), String> {
         self.ensure_public(url).await?;
-        let mut bytes = self.get_bytes(url).await?;
+        let mut bytes = self.get_bytes(url, SITEMAP_BODY_LIMIT).await?;
         if bytes.starts_with(&[0x1f, 0x8b]) {
             let mut text = Vec::new();
             GzDecoder::new(bytes.as_slice())
-                .take(BODY_LIMIT * 4)
+                .take(SITEMAP_BODY_LIMIT)
                 .read_to_end(&mut text)
                 .map_err(|e| format!("bad gzip: {e}"))?;
             bytes = text;
@@ -402,7 +405,7 @@ impl SiteFetch for SiteClient {
         Ok(page)
     }
 
-    async fn fetch_sitemap(&self, url: Option<&str>) -> Result<Vec<String>, String> {
+    async fn fetch_sitemap(&self, url: Option<&str>) -> Result<SitemapUrls, String> {
         let candidates = self.candidate_sitemaps(url).await?;
         let tried = candidates
             .iter()
@@ -410,6 +413,7 @@ impl SiteFetch for SiteClient {
             .collect::<Vec<_>>()
             .join(", ");
         let mut urls: Vec<String> = Vec::new();
+        let mut skipped: Vec<String> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         let mut queue: Vec<(Url, usize)> = candidates.into_iter().map(|u| (u, 0)).collect();
         queue.reverse();
@@ -418,8 +422,12 @@ impl SiteFetch for SiteClient {
             if !seen.insert(sitemap.to_string()) {
                 continue;
             }
-            let Ok((children, pages)) = self.read_sitemap(&sitemap).await else {
-                continue;
+            let (children, pages) = match self.read_sitemap(&sitemap).await {
+                Ok(read) => read,
+                Err(e) => {
+                    skipped.push(format!("{sitemap}: {e}"));
+                    continue;
+                }
             };
             read_any = true;
             if depth < SITEMAP_DEPTH {
@@ -434,15 +442,18 @@ impl SiteFetch for SiteClient {
             }
             for page in pages.into_iter().filter(|p| host_allowed(&self.hosts, p)) {
                 if urls.len() >= self.sitemap_cap {
-                    return Ok(urls);
+                    return Ok(SitemapUrls { urls, skipped });
                 }
                 urls.push(page);
             }
         }
         if read_any {
-            Ok(urls)
+            Ok(SitemapUrls { urls, skipped })
         } else {
-            Err(format!("no sitemap found (tried {tried})"))
+            Err(format!(
+                "no sitemap found (tried {tried}): {}",
+                skipped.join("; ")
+            ))
         }
     }
 }
@@ -771,8 +782,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_string(body))
             .mount(&server)
             .await;
-        let urls = client(&server).await.fetch_sitemap(None).await.unwrap();
-        assert_eq!(urls, [format!("{base}/a"), format!("{base}/b")]);
+        let read = client(&server).await.fetch_sitemap(None).await.unwrap();
+        assert_eq!(read.urls, [format!("{base}/a"), format!("{base}/b")]);
+        assert!(read.skipped.is_empty());
     }
 
     #[tokio::test]
@@ -808,8 +820,64 @@ mod tests {
             )
             .mount(&server)
             .await;
-        let urls = client(&server).await.fetch_sitemap(None).await.unwrap();
+        let urls = client(&server)
+            .await
+            .fetch_sitemap(None)
+            .await
+            .unwrap()
+            .urls;
         assert_eq!(urls, [format!("{base}/one"), format!("{base}/two")]);
+    }
+
+    #[tokio::test]
+    async fn a_sitemap_larger_than_a_page_is_still_read() {
+        let server = MockServer::start().await;
+        let base = server.uri();
+        // A real catalog sitemap with 45k URLs and hreflang links weighs about 22 MB.
+        let padding = format!("<!-- {} -->", "x".repeat(6 * 1024 * 1024));
+        let body =
+            urlset(&[format!("{base}/big")]).replace("<urlset", &format!("{padding}<urlset"));
+        Mock::given(method("GET"))
+            .and(path("/sitemap.xml"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .mount(&server)
+            .await;
+        let read = client(&server).await.fetch_sitemap(None).await.unwrap();
+        assert_eq!(read.urls, [format!("{base}/big")]);
+    }
+
+    #[tokio::test]
+    async fn a_child_sitemap_that_fails_is_reported_not_hidden() {
+        let server = MockServer::start().await;
+        let base = server.uri();
+        let index = format!(
+            r#"<sitemapindex><sitemap><loc>{base}/ok.xml</loc></sitemap><sitemap><loc>{base}/gone.xml</loc></sitemap></sitemapindex>"#
+        );
+        Mock::given(method("GET"))
+            .and(path("/sitemap.xml"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(index))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/ok.xml"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string(urlset(&[format!("{base}/one")])),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/gone.xml"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        let read = client(&server).await.fetch_sitemap(None).await.unwrap();
+        assert_eq!(read.urls, [format!("{base}/one")]);
+        assert_eq!(read.skipped.len(), 1, "{:?}", read.skipped);
+        assert!(
+            read.skipped[0].contains("/gone.xml") && read.skipped[0].contains("500"),
+            "{:?}",
+            read.skipped
+        );
     }
 
     #[test]
@@ -842,7 +910,7 @@ mod tests {
             .mount(&server)
             .await;
         let c = client(&server).await.with_sitemap_cap(10);
-        assert_eq!(c.fetch_sitemap(None).await.unwrap().len(), 10);
+        assert_eq!(c.fetch_sitemap(None).await.unwrap().urls.len(), 10);
     }
 
     #[tokio::test]

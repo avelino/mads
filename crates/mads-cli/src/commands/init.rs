@@ -47,6 +47,7 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
     );
     cfg.catalog_limit = args.catalog_limit;
     cfg.force = args.force;
+    cfg.web_search = !args.no_web_search;
     cfg.max_turns = args.agent.max_turns;
     cfg.mission_timeout = args.agent.mission_timeout;
     cfg.max_tokens = args.agent.max_tokens;
@@ -60,7 +61,13 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
     printer.await.context("event printer stopped")?;
     match result {
         Ok(r) => {
+            if r.exit_code != 0 && format != Format::Json {
+                eprintln!("See what the agent did in {}", r.transcripts.display());
+            }
             if r.exit_code == 0 && format != Format::Json {
+                if let Some(research) = &r.research {
+                    eprintln!("Read what the agent found in {}", research.display());
+                }
                 eprintln!(
                     "Review {} and the catalog, then run: mads generate {} --provider {}",
                     r.business.display(),

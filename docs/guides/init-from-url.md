@@ -1,20 +1,26 @@
 # Init from a URL
 
-This page shows how to let an agent read your website and draft `business.toml` and `catalog.csv`, so you start `mads generate` from a reviewed draft instead of an empty file.
+This page shows how to let an agent study your business and draft `business.toml`, `catalog.csv` and `research.md`, so you start `mads generate` from a reviewed draft instead of an empty file.
 
 ## What it does
 
-`mads init` runs one agent mission. The agent reads your site through five tools and writes two files.
+`mads init` runs one agent mission. The agent knows nothing about your business when it starts. It learns how the business works, finds what people search for, ranks the opportunities by expected return and writes three files.
 
 | Tool | What it does |
 |---|---|
 | `fetch_page` | Returns the title, description, visible text and links of one page. |
 | `fetch_sitemap` | Lists sitemap URLs, filtered and paginated. |
+| `search_site` | Finds the pages of a name in the sitemap. |
 | `write_business` | Saves the business profile. |
+| `write_research` | Saves what the agent learned and the opportunities it found. |
 | `add_catalog_items` | Adds the entities people search for by name. |
-| `finish` | Ends the mission. Needs `write_business`. |
+| `finish` | Ends the mission. Needs `write_business` and `write_research`. |
 
-The agent looks at the home page, follows the pages that explain the business, searches the sitemap for the pages of catalog items and then writes the draft. It is told to prefer specific entities (a wine label) over broad groups (a grape), and to use only facts from the site.
+The agent reads the home page and the pages that explain the business, then maps the kinds of pages in the sitemap. Next it looks for demand: the names people type, the categories and problems they search, the business name and its competitors. With an agent CLI it also searches the web for rankings, bestseller lists and comparisons. See [Web search](#web-search).
+
+It ranks what it finds by expected return, not by fame. A good opportunity has enough searches, a clear intent to act and few advertisers. A famous name that every big player bids on can cost more than it brings. The agent takes names from the market, not from the site. What a site features or ranks highest shows what it has, not what people search. So the agent builds the candidate names from bestseller and "most popular" lists for the country, then checks them all with `search_site`, up to 50 per call. The research says how many it checked and how many have a page, such as `34 of 40 names checked`. A name with demand and no page goes into the open questions.
+
+The prompt teaches a method, not a business. It holds no rule about any market, so the same run works for a shop, an app or a course.
 
 Every draft passes the same parsers `generate` uses, so a file that init writes always loads.
 
@@ -32,9 +38,21 @@ With an API provider.
 mads init --from-url https://vinellu.com --daily-budget 50 --currency BRL --provider anthropic --model <model-id>
 ```
 
+## Web search
+
+With `claude-cli`, `codex-cli` or `gemini-cli`, the init agent can use the CLI's own web search. mads opens only that, and only for init. `generate` missions keep every built-in tool off. See [Agent CLIs](agent-clis.md#web-search-in-init).
+
+A model with search can still skip it and write from memory. In one real run claude was offered search, made no search at all and finished in 10 turns. So when web search is on, `write_research` refuses research that cites fewer than 3 pages outside your site. The agent has to search to finish.
+
+API providers do not search the web yet. The agent is told so and learns from the site alone. It lists what it could not check in the open questions.
+
+`--no-web-search` keeps an agent CLI off the web too. Use it when you want the cheaper run.
+
+Web search costs tokens. Each search adds its results to the agent's context, so a run with research costs more than one without. The numbers the agent writes about demand and competition are its estimates. They are not keyword planner data.
+
 `--plan-model` also applies to init. When set, init uses it instead of `--model`.
 
-This is real output from a run with `claude-cli` against https://vinellu.com. Agent text and timings differ on every run.
+This is real output from a run with `claude-cli` against https://vinellu.com. Agent text and timings differ on every run. The run is from before research existed, so it has no `search_site` or `write_research` lines and wrote no `research.md`.
 
 ```text
 12:56:13 [run] init started (claude-cli, default model)
@@ -67,11 +85,11 @@ That run read 4 pages, listed an 8657-URL sitemap in pages and wrote 20 catalog 
 
 ## Where the files go
 
-`--out-dir` sets the folder. The default is the current directory. init writes exactly two files, `business.toml` and `catalog.csv`. It creates no run directory and no `events.ndjson`.
+`--out-dir` sets the folder. The default is the current directory. init writes at most three files, `business.toml`, `catalog.csv` and `research.md`. It creates no run directory and no `events.ndjson`. It keeps the agent's transcript in `.mads/transcripts/` inside the same folder, even when the mission fails. A failed run prints that path. Each run replaces the transcript of the one before.
 
-The catalog file is written only when the agent added items. Without items, `business.toml` has no `[catalog]` table.
+The catalog file is written only when the agent added items. Without items, `business.toml` has no `[catalog]` table. `research.md` is always written, because `finish` needs `write_research`. `business.toml` points at it with a `[research]` table.
 
-init refuses to overwrite.
+init refuses to overwrite any of the three.
 
 ```text
 error: ./business.toml, ./catalog.csv already exist: use --force to overwrite
@@ -113,6 +131,25 @@ Château Haut-Brion Pessac-Léognan,https://vinellu.com/w/izL2cP5VSE/pessac-leog
 La Muse Verité,https://vinellu.com/w/hnTFJ7Rxpm/la-muse,Sonoma County,Verité La Muse,true,"100 pts; Sonoma County, EUA"
 ```
 
+## Read the research
+
+`research.md` is where the agent shows its work. Read it first. It is written in the language of the business. It has three parts.
+
+- **Summary.** How the agent understood the business and how its customers search. If this is wrong, the rest is too.
+- **Opportunities.** Campaign ideas, best expected return first. Each one has the intent, example searches, the agent's estimate of demand and competition, the evidence and the sources it used. An opportunity built on names also says how many of them the site has.
+- **Open questions.** What the agent could not confirm. Typical ones are how much a customer is worth to you, or a demand with no page on your site.
+
+```markdown
+### 1. Labels by name
+
+- Intent: catalog
+- Demand: high. Competition: low.
+- Searches: `alamos malbec`
+- Evidence: Bestsellers get searched by name.
+```
+
+The file is yours to edit. `generate` reads it through the `[research]` table and hands it to the plan agent, which uses it to split the budget. Delete an opportunity you do not want and it will not shape the plan. Remove the `[research]` table and the plan runs without notes.
+
 ## What to fix by hand
 
 Treat the draft as a first pass. Read every line. These are the usual fixes.
@@ -140,11 +177,13 @@ The agent reads your site, and the text it reads goes to the model. mads limits 
 - Only the start host and its `www.` or apex sibling. `https://vinellu.com` and `https://www.vinellu.com` count as one site.
 - `robots.txt` is respected.
 - IP-literal hosts and hosts that resolve to loopback, private or link-local addresses are refused. This keeps crawled text and requests away from internal services and cloud metadata endpoints. For local development you can lift it with `MADS_ALLOW_PRIVATE_HOSTS=1`. Do not set it in CI.
-- At most 30 pages per run. A 31st `fetch_page` returns a `LIMIT` error.
+- At most 30 pages per run. A 31st `fetch_page` returns a `LIMIT` error. `search_site` reads the sitemap mads already fetched, so it does not count.
 - A page returns at most 8000 characters of visible text and 200 links.
-- The sitemap is read in pages of at most 200 URLs. Indexes are followed 2 levels deep, with at most 50 child sitemaps. `.xml.gz` works.
+- The sitemap is read in pages of at most 200 URLs. Indexes are followed 2 levels deep, with at most 50 child sitemaps and 500 000 URLs in total. `.xml.gz` works.
+- A sitemap file can be up to 50 MB, the limit of the sitemap protocol. A file that cannot be read (too large, an HTTP error) is listed in `skipped` in the results of `fetch_sitemap` and `search_site`, with the reason. The agent is told that a name missing from a partial sitemap may still exist.
 - The catalog is capped by `--catalog-limit` (default 50). Adding more fails with `E13`.
-- Page and catalog URLs the agent writes must have been fetched or listed in the sitemap in that run. Otherwise the tool returns an `E07` error and the agent fixes it.
+- Page and catalog URLs the agent writes must have been fetched, listed in the sitemap or returned by `search_site` in that run. Otherwise the tool returns an `E07` error and the agent fixes it. A name the agent found on the web becomes a catalog item only through a page of your site.
+- What the agent reads on the web goes to the model as well. mads does not fetch those pages itself. The CLI's own search tool does.
 - No JavaScript. The agent sees the HTML a plain request returns. A site that renders its content in the browser gives the agent little to read.
 
 ## Exit codes

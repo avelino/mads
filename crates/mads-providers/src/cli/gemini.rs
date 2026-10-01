@@ -46,7 +46,7 @@ impl CliAgent for Gemini {
                 "headers": {"Authorization": format!("Bearer {}", c.token)},
                 "trust": true,
             }},
-            "tools": {"core": []},
+            "tools": {"core": if c.web_search { json!(["google_web_search", "web_fetch"]) } else { json!([]) }},
             "model": {"maxSessionTurns": c.max_turns},
         });
         let path = |name: &str| c.dir.join(name).display().to_string();
@@ -132,6 +132,7 @@ mod tests {
             model,
             max_turns: 25,
             api_key_set: false,
+            web_search: false,
         }
     }
 
@@ -169,6 +170,23 @@ mod tests {
         assert_eq!(v["mcpServers"]["mads"]["trust"], true);
         assert_eq!(v["tools"]["core"], serde_json::json!([]));
         assert_eq!(v["model"]["maxSessionTurns"], 25);
+    }
+
+    #[test]
+    fn web_search_enables_only_the_search_core_tools() {
+        let mut c = ctx(None);
+        c.web_search = true;
+        let inv = Gemini.build(&c);
+        let (_, text) = inv
+            .files
+            .iter()
+            .find(|(n, _)| n == "settings.json")
+            .unwrap();
+        let v: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(
+            v["tools"]["core"],
+            serde_json::json!(["google_web_search", "web_fetch"])
+        );
     }
 
     #[test]

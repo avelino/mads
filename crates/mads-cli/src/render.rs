@@ -282,7 +282,7 @@ impl Sink {
     }
 
     pub fn handle(&mut self, env: &EventEnvelope) {
-        // `init` has no run directory: it writes only business.toml and catalog.csv.
+        // `init` has no run directory: it writes only business.toml, catalog.csv and research.md.
         if let Event::RunStarted { run_dir, .. } = &env.event
             && !run_dir.is_empty()
         {

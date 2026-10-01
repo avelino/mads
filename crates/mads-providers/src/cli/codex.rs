@@ -37,7 +37,10 @@ impl CliAgent for Codex {
             "mcp_servers.mads.required=true".to_string(),
             "features.shell_tool=false".to_string(),
             "features.multi_agent=false".to_string(),
-            "web_search=\"disabled\"".to_string(),
+            format!(
+                "web_search=\"{}\"",
+                if c.web_search { "live" } else { "disabled" }
+            ),
         ];
         let mut args: Vec<String> = [
             "exec",
@@ -102,7 +105,11 @@ fn item_output(item: &Value) -> Vec<CliOutput> {
             .as_str()
             .map(|t| vec![CliOutput::Text(t.to_string())])
             .unwrap_or_default(),
-        Some(kind @ ("command_execution" | "file_change" | "web_search")) => {
+        Some("web_search") => vec![CliOutput::Text(format!(
+            "web search: {}",
+            item["query"].as_str().unwrap_or_default()
+        ))],
+        Some(kind @ ("command_execution" | "file_change")) => {
             vec![CliOutput::Text(format!(
                 "warning: codex used a built-in tool ({kind}) that should be off"
             ))]
@@ -127,6 +134,7 @@ mod tests {
             model,
             max_turns: 40,
             api_key_set: false,
+            web_search: false,
         }
     }
 
@@ -170,6 +178,24 @@ mod tests {
                 "missing {expected}: {overrides:?}"
             );
         }
+    }
+
+    #[test]
+    fn web_search_switches_codex_search_to_live() {
+        let mut c = ctx(None);
+        c.web_search = true;
+        let inv = Codex.build(&c);
+        assert!(inv.args.iter().any(|a| a == "web_search=\"live\""));
+        assert!(!inv.args.iter().any(|a| a == "web_search=\"disabled\""));
+        assert!(inv.args.iter().any(|a| a == "features.shell_tool=false"));
+    }
+
+    #[test]
+    fn a_web_search_item_is_reported_as_progress() {
+        let line = r#"{"type":"item.completed","item":{"id":"i","type":"web_search","query":"top wines brazil"}}"#;
+        assert!(
+            matches!(&Codex.parse_line(line)[..], [CliOutput::Text(t)] if t == "web search: top wines brazil")
+        );
     }
 
     #[test]

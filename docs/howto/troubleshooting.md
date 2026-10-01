@@ -2,7 +2,7 @@
 
 This page lists every exit code, the real error messages behind it and how to fix each one.
 
-Run `mads generate` with `-v` for info logs on stderr and `-vv` for debug. `RUST_LOG` overrides both. The run directory of `generate` has `events.ndjson` with every event, which is the first place to look. `mads init` writes no run directory.
+Run `mads generate` with `-v` for info logs on stderr and `-vv` for debug. `RUST_LOG` overrides both. The run directory of `generate` has `events.ndjson` with every event, which is the first place to look. `mads init` writes no run directory. Its transcript is in `.mads/transcripts/` next to the files it writes, and a failed init prints that path.
 
 ## Exit codes
 

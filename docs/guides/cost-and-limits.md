@@ -13,7 +13,7 @@ This page shows which flags bound a run, how mads reports usage and how to keep 
 | `--parallel` | `4` | run | Campaign missions that run at the same time. |
 | `--max-ad-groups` | `50` | account | Planned ad groups across all campaigns. |
 
-`mads init` accepts `--max-turns`, `--mission-timeout`, `--max-tokens` and `--mission-retries` too.
+`mads init` accepts `--max-turns`, `--mission-timeout`, `--max-tokens` and `--mission-retries` too. With an agent CLI, init searches the web by default, and each search adds tokens. `--no-web-search` gives a cheaper run that learns from the site only.
 
 `--mission-timeout` takes `90s`, `15m`, `2h` or bare seconds. Zero is rejected.
 

@@ -64,6 +64,7 @@ async fn claude_reaches_our_tools_through_the_mcp_bridge() {
         id: "it".into(),
         system: "You are a test agent. Use only the tools you are given.".into(),
         user: "Call the finish tool now.".into(),
+        web_search: false,
     };
     let report = CliDriver::new(Claude)
         .run_mission(&mission, tools.clone(), &ctx)

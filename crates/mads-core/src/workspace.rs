@@ -99,6 +99,7 @@ mod tests {
                 eu_political_ads: false,
                 decimal_comma: false,
             },
+            research: String::new(),
             catalog: vec![],
         }
     }

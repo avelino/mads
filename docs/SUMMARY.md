@@ -2,6 +2,7 @@
 
 * [Introduction](README.md)
 * [Why mads](why-mads.md)
+* [Sponsors](sponsors.md)
 
 ## First steps
 

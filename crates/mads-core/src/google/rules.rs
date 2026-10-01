@@ -674,6 +674,7 @@ mod tests {
                 eu_political_ads: false,
                 decimal_comma: true,
             },
+            research: String::new(),
             catalog: vec![CatalogItem {
                 id: s("alamos"),
                 name: s("Alamos Malbec"),

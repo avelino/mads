@@ -110,7 +110,7 @@ API providers report input and output tokens. mads does not ship a price table, 
 
 ## Agent CLIs
 
-`claude-cli`, `codex-cli` and `gemini-cli` run a coding agent you have installed. mads gives it the mission tools through a local MCP server and turns its built-in tools off. They use the CLI's own login, so no key variable applies, and `--model` is optional. See [Agent CLIs](agent-clis.md).
+`claude-cli`, `codex-cli` and `gemini-cli` run a coding agent you have installed. mads gives it the mission tools through a local MCP server and turns its built-in tools off. The one exception is web search in `init`. They use the CLI's own login, so no key variable applies, and `--model` is optional. See [Agent CLIs](agent-clis.md).
 
 ```bash
 mads generate business.toml --provider claude-cli

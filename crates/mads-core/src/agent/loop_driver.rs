@@ -253,6 +253,7 @@ mod tests {
             id: "m".into(),
             system: "sys".into(),
             user: "go".into(),
+            web_search: false,
         }
     }
 
@@ -555,6 +556,7 @@ mod tests {
             id: "campaign:x".into(),
             system: "sys".into(),
             user: "go".into(),
+            web_search: false,
         };
         h.driver
             .run_mission(&mission, FakeTools::new(), &h.ctx)

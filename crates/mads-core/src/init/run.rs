@@ -1,10 +1,17 @@
-use std::{io, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use tokio::sync::Mutex;
 
-use super::{CATALOG_FILE, InitState, InitTools, SiteFetch};
+use super::{CATALOG_FILE, InitState, InitTools, RESEARCH_FILE, RenderedFiles, SiteFetch};
 use crate::{
-    agent::{Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget},
+    agent::{
+        Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget, transcript_path,
+    },
     events::{Event, EventSink, Totals},
     money::Cents,
     usage::Usage,
@@ -12,6 +19,10 @@ use crate::{
 
 const INIT_ID: &str = "init";
 const BUSINESS_FILE: &str = "business.toml";
+/// With web search on, a model can skip it and write from memory. Citing the web is the proof it searched.
+const WEB_SOURCES_MIN: usize = 3;
+/// Hidden, so a reviewed folder still shows only the files to read.
+const TRANSCRIPT_DIR: &str = ".mads/transcripts";
 const INIT_PROMPT: &str = include_str!("../../prompts/init.md");
 
 pub struct InitConfig {
@@ -30,6 +41,8 @@ pub struct InitConfig {
     pub page_limit: usize,
     pub provider: String,
     pub model: Option<String>,
+    /// Lets the agent search the web when the driver supports it.
+    pub web_search: bool,
 }
 
 impl InitConfig {
@@ -48,6 +61,7 @@ impl InitConfig {
             page_limit: 30,
             provider: String::new(),
             model: None,
+            web_search: true,
         }
     }
 }
@@ -65,10 +79,33 @@ pub struct InitResult {
     pub exit_code: i32,
     pub business: PathBuf,
     pub catalog: Option<PathBuf>,
+    pub research: Option<PathBuf>,
+    /// What the agent did, kept whether the mission finished or not.
+    pub transcripts: PathBuf,
     pub totals: Totals,
 }
 
-/// Runs the `init` mission and, when it finishes, writes the two files. Exit codes: 0 ok, 1 failure.
+/// The init mission. `web` is whether the driver can give the agent a web search.
+pub fn mission_spec(cfg: &InitConfig, web: bool) -> MissionSpec {
+    let web_search = cfg.web_search && web;
+    let web_note = if web_search {
+        "You can search the web with your own search tool. Use it before you write anything: the research must cite at least 3 pages outside the business site."
+    } else {
+        "You cannot search the web in this run: learn from the site only and list what you could not check in open_questions."
+    };
+    MissionSpec {
+        id: INIT_ID.into(),
+        system: INIT_PROMPT.into(),
+        user: format!(
+            "Research {url} and draft business.toml, catalog.csv and research.md. Start with fetch_page on {url}. The catalog can have at most {limit} items. {web_note}",
+            url = cfg.start_url,
+            limit = cfg.catalog_limit
+        ),
+        web_search,
+    }
+}
+
+/// Runs the `init` mission and, when it finishes, writes its files. Exit codes: 0 ok, 1 failure.
 pub async fn run_init(
     cfg: InitConfig,
     driver: Arc<dyn Driver>,
@@ -77,8 +114,9 @@ pub async fn run_init(
 ) -> Result<InitResult, InitError> {
     let business_path = cfg.out_dir.join(BUSINESS_FILE);
     let catalog_path = cfg.out_dir.join(CATALOG_FILE);
+    let research_path = cfg.out_dir.join(RESEARCH_FILE);
     if !cfg.force {
-        let existing: Vec<PathBuf> = [&business_path, &catalog_path]
+        let existing: Vec<PathBuf> = [&business_path, &catalog_path, &research_path]
             .into_iter()
             .filter(|p| p.exists())
             .cloned()
@@ -87,6 +125,7 @@ pub async fn run_init(
             return Err(InitError::Exists(existing));
         }
     }
+    let transcripts = fresh_transcripts(&cfg.out_dir)?;
     events.emit(Event::RunStarted {
         run_id: INIT_ID.into(),
         run_dir: String::new(),
@@ -94,22 +133,13 @@ pub async fn run_init(
         model: cfg.model.clone(),
     });
 
-    let state = Arc::new(Mutex::new(InitState::new(
-        &cfg.start_url,
-        cfg.daily,
-        &cfg.currency,
-        cfg.catalog_limit,
-    )));
+    let mission = mission_spec(&cfg, driver.web_search());
+    let mut draft = InitState::new(&cfg.start_url, cfg.daily, &cfg.currency, cfg.catalog_limit);
+    if mission.web_search {
+        draft.require_web_sources(WEB_SOURCES_MIN);
+    }
+    let state = Arc::new(Mutex::new(draft));
     let budget = Arc::new(TokenBudget::new(cfg.max_tokens));
-    let mission = MissionSpec {
-        id: INIT_ID.into(),
-        system: INIT_PROMPT.into(),
-        user: format!(
-            "Draft business.toml and catalog.csv for {url}. Start with fetch_page on {url}. The catalog can have at most {limit} items.",
-            url = cfg.start_url,
-            limit = cfg.catalog_limit
-        ),
-    };
     let (mut usage, mut finished) = (Usage::default(), false);
     for attempt in 1..=1 + cfg.mission_retries {
         if budget.exceeded() {
@@ -129,7 +159,7 @@ pub async fn run_init(
             events: events.clone(),
             max_turns: cfg.max_turns,
             budget: budget.clone(),
-            transcripts: None,
+            transcripts: Some(transcripts.clone()),
         };
         let report = tokio::time::timeout(
             cfg.mission_timeout,
@@ -160,10 +190,10 @@ pub async fn run_init(
         }
     }
 
-    let catalog = if finished {
+    let (catalog, research) = if finished {
         write_files(&cfg, &state, &events).await?
     } else {
-        None
+        (None, None)
     };
     let exit_code = if finished { 0 } else { 1 };
     let totals = Totals {
@@ -182,39 +212,72 @@ pub async fn run_init(
         exit_code,
         business: business_path,
         catalog,
+        research,
+        transcripts,
         totals,
     })
+}
+
+/// The transcript folder with no file of an older init: a new run must not append to the last one.
+fn fresh_transcripts(out_dir: &Path) -> Result<PathBuf, InitError> {
+    let dir = out_dir.join(TRANSCRIPT_DIR);
+    std::fs::create_dir_all(&dir)?;
+    for extension in ["jsonl", "cli.jsonl"] {
+        let old = transcript_path(&dir, INIT_ID, extension);
+        if old.exists() {
+            std::fs::remove_file(old)?;
+        }
+    }
+    Ok(dir)
 }
 
 async fn write_files(
     cfg: &InitConfig,
     state: &Mutex<InitState>,
     events: &EventSink,
-) -> Result<Option<PathBuf>, InitError> {
-    let (toml, csv) = state
+) -> Result<(Option<PathBuf>, Option<PathBuf>), InitError> {
+    let RenderedFiles {
+        toml,
+        csv,
+        research,
+    } = state
         .lock()
         .await
         .render_files()
         .map_err(io::Error::other)?;
     std::fs::create_dir_all(&cfg.out_dir)?;
     let business = cfg.out_dir.join(BUSINESS_FILE);
-    std::fs::write(&business, toml)?;
+    write_file(&business, &toml, events)?;
+    let catalog = write_optional(cfg, CATALOG_FILE, csv, events)?;
+    let research = write_optional(cfg, RESEARCH_FILE, research, events)?;
+    Ok((catalog, research))
+}
+
+fn write_file(path: &Path, text: &str, events: &EventSink) -> Result<(), InitError> {
+    std::fs::write(path, text)?;
     events.emit(Event::ArtifactWritten {
-        path: business.display().to_string(),
+        path: path.display().to_string(),
     });
-    let catalog = cfg.out_dir.join(CATALOG_FILE);
-    match csv {
+    Ok(())
+}
+
+/// Writes the file when there is content. Without content, `--force` removes a leftover from an
+/// older run: it would not match the new business.toml.
+fn write_optional(
+    cfg: &InitConfig,
+    name: &str,
+    content: Option<String>,
+    events: &EventSink,
+) -> Result<Option<PathBuf>, InitError> {
+    let path = cfg.out_dir.join(name);
+    match content {
         Some(text) => {
-            std::fs::write(&catalog, text)?;
-            events.emit(Event::ArtifactWritten {
-                path: catalog.display().to_string(),
-            });
-            Ok(Some(catalog))
+            write_file(&path, &text, events)?;
+            Ok(Some(path))
         }
         None => {
-            // `--force` over an older run: a leftover catalog would not match the new business.toml.
-            if cfg.force && catalog.exists() {
-                std::fs::remove_file(&catalog)?;
+            if cfg.force && path.exists() {
+                std::fs::remove_file(&path)?;
             }
             Ok(None)
         }
@@ -232,7 +295,7 @@ mod tests {
     use crate::{
         agent::ScriptedDriver,
         events::{Event, EventSink},
-        init::FetchedPage,
+        init::{FetchedPage, SitemapUrls},
         input::load_input,
     };
 
@@ -256,11 +319,14 @@ mod tests {
                 links: vec!["https://vinellu.com/app".into()],
             })
         }
-        async fn fetch_sitemap(&self, _: Option<&str>) -> Result<Vec<String>, String> {
-            Ok(vec![
-                "https://vinellu.com/w/alamos".into(),
-                "https://vinellu.com/w/luigi".into(),
-            ])
+        async fn fetch_sitemap(&self, _: Option<&str>) -> Result<SitemapUrls, String> {
+            Ok(SitemapUrls {
+                urls: vec![
+                    "https://vinellu.com/w/alamos".into(),
+                    "https://vinellu.com/w/luigi".into(),
+                ],
+                skipped: vec![],
+            })
         }
     }
 
@@ -289,8 +355,16 @@ mod tests {
                 {"name": "Alamos Malbec", "url": "https://vinellu.com/w/alamos", "category": "malbec", "aliases": ["alamos"], "third_party": true},
                 {"name": "Luigi Bosca", "url": "https://vinellu.com/w/luigi", "category": "malbec", "third_party": true}]}),
             ),
+            ("write_research", research_args()),
             ("finish", json!({})),
         ])
+    }
+
+    fn research_args() -> Value {
+        json!({"summary": "A social app for wine lovers. People rate labels and follow friends.",
+               "opportunities": [{"name": "Labels by name", "intent": "catalog", "searches": ["alamos malbec"],
+                                  "demand": "high", "competition": "low", "evidence": "Bestsellers get searched by name."}],
+               "open_questions": ["How much is an install worth?"]})
     }
 
     fn idle() -> Value {
@@ -359,7 +433,7 @@ mod tests {
                 .iter()
                 .filter(|e| matches!(e, Event::ArtifactWritten { .. }))
                 .count(),
-            2
+            3
         );
         assert!(matches!(
             events.last(),
@@ -369,6 +443,171 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[tokio::test]
+    async fn the_research_is_written_and_reaches_the_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let (result, _) = run(cfg(&dir), driver(json!({"init": [good_script()]}))).await;
+        assert_eq!(
+            result.unwrap().research,
+            Some(dir.path().join("research.md"))
+        );
+        let md = std::fs::read_to_string(dir.path().join("research.md")).unwrap();
+        assert!(md.starts_with("# Research: Vinellu"), "{md}");
+        let input = load_input(&dir.path().join("business.toml")).unwrap();
+        assert_eq!(
+            input.research, md,
+            "generate reads the notes the operator reviewed"
+        );
+    }
+
+    #[test]
+    fn the_prompt_names_every_tool_and_stays_business_agnostic() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = InitTools::new(
+            Arc::new(Mutex::new(InitState::new(
+                "https://vinellu.com",
+                Cents(5000),
+                "BRL",
+                5,
+            ))),
+            Arc::new(FakeSite),
+            40,
+            30,
+        );
+        let system = mission_spec(&cfg(&dir), true).system;
+        for spec in crate::tools::ToolHost::specs(&tools) {
+            assert!(
+                system.contains(&spec.name),
+                "init prompt misses {}",
+                spec.name
+            );
+        }
+        for niche in ["wine", "vinho", "grape", "label"] {
+            assert!(
+                !system.to_lowercase().contains(niche),
+                "the prompt must not teach one business: found '{niche}'"
+            );
+        }
+    }
+
+    #[test]
+    fn the_mission_asks_for_web_search_only_when_it_can_have_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = cfg(&dir);
+        let on = mission_spec(&c, true);
+        assert!(on.web_search);
+        assert!(on.user.contains("You can search the web"), "{}", on.user);
+        let off = mission_spec(&c, false);
+        assert!(!off.web_search);
+        assert!(off.user.contains("cannot search the web"), "{}", off.user);
+        let mut opted_out = cfg(&dir);
+        opted_out.web_search = false;
+        assert!(!mission_spec(&opted_out, true).web_search);
+    }
+
+    /// A scripted driver that says it can search the web, like an agent CLI.
+    struct WebDriver(Arc<dyn Driver>);
+
+    #[async_trait]
+    impl Driver for WebDriver {
+        fn web_search(&self) -> bool {
+            true
+        }
+        async fn run_mission(
+            &self,
+            mission: &MissionSpec,
+            tools: Arc<dyn crate::tools::ToolHost>,
+            ctx: &DriverCtx,
+        ) -> MissionReport {
+            self.0.run_mission(mission, tools, ctx).await
+        }
+    }
+
+    fn script_with_sources(sources: Value) -> Value {
+        let mut script = good_script();
+        let calls = script["tool_calls"].as_array_mut().unwrap();
+        let research = calls
+            .iter_mut()
+            .find(|c| c["name"] == "write_research")
+            .unwrap();
+        research["arguments"]["opportunities"][0]["sources"] = sources;
+        script
+    }
+
+    #[tokio::test]
+    async fn with_web_search_research_without_web_sources_cannot_finish() {
+        let dir = tempfile::tempdir().unwrap();
+        let web = Arc::new(WebDriver(driver(json!({"init": [good_script()]}))));
+        let (result, _) = run(cfg(&dir), web).await;
+        assert_eq!(result.unwrap().exit_code, 1);
+        let transcript =
+            std::fs::read_to_string(dir.path().join(".mads/transcripts/init.jsonl")).unwrap();
+        assert!(
+            transcript.contains("outside the business site"),
+            "{transcript}"
+        );
+    }
+
+    #[tokio::test]
+    async fn with_web_search_cited_web_sources_let_it_finish() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = script_with_sources(json!([
+            "https://example.com/ranking",
+            "https://news.example.org/top",
+            "https://shop.example.net/bestsellers"
+        ]));
+        let web = Arc::new(WebDriver(driver(json!({"init": [script]}))));
+        let (result, _) = run(cfg(&dir), web).await;
+        assert_eq!(result.unwrap().exit_code, 0);
+    }
+
+    #[tokio::test]
+    async fn the_transcript_is_kept_next_to_the_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (result, _) = run(cfg(&dir), driver(json!({"init": [good_script()]}))).await;
+        let path = dir.path().join(".mads/transcripts/init.jsonl");
+        assert_eq!(
+            result.unwrap().transcripts,
+            dir.path().join(".mads/transcripts")
+        );
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("write_research"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_failed_run_keeps_its_transcript_for_debugging() {
+        let dir = tempfile::tempdir().unwrap();
+        let (result, _) = run(cfg(&dir), driver(json!({"init": [idle(), idle(), idle()]}))).await;
+        assert_eq!(result.unwrap().exit_code, 1);
+        assert!(dir.path().join(".mads/transcripts/init.jsonl").exists());
+    }
+
+    #[tokio::test]
+    async fn a_new_run_starts_a_new_transcript() {
+        let dir = tempfile::tempdir().unwrap();
+        run(cfg(&dir), driver(json!({"init": [good_script()]})))
+            .await
+            .0
+            .unwrap();
+        let mut again = cfg(&dir);
+        again.force = true;
+        run(again, driver(json!({"init": [good_script()]})))
+            .await
+            .0
+            .unwrap();
+        let text =
+            std::fs::read_to_string(dir.path().join(".mads/transcripts/init.jsonl")).unwrap();
+        assert_eq!(text.matches("write_research").count(), 1, "{text}");
+    }
+
+    #[tokio::test]
+    async fn an_existing_research_file_is_protected_too() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("research.md"), "mine").unwrap();
+        let (result, _) = run(cfg(&dir), driver(json!({"init": [good_script()]}))).await;
+        assert!(matches!(result, Err(InitError::Exists(_))));
     }
 
     #[tokio::test]
@@ -432,6 +671,7 @@ mod tests {
                 json!({"name": "Vinellu", "url": "https://vinellu.com", "language": "pt-BR", "locations": ["Brazil"], "goal": "g",
                 "description": "App social de vinhos com reviews, safras e harmonização."}),
             ),
+            ("write_research", research_args()),
             ("finish", json!({})),
         ]);
         let (result, _) = run(cfg(&dir), driver(json!({"init": [script]}))).await;

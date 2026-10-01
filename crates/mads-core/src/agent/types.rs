@@ -83,6 +83,8 @@ pub struct MissionSpec {
     pub id: String,
     pub system: String,
     pub user: String,
+    /// Lets the agent search the web, when the driver can (see `Driver::web_search`).
+    pub web_search: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,6 +171,11 @@ impl DriverCtx {
 /// agent CLIs reach the tools through the MCP bridge.
 #[async_trait]
 pub trait Driver: Send + Sync {
+    /// True when missions that ask for it get the agent's own web search.
+    fn web_search(&self) -> bool {
+        false
+    }
+
     async fn run_mission(
         &self,
         mission: &MissionSpec,

@@ -32,7 +32,7 @@ pub struct Cli {
 #[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 pub enum Command {
-    /// Read a website with an agent and draft business.toml and catalog.csv for review.
+    /// Study a website with an agent and draft business.toml, catalog.csv and research.md for review.
     Init(InitArgs),
     /// Generate campaigns and the Google Ads bulk upload CSVs from business.toml.
     Generate(GenerateArgs),
@@ -53,7 +53,7 @@ pub struct InitArgs {
     /// ISO 4217 code, such as BRL or USD.
     #[arg(long)]
     pub currency: String,
-    /// Where business.toml and catalog.csv are written.
+    /// Where business.toml, catalog.csv and research.md are written.
     #[arg(long, default_value = ".")]
     pub out_dir: PathBuf,
     /// Catalog items the agent may add.
@@ -62,6 +62,9 @@ pub struct InitArgs {
     /// Overwrite existing files.
     #[arg(long)]
     pub force: bool,
+    /// Keep the agent off the web: it learns from the site only. Agent CLIs search the web by default.
+    #[arg(long)]
+    pub no_web_search: bool,
     #[command(flatten)]
     pub agent: AgentArgs,
 }

@@ -436,6 +436,7 @@ fn init_script(site: &str) -> Value {
     let calls = vec![
         ("fetch_page", json!({"url": site})),
         ("fetch_sitemap", json!({})),
+        ("search_site", json!({"names": ["Álamos", "Luigi Bosca"]})),
         (
             "write_business",
             json!({"name": "Vinellu", "url": site, "language": "pt-BR", "locations": ["Brazil"], "goal": "cadastros no app",
@@ -446,6 +447,12 @@ fn init_script(site: &str) -> Value {
             json!({"items": [
             {"name": "Alamos Malbec", "url": format!("{site}/w/alamos"), "category": "malbec", "aliases": ["alamos"], "third_party": true},
             {"name": "Luigi Bosca", "url": format!("{site}/w/luigi"), "category": "malbec", "third_party": true}]}),
+        ),
+        (
+            "write_research",
+            json!({"summary": "A social app for wine lovers. People rate labels and follow friends.",
+            "opportunities": [{"name": "Labels by name", "intent": "catalog", "searches": ["alamos malbec"],
+            "demand": "high", "competition": "low", "evidence": "Bestsellers get searched by name."}]}),
         ),
         ("finish", json!({})),
     ];
@@ -484,6 +491,11 @@ fn init_drafts_business_and_catalog_from_a_site() {
         text.contains("[init] > fetch_page") && text.contains("[run] done (exit 0)"),
         "{text}"
     );
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("research.md"),
+        "the operator is told to read it: {stderr}"
+    );
     let toml = fs::read_to_string(p.dir.path().join("site/business.toml")).unwrap();
     assert!(
         toml.contains("name = \"Vinellu\"")
@@ -492,11 +504,14 @@ fn init_drafts_business_and_catalog_from_a_site() {
         "{toml}"
     );
     assert!(toml.contains("file = \"catalog.csv\""));
+    assert!(toml.contains("file = \"research.md\""), "{toml}");
+    let research = fs::read_to_string(p.dir.path().join("site/research.md")).unwrap();
+    assert!(research.contains("### 1. Labels by name"), "{research}");
     let csv = fs::read_to_string(p.dir.path().join("site/catalog.csv")).unwrap();
     assert!(csv.contains("Alamos Malbec") && csv.contains("Luigi Bosca"));
     assert!(
         !p.dir.path().join("site/events.ndjson").exists(),
-        "init writes only the two files"
+        "init writes only its three files"
     );
 }
 
@@ -513,6 +528,35 @@ fn init_refuses_to_overwrite_without_force() {
         .code(2)
         .stderr(predicates::str::contains("--force"));
     init_cmd(&p, &site, &script, &["--force"]).success();
+}
+
+#[test]
+fn a_failed_init_points_at_its_transcript() {
+    let site = serve_site();
+    let p = Project::new(SITE);
+    let idle = json!({"text": "hmm", "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 1, "cost_usd": null}});
+    let script = p.script(
+        "init.json",
+        json!({"init": [idle.clone(), idle.clone(), idle]}),
+    );
+    init_cmd(&p, &site, &script, &[])
+        .code(1)
+        .stderr(predicates::str::contains(".mads/transcripts"));
+    assert!(
+        p.dir
+            .path()
+            .join("site/.mads/transcripts/init.jsonl")
+            .exists()
+    );
+}
+
+#[test]
+fn init_runs_without_web_search_when_asked() {
+    let site = serve_site();
+    let p = Project::new(SITE);
+    let script = p.script("init.json", json!({"init": [init_script(&site)]}));
+    init_cmd(&p, &site, &script, &["--no-web-search"]).success();
+    assert!(p.dir.path().join("site/research.md").exists());
 }
 
 #[test]

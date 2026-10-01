@@ -78,9 +78,21 @@ mads runs `codex exec` with `--json --ephemeral --skip-git-repo-check --ignore-u
 
 mads runs `gemini` with `--output-format stream-json --approval-mode yolo --allowed-mcp-server-names mads`. It redirects the CLI's settings and system prompt to the private files through `GEMINI_CLI_SYSTEM_SETTINGS_PATH` and `GEMINI_SYSTEM_MD`. The settings turn core tools off and set `maxSessionTurns` from `--max-turns`. mads does not check the gemini version.
 
+## Web search in init
+
+The `init` agent studies the market, so it may search the web. mads opens the CLI's own search for that mission only. Every other built-in tool stays off, and the isolation flags above do not change. `generate` missions never get web search. Pass `--no-web-search` to `mads init` to keep it off.
+
+| CLI | What changes in `init` |
+|---|---|
+| claude | `--tools "WebSearch,WebFetch"` and `--allowedTools "mcp__mads__* WebSearch WebFetch"`. |
+| codex | `web_search="live"` instead of `web_search="disabled"`. A search shows up in the progress as `web search: <query>`. |
+| gemini | The settings list `google_web_search` and `web_fetch` as core tools. |
+
+Searches do not go through the mads MCP server, so they emit no `tool_called` events. Their tokens count in the usage the CLI reports, and in `--max-tokens`. With claude and gemini they also use turns from `--max-turns`.
+
 ## What was tested
 
-`claude-cli` ran against the real CLI, for `generate` missions and for `init`. The `codex-cli` and `gemini-cli` stream parsers follow the documented output formats and are tested against recorded fixtures. They were not run against the real CLIs. If one of them misbehaves, open an issue with `transcripts/<mission>.cli.jsonl`.
+`claude-cli` ran against the real CLI, for `generate` missions and for `init`. Web search in `init` was not run against any real CLI yet. The flags it adds are covered by unit tests only. The `codex-cli` and `gemini-cli` stream parsers follow the documented output formats and are tested against recorded fixtures. They were not run against the real CLIs. If one of them misbehaves, open an issue with `transcripts/<mission>.cli.jsonl`.
 
 ## Why isolation matters for cost
 

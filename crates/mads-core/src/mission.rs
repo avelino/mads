@@ -17,6 +17,7 @@ pub fn plan_mission(input: &Input) -> MissionSpec {
             "Plan the Google Ads Search account for {}. Write every ad text in {}. Call get_business first.",
             input.business.name, input.business.language
         ),
+        web_search: false,
     }
 }
 
@@ -28,6 +29,7 @@ pub fn campaign_mission(input: &Input, campaign: &Campaign) -> MissionSpec {
             "Build the campaign '{}' of {}. Write every ad text in {}. Call get_brief first.",
             campaign.name, input.business.name, input.business.language
         ),
+        web_search: false,
     }
 }
 
@@ -110,6 +112,15 @@ mod tests {
         }
         let p = plan_mission(&testutil::input());
         assert!(p.system.contains("sum exactly") && p.system.contains("10 to 20 percent"));
+        for rule in [
+            "`research`",
+            "expected return",
+            "competition",
+            "contain a competitor name",
+            "Never mix",
+        ] {
+            assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
+        }
     }
 
     #[test]

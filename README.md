@@ -25,6 +25,12 @@ cargo install --path crates/mads-cli
 mads providers
 ```
 
+Or use the container. No Rust needed. See [Docker](docs/guides/docker.md).
+
+```bash
+docker run --rm ghcr.io/avelino/mads:latest --version
+```
+
 Let an agent read your site and draft the two input files. The budget is a flag because a site does not say how much you want to spend.
 
 ```bash
@@ -150,10 +156,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install mads
-        run: cargo install --git https://github.com/avelino/mads mads-cli --locked
       - name: Generate campaigns
-        run: mads generate ads/business.toml --provider anthropic --out out
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" \
+            -v "$GITHUB_STEP_SUMMARY:$GITHUB_STEP_SUMMARY" \
+            -e GITHUB_ACTIONS -e GITHUB_STEP_SUMMARY -e ANTHROPIC_API_KEY -e MADS_MODEL \
+            ghcr.io/avelino/mads:latest \
+            generate ads/business.toml --provider anthropic --out out
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MADS_MODEL: ${{ vars.MADS_MODEL }}

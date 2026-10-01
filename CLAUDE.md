@@ -46,3 +46,4 @@ Run the whole flow offline with the hidden `replay` provider: see `crates/mads-c
 - New provider, validation rule or tool: follow "Add ..." in `CONTRIBUTING.md` and update the matching pages under `docs/`.
 - Prompts live in `crates/mads-core/prompts/*.md`. `mission.rs` tests assert the playbook rules: keep them in sync.
 - Docs and README: see `.claude/rules/docs.md`.
+- CI is one workflow, `.github/workflows/ci.yml` (path filter, gate once, image after the gate). Do not add a second workflow that compiles the workspace again. The image is built by the `Dockerfile`; keep `docs/guides/docker.md` in sync.

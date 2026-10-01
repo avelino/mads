@@ -1,0 +1,11 @@
+target
+out
+.git
+.github
+.claude
+docs
+data
+*.md
+!crates/mads-core/prompts/*.md
+Dockerfile
+.dockerignore

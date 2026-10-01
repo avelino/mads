@@ -42,7 +42,21 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install mads
-        run: cargo install --git https://github.com/avelino/mads mads-cli --locked
+        run: |
+          docker pull ghcr.io/avelino/mads:latest
+          sudo tee /usr/local/bin/mads >/dev/null <<'SH'
+          #!/bin/sh
+          exec docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/work" \
+            -v "$GITHUB_STEP_SUMMARY:$GITHUB_STEP_SUMMARY" \
+            -e GITHUB_ACTIONS -e GITHUB_STEP_SUMMARY -e MADS_FORMAT \
+            -e MADS_PROVIDER -e MADS_MODEL -e MADS_PLAN_MODEL -e MADS_BASE_URL -e MADS_API_KEY \
+            -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GEMINI_API_KEY -e OPENROUTER_API_KEY \
+            -e GROQ_API_KEY -e DEEPSEEK_API_KEY -e XAI_API_KEY \
+            ghcr.io/avelino/mads:latest "$@"
+          SH
+          sudo chmod +x /usr/local/bin/mads
 
       - name: Check providers
         run: mads providers
@@ -70,7 +84,9 @@ jobs:
 
 Notes on the file.
 
-- `cargo install --git ... mads-cli` builds from source on the runner. Cache `~/.cargo` and the target directory with `actions/cache` if the build time matters to you.
+- The image is [published to the GitHub registry](docker.md). Pulling it takes seconds. Building from source with `cargo install --git https://github.com/avelino/mads mads-cli --locked` takes minutes on every run.
+- The `mads` wrapper script forwards `GITHUB_ACTIONS` and `GITHUB_STEP_SUMMARY` into the container. Without them mads falls back to the `plain` format and the report never reaches the job summary. It also runs as your user, so `out/` is not owned by root.
+- Pin a version for reproducible runs: replace `latest` with `1.2.3`, or with a digest (`ghcr.io/avelino/mads@sha256:...`). [Tags](docker.md#tags) lists what is published.
 - `--model` comes from `MADS_MODEL`. Set it as a repository variable under Settings, Secrets and variables, Actions, Variables. `MADS_PLAN_MODEL` is optional. Leave it unset to use `MADS_MODEL` for the plan too.
 - `--max-tokens 2000000` caps spend. A looping model stops there. See [Cost and limits](cost-and-limits.md).
 - `if: always()` uploads the run even when the job fails. A failed run has `report.md`, `workspace.json` and `events.ndjson`, which is what you need to debug it.
@@ -86,7 +102,7 @@ Create the token once on your machine.
 claude setup-token
 ```
 
-Store it as the secret `CLAUDE_CODE_OAUTH_TOKEN`. Then use this workflow. It installs `claude` with npm (Node is on the runner image) and runs mads with `--provider claude-cli`.
+Store it as the secret `CLAUDE_CODE_OAUTH_TOKEN`. Then use this workflow. It installs `claude` with npm (Node is on the runner image) and runs mads with `--provider claude-cli`. The published image does not contain `claude`. To run this in a container, [derive an image](docker.md#agent-cli-providers) that adds it.
 
 ```yaml
 name: ads-claude

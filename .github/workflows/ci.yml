@@ -1,0 +1,277 @@
+name: ci
+
+# One workflow, so nothing is compiled twice.
+#
+#   changes   decides what is worth running (docs-only changes run nothing heavy)
+#   gate      fmt, clippy and tests, once, one cache
+#   audit     RustSec advisories, weekly and when Cargo.lock changes
+#   image     builds the container once the gate is green
+#               pull request: only when the image inputs changed, amd64 only, nothing pushed
+#               main / tag:   amd64 and arm64 on native runners, pushed by digest
+#   manifest  stitches the architectures into one tag (main -> edge, v1.2.3 -> 1.2.3, 1.2, latest)
+#   ci        the single check to require in branch protection
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+# A new push to a pull request cancels the run it replaces. main and tags always finish.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      gate: ${{ steps.decide.outputs.gate }}
+      image: ${{ steps.decide.outputs.image }}
+      audit: ${{ steps.decide.outputs.audit }}
+    steps:
+      - uses: actions/checkout@v4
+      # path filters only make sense for push and pull_request
+      - id: filter
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            rust:
+              - "crates/**"
+              - "data/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - "clippy.toml"
+            lock:
+              - "Cargo.lock"
+            image:
+              - "Dockerfile"
+              - ".dockerignore"
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          RUST: ${{ steps.filter.outputs.rust }}
+          LOCK: ${{ steps.filter.outputs.lock }}
+          IMAGE: ${{ steps.filter.outputs.image }}
+        run: |
+          everything=false
+          case "$EVENT" in schedule|workflow_dispatch) everything=true ;; esac
+          case "$REF" in refs/tags/v*) everything=true ;; esac
+
+          gate=false; image=false; audit=false
+          if [ "$everything" = true ] || [ "$RUST" = true ] || [ "$IMAGE" = true ]; then gate=true; fi
+          if [ "$LOCK" = true ] || [ "$EVENT" = schedule ]; then audit=true; fi
+          if [ "$EVENT" = pull_request ]; then
+            # a pull request only rebuilds the image when the image itself changed
+            [ "$IMAGE" = true ] && image=true
+          elif [ "$everything" = true ] || [ "$RUST" = true ] || [ "$IMAGE" = true ]; then
+            image=true
+          fi
+          # the weekly run only audits; the other jobs would repeat the last green main
+          if [ "$EVENT" = schedule ]; then gate=false; image=false; fi
+
+          {
+            echo "gate=$gate"
+            echo "image=$image"
+            echo "audit=$audit"
+          } >> "$GITHUB_OUTPUT"
+
+  gate:
+    needs: changes
+    if: needs.changes.outputs.gate == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98"
+          components: rustfmt, clippy
+      # Pull requests restore main's cache and never write one, so caches do not pile up.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  audit:
+    needs: changes
+    if: needs.changes.outputs.audit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Runs after the gate: an image is never built from code that does not pass it.
+  image:
+    name: image ${{ matrix.platform }}
+    needs: [changes, gate]
+    if: ${{ !cancelled() && needs.changes.outputs.image == 'true' && needs.gate.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Rust under QEMU takes far too long, so each architecture builds on its own runner.
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"platform":"linux/amd64","runner":"ubuntu-24.04"}]' || '[{"platform":"linux/amd64","runner":"ubuntu-24.04"},{"platform":"linux/arm64","runner":"ubuntu-24.04-arm"}]') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Names
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+
+      # Pull request: build into the local daemon and run the binary. Nothing leaves the runner.
+      - name: Build and smoke test
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: mads:ci
+          cache-from: type=gha,scope=${{ env.PAIR }}
+          provenance: false
+
+      - name: Run the image
+        if: github.event_name == 'pull_request'
+        run: |
+          docker run --rm mads:ci --version
+          docker run --rm mads:ci providers
+
+      # Everything else: push by digest. The manifest job stitches the architectures together.
+      - id: build
+        name: Build and push by digest
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ env.PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PAIR }}
+          provenance: false
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: digests-${{ env.PAIR }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    needs: image
+    if: ${{ !cancelled() && needs.image.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Names
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=edge,branch=main
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Create the multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          # Word splitting is the point: one -t flag per tag, one reference per digest.
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Smoke test the published image
+        run: |
+          docker buildx imagetools inspect "${IMAGE}:${{ steps.meta.outputs.version }}"
+          docker run --rm "${IMAGE}:${{ steps.meta.outputs.version }}" --version
+
+  # The one check to require in branch protection. Skipped jobs count as fine, failed or cancelled do not.
+  ci:
+    if: always()
+    needs: [changes, gate, audit, image, manifest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Everything that ran passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1 ;; esac

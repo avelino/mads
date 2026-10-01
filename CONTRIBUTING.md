@@ -95,6 +95,34 @@ Tools are in `crates/mads-core/src/tools/plan.rs` (plan mission) and `campaign.r
 - HTTP code is tested with `wiremock`.
 - CLI end-to-end tests use `assert_cmd` with the hidden `replay` provider (`crates/mads-cli/tests/e2e.rs`). They check run directory contents, exit codes 0, 1, 2 and 3, and valid NDJSON with `--format json`.
 
+## CI and releases
+
+One workflow, `.github/workflows/ci.yml`, so nothing compiles twice.
+
+| Job | Runs | What it does |
+|---|---|---|
+| `changes` | always | Reads which paths changed. A docs-only change runs nothing heavy. |
+| `gate` | Rust, `Dockerfile` or workflow changes | `cargo fmt --check`, clippy with `-D warnings`, `cargo test`. One job, one cache. |
+| `audit` | weekly, and when `Cargo.lock` changes | RustSec advisories. |
+| `image` | after `gate` | Builds the container. Pull request: only when the `Dockerfile` changed, `amd64` only, nothing pushed. `main` and tags: `amd64` and `arm64` on native runners. |
+| `manifest` | `main` and tags | Joins the two architectures into one tag in `ghcr.io`. |
+| `ci` | always | The single check to require in branch protection. Skipped jobs pass. Failed or cancelled ones do not. |
+
+- A new push to a pull request cancels the run it replaces. `main` and tags always finish.
+- Pull requests restore the cache of `main` and never write one.
+- The image is never built from code that failed the gate.
+
+Tags published to `ghcr.io/avelino/mads`: `edge` and `sha-<short>` from `main`, and `1.2.3`, `1.2` and `latest` from a tag `v1.2.3`.
+
+Cut a release.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The first publish creates the package as private. Open the package settings once and make it public. The workflow needs no secret besides the built-in `GITHUB_TOKEN`.
+
 ## Docs
 
 Docs live in `docs/` and publish through GitBook (`.gitbook.yaml`). Each page starts with an H1 and one sentence that says what the reader can do afterwards. Every command in a page must run against the current binary. Do not edit `docs/superpowers/` unless you are changing a design spec.

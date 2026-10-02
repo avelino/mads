@@ -129,7 +129,7 @@ fn images(md: &mut String, d: &ReportData) {
             )
         })
     {
-        md.push_str("Demand Gen ads and Performance Max asset groups also take the logo: `editor/images/logo.png`.\n");
+        md.push_str("\nDemand Gen ads and Performance Max asset groups also take the logo: `editor/images/logo.png`.\n");
     }
     md.push('\n');
 }
@@ -290,8 +290,8 @@ fn import_steps(md: &mut String, d: &ReportData) {
     if has_images(d) {
         md.push_str(
             "3. Account, Import, Image assets from files, select the folder `google-ads/editor/images`, and choose to import image assets to the root folder: the pictures sit in one subfolder per campaign, which the account does not have, and the default skips them.\n\
-             4. For every ad and asset group in the Images table, open its Images field and pick the files listed there. Editor does not take images from a CSV, so this step is by hand.\n\
-             5. Post the changes.\n",
+             4. For every ad and asset group in the Images table, open its Images field and pick the files listed there. Editor does not take images from a CSV, so this step is by hand. Do it before posting: an App or Demand Gen ad without its pictures (and a Demand Gen ad without the logo) fails to post, its ad group goes up empty and Google Ads shows it with no active ads.\n\
+             5. Post the changes. If an ad failed, filter Ads by errors in Editor, attach what is missing and post again.\n",
         );
     } else {
         md.push_str("3. Post the changes.\n");
@@ -553,6 +553,48 @@ mod tests {
         assert!(md.contains("Google Ads restricted content: Alcohol."));
         assert!(md.contains("> Vinellu (https://vinellu.com): App social de vinhos com reviews, safras e harmonização."));
         assert!(md.contains("Request exception"));
+    }
+
+    fn with_demand_gen(mut account: Account) -> Account {
+        use crate::google::{AspectRatio, AssetGroup, CampaignKind, ImageBrief};
+        let brief = ImageBrief {
+            id: "brinde".into(),
+            ratio: AspectRatio::Square,
+            prompt: "two adults toasting".into(),
+            reference: None,
+            file: Some("images/feed/tintos-brinde.jpg".into()),
+        };
+        let mut c = account.campaigns[0].clone();
+        c.name = "Feed".into();
+        c.slug = "feed".into();
+        c.kind = CampaignKind::DemandGen;
+        c.ad_groups = vec![];
+        c.asset_groups = vec![AssetGroup {
+            name: "Tintos".into(),
+            final_url: "https://vinellu.com".into(),
+            business_name: "Vinellu".into(),
+            headlines: vec!["H".into()],
+            long_headlines: vec![],
+            descriptions: vec!["D".into()],
+            search_themes: vec![],
+            images: vec![brief],
+        }];
+        account.campaigns.push(c);
+        account
+    }
+
+    #[test]
+    fn image_ads_must_get_their_pictures_before_posting() {
+        let mut input = testutil::input();
+        input.logo = Some("logo.png".into());
+        let md = render_report(&data(&input, &with_demand_gen(account())));
+        assert!(md.contains("before posting"), "{md}");
+        assert!(md.contains("no active ads"), "{md}");
+        assert!(md.contains("filter Ads by errors"), "{md}");
+        assert!(
+            md.contains("|\n\nDemand Gen ads and Performance Max asset groups also take the logo"),
+            "the logo line must not join the table: {md}"
+        );
     }
 
     #[test]

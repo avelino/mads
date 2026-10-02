@@ -136,8 +136,8 @@ Pictures cannot travel in a file. The web bulk upload takes no image files, and 
 1. Open Google Ads Editor and get the recent changes of the account.
 2. Account, Import, From file, and pick `google-ads/editor/account.csv`. Review the changes and keep them.
 3. Account, Import, Image assets from files, and select the folder `google-ads/editor/images`. Choose "import image assets to the root folder": the pictures sit in one subfolder per campaign, which the account does not have, and the default ("do not import") skips them, leaving only `logo.png`. Editor adds them to the library with their file names, which carry the ad group, so none overwrites another.
-4. For every ad and asset group in the Images table of `report.md`, open its Images field and pick the files listed there. Demand Gen ads and Performance Max asset groups also take `logo.png`.
-5. Post the changes.
+4. For every ad and asset group in the Images table of `report.md`, open its Images field and pick the files listed there. Demand Gen ads and Performance Max asset groups also take `logo.png`. Do it before posting: an App or Demand Gen ad without its pictures fails to post, and its ad group goes up empty, with no active ads.
+5. Post the changes. If an ad failed, filter Ads by errors in Editor, attach what is missing and post again. See [Troubleshooting](../howto/troubleshooting.md#an-app-or-demand-gen-ad-group-has-no-ads).
 
 `account.csv` holds the Search campaigns too, so do not also upload files 1 to 5 on the web: that creates every Search campaign twice. Files 1 to 5 are for an account with Search only and no Editor. See [Review and import](review-and-import.md).
 

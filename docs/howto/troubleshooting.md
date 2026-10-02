@@ -279,6 +279,16 @@ Alcohol sale: Your creative promotes the online sale of alcohol. : 'tres medalla
 
 That is Google's restricted content policy, not a file format problem. Check that `restricted` in `business.toml` lists the category, then follow [Restricted categories](../guides/restricted-categories.md#when-google-refuses-a-keyword-or-an-ad): request an exception with the text from `report.md`, or remove the refused items.
 
+## An App or Demand Gen ad group has no ads
+
+The import and the post look fine, the campaign and its ad group exist in Google Ads, and the ad group shows "You have no active ads". The ad was in `account.csv`, but it failed to post: an App ad needs at least one picture, and a Demand Gen image ad needs its pictures and the logo. Editor does not take images from a CSV, so they are missing until you attach them.
+
+1. In Google Ads Editor, open Ads and filter by errors. The ad is there with a red icon, and the message at the bottom names what is missing.
+2. Attach the files listed for its ad group in the Images table of `report.md`, plus `editor/images/logo.png` for Demand Gen.
+3. Post again.
+
+Next time attach the pictures before posting. See [Image campaigns](../guides/image-campaigns.md#import).
+
 ## The run looks right but Google rejects a row
 
 - Compare headers with a template from your account. See [the bulk upload format](google-ads-bulk-upload-format.md).

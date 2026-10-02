@@ -24,7 +24,8 @@ use crate::{
 struct UpsertAssetGroupArgs {
     /// Name of a planned asset group of this campaign.
     name: String,
-    /// At most 25 characters, usually the business name.
+    /// At most 25 characters, usually the business name. App campaigns leave it empty: the store shows the app's name.
+    #[serde(default)]
     business_name: String,
     headlines: Vec<String>,
     /// Performance Max only: 1 to 5 of at most 90 characters.

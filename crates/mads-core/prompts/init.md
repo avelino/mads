@@ -79,3 +79,16 @@ When the task says Focus, the account advertises one offer of the business, such
 
 Without Focus in the task, leave `focus` empty.
 
+## restricted
+
+Google Ads reviews some subjects under its restricted content policy, and refuses keywords and ads it reads as breaking it, even for a business that only informs about the subject. Decide for every business which categories apply and set `restricted` in `write_business`. The key is required: an empty list says you checked and none applies.
+
+- `alcohol`: alcoholic drinks, whether the business sells them, reviews them, recommends them or serves them.
+- `gambling`: betting, casinos, lotteries, sweepstakes, games played for money.
+- `healthcare`: medicines, pharmacies, supplements with health claims, treatments, clinics, telemedicine.
+- `financial_services`: loans, credit, cards, investing, crypto assets, insurance, debt services.
+- `political`: candidates, parties, elections, political issues.
+- `sexual_content`: sexual products or services, dating with sexual focus.
+
+Judge by what the ads would talk about, not only by what the business sells: an app that reviews a restricted product still advertises that product. Mention each category you set in the research summary, with the page that shows it.
+

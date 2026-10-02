@@ -160,6 +160,31 @@ fn logo_candidates(html: &Html, base: Option<&Url>) -> Vec<String> {
         .collect()
 }
 
+const STORE_PREFIXES: [&str; 3] = [
+    "https://play.google.com/store/apps/",
+    "https://apps.apple.com/",
+    "https://itunes.apple.com/",
+];
+
+/// Links to app stores anywhere in the page: in `<a href>`, and in JSON-LD (`downloadUrl`,
+/// `sameAs`) or scripts, where many sites put them without a visible link.
+fn store_links(body: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for prefix in STORE_PREFIXES {
+        for (start, _) in body.match_indices(prefix) {
+            let end = body[start..]
+                .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '\\'))
+                .map_or(body.len(), |n| start + n);
+            let link = body[start..end].replace("&amp;", "&");
+            if seen.insert(link.clone()) {
+                out.push(link);
+            }
+        }
+    }
+    out
+}
+
 /// Title, description, visible text and same-site links. Scripts, styles and the head are not text.
 pub(crate) fn extract_page(page_url: &str, body: &str, hosts: &[String]) -> FetchedPage {
     let html = Html::parse_document(body);
@@ -233,6 +258,7 @@ pub(crate) fn extract_page(page_url: &str, body: &str, hosts: &[String]) -> Fetc
         image,
         theme_color: meta(&html, r#"meta[name="theme-color"]"#).unwrap_or_default(),
         logos: logo_candidates(&html, base.as_ref()),
+        app_links: store_links(body),
     }
 }
 
@@ -699,10 +725,21 @@ mod tests {
             <img class="site-logo" src="/brand/logo.png">
             <img src="/photo.jpg" alt="a wine">
             <img src="data:image/png;base64,AAAA" alt="logo">
+            <a href="https://play.google.com/store/apps/details?id=com.vinellu.app">Baixe</a>
+            <a href="https://play.google.com/store/apps/details?id=com.vinellu.app">Baixe de novo</a>
+            <script type="application/ld+json">{"downloadUrl": ["https://apps.apple.com/br/app/vinellu/id6751919708"]}</script>
             </body>"##;
         let p = extract_page("https://vinellu.com/w/a", html, &hosts);
         assert_eq!(p.image, "https://vinellu.com/img/share.jpg");
         assert_eq!(p.theme_color, "#AD1457");
+        assert_eq!(
+            p.app_links,
+            [
+                "https://play.google.com/store/apps/details?id=com.vinellu.app",
+                "https://apps.apple.com/br/app/vinellu/id6751919708"
+            ],
+            "anchors and JSON-LD, each link once"
+        );
         assert_eq!(
             p.logos,
             [

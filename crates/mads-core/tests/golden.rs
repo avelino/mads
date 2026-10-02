@@ -12,6 +12,7 @@ fn reference_input() -> Input {
             goal: "cadastros".into(),
             description: "App social de vinhos com reviews e safras.".into(),
             conversion_tracking: false,
+            restricted: vec![],
             brand_terms: vec!["vinellu".into()],
             competitors: vec![],
             avoid: vec![],
@@ -29,6 +30,7 @@ fn reference_input() -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
+        app: None,
         catalog: vec![],
     }
 }

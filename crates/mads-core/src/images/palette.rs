@@ -75,6 +75,8 @@ pub fn color_name(rgb: [u8; 3]) -> String {
         _ => "pink",
     };
     match l {
+        // Very dark reds and pinks read as wine, not as pink, to people and to image models.
+        l if l < 0.3 && matches!(base, "pink" | "red") => "burgundy".into(),
         l if l < 0.4 => format!("dark {base}"),
         l if l > 0.8 => format!("light {base}"),
         _ => base.into(),
@@ -192,6 +194,8 @@ mod tests {
         let name = |h: &str| color_name(parse_hex(h).unwrap());
         assert_eq!(name("#F0476A"), "pink");
         assert_eq!(name("#AD1457"), "dark pink");
+        assert_eq!(name("#32091D"), "burgundy");
+        assert_eq!(name("#5B1E31"), "burgundy");
         assert_eq!(name("#E53935"), "red");
         assert_eq!(name("#1E88E5"), "blue");
         assert_eq!(name("#43A047"), "green");

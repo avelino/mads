@@ -1007,3 +1007,125 @@ async fn with_images_available_a_search_only_plan_must_say_why() {
         "no images, no reason needed"
     );
 }
+
+#[tokio::test]
+async fn an_app_campaign_lands_on_the_store_and_needs_no_logo() {
+    let mut input = image_input();
+    input.logo = None;
+    input.app = Some(crate::input::App {
+        store: crate::input::AppStore::GooglePlay,
+        id: "com.vinellu.app".into(),
+    });
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    let business = t.call("get_business", json!({})).await;
+    assert_eq!(
+        business.content["result"]["app_campaigns"]["available"],
+        true
+    );
+    assert_eq!(
+        business.content["result"]["image_campaigns"]["available"], false,
+        "no logo"
+    );
+    assert!(!t.call("set_brand_kit", brand_kit_args()).await.is_error);
+    let mut p = image_plan_args();
+    p["campaigns"][1] = json!({"name": "Vinellu - App", "kind": "app_installs", "intent": "generic", "daily_budget": 20.0,
+        "bid_strategy": {"type": "maximize_conversions"}, "rationale": "instalacoes",
+        "ad_groups": [{"name": "app", "theme": "app de vinhos"}]});
+    let out = t.call("set_account_plan", p).await;
+    assert!(!out.is_error, "{}", out.content);
+    let planned = ws.lock().await.account.campaigns[1].planned_ad_groups[0]
+        .final_url
+        .clone();
+    assert_eq!(
+        planned,
+        "https://play.google.com/store/apps/details?id=com.vinellu.app"
+    );
+
+    let kind = MissionKind::Campaign {
+        slug: "vinellu-app".into(),
+    };
+    let c = MissionTools::new(ws.clone(), kind, image_settings(), None)
+        .await
+        .unwrap();
+    let group = json!({"name": "app", "headlines": texts("Titulo", 3), "descriptions": ["Descubra vinhos no app"]});
+    assert!(!c.call("upsert_asset_group", group).await.is_error);
+    let prompt = "Photo of friends at dinner looking at a phone, warm light";
+    let briefs = json!({"asset_group": "app", "images": [
+        {"id": "jantar", "ratio": "landscape", "prompt": prompt},
+        {"id": "amigos", "ratio": "portrait", "prompt": prompt}]});
+    let out = c.call("set_image_briefs", briefs).await;
+    assert!(!out.is_error, "{}", out.content);
+    let out = c.call("finish", json!({})).await;
+    assert!(!out.is_error, "{}", out.content);
+}
+
+fn app_input() -> crate::input::Input {
+    let mut input = image_input();
+    input.app = Some(crate::input::App {
+        store: crate::input::AppStore::GooglePlay,
+        id: "com.vinellu.app".into(),
+    });
+    input
+}
+
+#[tokio::test]
+async fn with_the_app_available_a_plan_without_an_app_campaign_must_say_why() {
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(app_input())));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    assert!(!t.call("set_brand_kit", brand_kit_args()).await.is_error);
+    let out = t.call("set_account_plan", image_plan_args()).await;
+    assert_eq!(
+        error_codes(&out),
+        ["NO_APP_REASON"],
+        "a PMax that sells the app is not enough"
+    );
+    assert!(ws.lock().await.account.campaigns.is_empty());
+    let mut p = image_plan_args();
+    p["campaigns"][0]["rationale"] = json!("No app campaign: the goal is sales on the site.");
+    assert!(!t.call("set_account_plan", p).await.is_error);
+}
+
+#[tokio::test]
+async fn required_formats_decide_and_no_reason_is_asked() {
+    let mut input = app_input();
+    input.formats = vec![crate::google::CampaignKind::Search];
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    t.call("set_brand_kit", brand_kit_args()).await;
+    let out = t.call("set_account_plan", plan_args()).await;
+    assert!(!out.is_error, "search only, as required: {}", out.content);
+}
+
+#[tokio::test]
+async fn an_app_campaign_plans_without_conversion_tracking() {
+    // The Vinellu run that stopped: tracking off, formats search + demand_gen + app_installs.
+    let mut input = app_input();
+    input.business.conversion_tracking = false;
+    input.formats = vec![
+        crate::google::CampaignKind::Search,
+        crate::google::CampaignKind::DemandGen,
+        crate::google::CampaignKind::AppInstalls,
+    ];
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    t.call("set_brand_kit", brand_kit_args()).await;
+    let plan = json!({"campaigns": [
+        {"name": "Busca", "intent": "catalog", "daily_budget": 20.0, "bid_strategy": {"type": "manual_cpc"}, "rationale": "r",
+         "ad_groups": [{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}]},
+        {"name": "Feed", "kind": "demand_gen", "intent": "generic", "daily_budget": 15.0, "bid_strategy": {"type": "maximize_clicks"}, "rationale": "r",
+         "ad_groups": [{"name": "tintos", "theme": "tintos"}]},
+        {"name": "App", "kind": "app_installs", "intent": "generic", "daily_budget": 15.0, "bid_strategy": {"type": "maximize_conversions"}, "rationale": "r",
+         "ad_groups": [{"name": "app", "theme": "app"}]}
+    ]});
+    let out = t.call("set_account_plan", plan).await;
+    assert!(!out.is_error, "{}", out.content);
+}

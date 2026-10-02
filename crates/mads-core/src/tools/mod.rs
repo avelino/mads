@@ -199,6 +199,7 @@ fn rules_summary(settings: &ToolSettings) -> Value {
             "search": {"bid_strategies": ["manual_cpc"]},
             "performance_max": {"bid_strategies": ["maximize_conversions"], "needs": "conversion_tracking"},
             "demand_gen": {"bid_strategies": ["maximize_clicks", "maximize_conversions"]},
+            "app_installs": {"bid_strategies": ["maximize_conversions"], "needs": "[app] in business.toml"},
         },
         "max_ad_groups": settings.max_ad_groups,
     })
@@ -225,6 +226,14 @@ fn image_rules_summary() -> Value {
             "descriptions": "1 to 5, at most 90 chars",
             "search_themes": "none",
             "images": "1 to 20: at least 1 landscape or square. Recommended 1 landscape, 1 square, 1 portrait",
+        },
+        "app_installs": {
+            "headlines": "1 to 5, at most 30 chars, no '!'",
+            "long_headlines": "none",
+            "descriptions": "1 to 5, at most 90 chars",
+            "search_themes": "none",
+            "business_name": "leave empty: the store shows the app's name",
+            "images": "1 to 20: landscape, square or portrait, no vertical",
         },
         "ratios": ratios,
         "image_id": "slug, unique in the asset group, such as wine-on-table",

@@ -46,6 +46,8 @@ When `business.toml` has `[campaigns] formats`, the result also has `required_fo
 
 `focus` is the `[focus]` table of `business.toml`, or null. With a focus, every landing page must be a focus URL (`E22`), and a planned group without entity lands on the first focus URL instead of `business.url`. Both `get_brief` tools return it too.
 
+`app` is the `[app]` table with its `store_url`, or null. `app_campaigns.available` says whether `app_installs` can be planned: it needs an image model and `[app]`, not a logo. The planned groups of an App campaign land on the store page.
+
 `catalog_photos` counts the catalog items with an `image`. `image_campaigns.available` is `true` only when the run has an image model and `business.toml` has a logo. Otherwise `reason` says which one is missing, `no image model in this run (set --image-provider and its API key)` or `no logo: set [brand] logo in business.toml`.
 
 When `business.toml` has a `[research]` table, the result also has `research`, the Markdown text of that file. Without notes the key is absent.
@@ -87,10 +89,10 @@ Each campaign.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Campaign name. Its slug is the mission id suffix. |
-| `kind` | string | no | `search` (default), `performance_max` or `demand_gen`. |
+| `kind` | string | no | `search` (default), `performance_max`, `demand_gen` or `app_installs`. |
 | `intent` | string | yes | `brand`, `catalog`, `generic` or `competitor`. |
 | `daily_budget` | number | yes | In currency units, at most 2 decimals. All campaigns must sum to `budget.daily`. |
-| `bid_strategy` | object | yes | `{"type": "..."}`. `search` takes `manual_cpc`, other types return `UNSUPPORTED`. `performance_max` takes `maximize_conversions`. `demand_gen` takes `maximize_clicks` or `maximize_conversions`. A mismatch is `E17`. |
+| `bid_strategy` | object | yes | `{"type": "..."}`. `search` takes `manual_cpc`, other types return `UNSUPPORTED`. `performance_max` and `app_installs` take `maximize_conversions`. `demand_gen` takes `maximize_clicks` or `maximize_conversions`. A mismatch is `E17`. |
 | `rationale` | string | yes | Why this budget share and bidding. |
 | `ad_groups` | array | yes | The planned ad groups of a Search campaign, the planned asset groups of an image campaign. |
 
@@ -103,7 +105,7 @@ Each ad group.
 | `entity_ids` | string array | no | Catalog ids this ad group covers. |
 | `final_url` | string | no | Landing page. Empty resolves to the entity URL (one entity) or `business.url`. |
 
-Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, `E17`, `E18`, `E21`, unknown catalog ids (`E12`) and `UNSUPPORTED`. An image campaign in a run without an image model or a logo is `UNSUPPORTED`. With image campaigns available, a plan without one needs a rationale with `No image campaign: <reason>` (`NO_IMAGE_REASON`). Result.
+Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, `E17`, `E18`, `E21`, unknown catalog ids (`E12`) and `UNSUPPORTED`. An image campaign in a run without an image model or a logo is `UNSUPPORTED`. With image campaigns available, a plan without one needs a rationale with `No image campaign: <reason>` (`NO_IMAGE_REASON`). With the app available, a plan without `app_installs` needs `No app campaign: <reason>` (`NO_APP_REASON`). Neither is asked when `business.toml` sets `[campaigns] formats`. Result.
 
 ```json
 {"campaigns": [{"name": "Vinellu - Marca", "slug": "vinellu-marca", "ad_groups": 1}]}
@@ -230,7 +232,7 @@ No arguments. Needs every planned ad group, assets and zero errors in the campai
 
 ## Image campaign mission
 
-A `performance_max` or `demand_gen` campaign gets these tools instead: `get_brief`, `upsert_asset_group`, `set_image_briefs`, `validate`, `finish`. Its system prompt is `prompts/image-campaign.md`.
+A `performance_max`, `demand_gen` or `app_installs` campaign gets these tools instead: `get_brief`, `upsert_asset_group`, `set_image_briefs`, `validate`, `finish`. Its system prompt is `prompts/image-campaign.md`.
 
 ### get_brief
 
@@ -243,8 +245,8 @@ Creates or replaces the texts of one planned asset group. Its image briefs are k
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | A planned asset group of this campaign. |
-| `business_name` | string | yes | At most 25 characters. |
-| `headlines` | string array | yes | Performance Max 3 to 15 of 30 characters. Demand Gen 1 to 5 of 40. |
+| `business_name` | string | no | At most 25 characters. App campaigns leave it empty. |
+| `headlines` | string array | yes | Performance Max 3 to 15 of 30 characters. Demand Gen 1 to 5 of 40. App 1 to 5 of 30. |
 | `long_headlines` | string array | no | Performance Max only, 1 to 5 of 90 characters. |
 | `descriptions` | string array | yes | Performance Max 2 to 5 of 90, one of them 60 or fewer. Demand Gen 1 to 5 of 90. |
 | `search_themes` | string array | no | Performance Max only, 0 to 25 of 80 characters. |
@@ -337,6 +339,7 @@ Saves the business profile. Replaces the previous one.
 | `brand_terms`, `competitors`, `avoid` | string array | no |
 | `pages` | array of `{"name", "url"}` | no |
 | `focus` | `{"name", "urls", "terms"}` | no |
+| `restricted` | string array | yes | Google Ads restricted content categories, `[]` for none. Values in [Restricted categories](../guides/restricted-categories.md). A call without it fails with `ARGS`. |
 
 The draft is validated like `business.toml`. With `--focus`, `focus` must have a name and list the start URL (`E22`) and have `terms` (`E23`), and its URLs must have been seen (`E07`). Once a focus is set, `add_catalog_items` refuses items whose URL is not a focus URL (`E22`). Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
 

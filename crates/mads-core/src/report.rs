@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, fmt::Write};
 
 use crate::{
     events::Totals,
-    google::{Account, EDITOR_CSV, Issue},
+    google::{Account, CampaignKind, EDITOR_FILE, Issue},
     images::ImageStepResult,
     input::{ExportStatus, Input},
     post::UrlResult,
@@ -54,11 +54,40 @@ pub fn render_report(d: &ReportData) -> String {
     bids(&mut md, d);
     validation(&mut md, d);
     url_check(&mut md, d);
+    restricted(&mut md, d);
     images(&mut md, d);
     usage(&mut md, d);
-    import_steps(&mut md, d.input.export.status);
-    editor_steps(&mut md, d);
+    import_steps(&mut md, d);
     md
+}
+
+/// What to expect from Google's restricted content review, and the exception request to paste.
+fn restricted(md: &mut String, d: &ReportData) {
+    let b = &d.input.business;
+    if b.restricted.is_empty() {
+        return;
+    }
+    let policies: Vec<&str> = b.restricted.iter().map(|r| r.policy()).collect();
+    let policy = policies.join(", ");
+    let about = b
+        .description
+        .split(". ")
+        .next()
+        .unwrap_or(&b.description)
+        .trim_end_matches('.');
+    let _ = writeln!(
+        md,
+        "## Restricted categories\n\n\
+         `business.toml` lists this business under Google Ads restricted content: {policy}. \
+         Google may refuse some keywords and ads at upload even when they only inform, often by product name. \
+         In Google Ads Editor they show an error such as `Alcohol sale` after posting.\n\n\
+         If the business does not do what the policy restricts (for example, it does not sell the product online), \
+         select the refused items in Editor, tick Request exception, paste the text below, and post again. \
+         Google reviews it in a few business days. Otherwise remove the items.\n\n\
+         > {name} ({url}): {about}. Our ads and keywords give information, reviews and comparisons about products in the {policy} category. We do not sell these products online. Please review them under the {policy} policy.\n",
+        name = b.name,
+        url = b.url,
+    );
 }
 
 fn has_images(d: &ReportData) -> bool {
@@ -72,7 +101,7 @@ fn images(md: &mut String, d: &ReportData) {
     let model = d.images.model.as_deref().unwrap_or("none");
     let _ = writeln!(
         md,
-        "## Images\n\nModel {model}: {} generated in this run, {} reused.\n",
+        "## Images\n\nModel {model}: {} generated in this run, {} reused. Attach each file to its ad or asset group in Google Ads Editor, see How to import.\n",
         d.images.generated, d.images.reused
     );
     md.push_str("| Campaign | Asset group | Image | Ratio | Reference | File |\n|---|---|---|---|---|---|\n");
@@ -92,22 +121,17 @@ fn images(md: &mut String, d: &ReportData) {
             }
         }
     }
-    md.push('\n');
-}
-
-fn editor_steps(md: &mut String, d: &ReportData) {
-    if !has_images(d) {
-        return;
+    if d.input.logo.is_some()
+        && d.account.campaigns.iter().any(|c| {
+            matches!(
+                c.kind,
+                CampaignKind::DemandGen | CampaignKind::PerformanceMax
+            )
+        })
+    {
+        md.push_str("Demand Gen ads and Performance Max asset groups also take the logo: `editor/images/logo.png`.\n");
     }
-    let _ = writeln!(
-        md,
-        "\n### Image campaigns\n\n\
-         Performance Max and Demand Gen campaigns are in `google-ads/{EDITOR_CSV}`, for Google Ads Editor.\n\n\
-         1. Open Google Ads Editor and download the account.\n\
-         2. Account, Import, From file, and pick `{EDITOR_CSV}`. Keep the `images/` folder next to it: image columns are paths relative to the file.\n\
-         3. Review the changes, then post them.\n\n\
-         > The columns of this file follow Google's documented headers and are not verified against a real Editor template yet. Check the import preview before posting."
-    );
+    md.push('\n');
 }
 
 fn status_line(d: &ReportData) -> &'static str {
@@ -249,21 +273,46 @@ fn usage(md: &mut String, d: &ReportData) {
     );
 }
 
-fn import_steps(md: &mut String, status: ExportStatus) {
-    let last = match status {
-        ExportStatus::Paused => "4. Campaigns arrive paused. Review them before enabling.",
+fn import_steps(md: &mut String, d: &ReportData) {
+    let last = match d.input.export.status {
+        ExportStatus::Paused => "Campaigns arrive paused. Review them before enabling.",
         ExportStatus::Enabled => {
-            "4. Campaigns arrive enabled. They start serving as soon as Google approves the ads."
+            "Campaigns arrive enabled. They start serving as soon as Google approves the ads."
         }
     };
+    let _ = writeln!(
+        md,
+        "## How to import\n\nPick one way. Doing both creates every Search campaign twice. {last}\n\n\
+         ### Google Ads Editor, the whole account\n\n\
+         1. Open Google Ads Editor and get the recent changes of the account.\n\
+         2. Account, Import, From file, and pick `google-ads/{EDITOR_FILE}`. Review the changes and keep them."
+    );
+    if has_images(d) {
+        md.push_str(
+            "3. Account, Import, Image assets from files, select the folder `google-ads/editor/images`, and choose to import image assets to the root folder: the pictures sit in one subfolder per campaign, which the account does not have, and the default skips them.\n\
+             4. For every ad and asset group in the Images table, open its Images field and pick the files listed there. Editor does not take images from a CSV, so this step is by hand.\n\
+             5. Post the changes.\n",
+        );
+    } else {
+        md.push_str("3. Post the changes.\n");
+    }
+    let unverified = d
+        .account
+        .campaigns
+        .iter()
+        .any(|c| c.kind == CampaignKind::PerformanceMax);
+    if unverified {
+        md.push_str("\n> Performance Max rows follow Google's documented Editor headers and have not gone through a real import yet. Check the import preview.\n");
+    }
     md.push_str(
-        "## How to import\n\n\
+        "\n### Google Ads on the web, Search campaigns only\n\n\
          1. Open Google Ads, then Tools, Bulk actions, Uploads.\n\
-         2. Upload the files in `google-ads/` in numeric order.\n\
+         2. Upload files 1 to 5 of `google-ads/` in numeric order.\n\
          3. Preview the changes, fix anything Google flags, then apply.\n",
     );
-    md.push_str(last);
-    md.push('\n');
+    if has_images(d) {
+        md.push_str("\nImage and app campaigns are not in files 1 to 5: the web bulk upload takes no image files.\n");
+    }
 }
 
 #[cfg(test)]
@@ -492,6 +541,18 @@ mod tests {
         let md = render_default();
         assert!(md.contains("Bulk actions") && md.contains("numeric order"));
         assert!(!md.contains('\u{2014}'));
+    }
+
+    #[test]
+    fn restricted_categories_get_their_section_and_exception_text() {
+        let mut input = testutil::input();
+        assert!(!render_report(&data(&input, &account())).contains("## Restricted categories"));
+        input.business.restricted = vec![crate::input::RestrictedCategory::Alcohol];
+        let md = render_report(&data(&input, &account()));
+        assert!(md.contains("## Restricted categories"), "{md}");
+        assert!(md.contains("Google Ads restricted content: Alcohol."));
+        assert!(md.contains("> Vinellu (https://vinellu.com): App social de vinhos com reviews, safras e harmonização."));
+        assert!(md.contains("Request exception"));
     }
 
     #[test]

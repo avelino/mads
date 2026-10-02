@@ -1,276 +1,405 @@
-//! Google Ads Editor CSV for image campaigns. Image columns hold paths relative to the CSV.
-//! The layout follows Google's documented headers and is not verified against a real template yet.
+//! The whole account as one Google Ads Editor import file.
+//!
+//! The format is the one Editor exports (checked against an export of version 2.13.3): UTF-16 LE
+//! with a BOM, tab separated, LF line endings, no row type column (the filled columns say what a
+//! row is), money with a dot and 2 decimals. Search and App rows match that export, and a file with
+//! Search, App and Demand Gen campaigns imported into Editor 2.13.3 with no error and every entity
+//! counted. Performance Max rows follow Google's documented headers, not imported yet. Pictures are
+//! not in the file: Editor neither exports nor imports the link between an ad and its images.
 
-use super::{Account, AspectRatio, AssetGroup, Campaign, CsvFile, ExportError, export::Sheet};
-use crate::input::Input;
+use std::collections::BTreeMap;
+
+use super::{
+    Account, AdGroup, AssetGroup, BrandKit, Campaign, CampaignKind, CsvFile, MatchType,
+    export::effective_negatives, merge_rsa,
+};
+use crate::{input::Input, money::Cents};
 
 /// Path of the file under the platform directory.
-pub const EDITOR_CSV: &str = "editor/image-campaigns.csv";
-/// Assets per asset group, from Google's limits.
-const HEADLINES: usize = 15;
-const LONG_HEADLINES: usize = 5;
-const DESCRIPTIONS: usize = 5;
+pub const EDITOR_FILE: &str = "editor/account.csv";
 
-/// How many numbered columns each repeated field needs in this account.
-struct Widths {
-    images: Vec<(AspectRatio, usize)>,
-    themes: usize,
-}
+const ACTIVE: &str = "Enabled";
+/// The bid Editor fills in when a field does not apply to the bid strategy. Every ad group of a
+/// real export carries it, and Editor warns "the ad group has no bids" without it.
+const MIN_BID: &str = "0.01";
 
-fn widths(campaigns: &[&Campaign]) -> Widths {
-    let groups = || campaigns.iter().flat_map(|c| &c.asset_groups);
-    let most = |f: &dyn Fn(&AssetGroup) -> usize| groups().map(f).max().unwrap_or(0).max(1);
-    Widths {
-        images: AspectRatio::ALL
-            .iter()
-            .map(|r| {
-                (
-                    *r,
-                    most(&|g| g.images.iter().filter(|b| b.ratio == *r).count()),
-                )
-            })
-            .collect(),
-        themes: most(&|g| g.search_themes.len()),
-    }
-}
-
-fn numbered(out: &mut Vec<String>, name: &str, n: usize) {
-    out.extend((1..=n).map(|i| format!("{name} {i}")));
-}
-
-fn header(w: &Widths) -> Vec<String> {
-    let mut h: Vec<String> = [
+/// Columns in the order Editor exports them. `Business name` and `Long headline N` come last:
+/// Google documents them, but no real export has shown them yet.
+pub fn editor_columns() -> Vec<String> {
+    let mut c: Vec<String> = [
         "Campaign",
-        "Campaign type",
-        "Campaign status",
+        "Campaign Type",
+        "Networks",
         "Budget",
         "Budget type",
-        "Bid strategy type",
+        "EU political ads",
         "Languages",
+        "Bid Strategy Type",
+        "App campaign store",
+        "App campaign package name",
+        "Campaign optimization",
+        "Final URL suffix",
+        "Ad Group",
+        "Max CPC",
+        "Max CPM",
+        "Target CPV",
+        "Target CPM",
+        "Ad Group Type",
         "Location",
-        "Asset group",
-        "Asset group status",
+        "Keyword",
+        "Criterion Type",
         "Final URL",
-        "Business name",
+        "Ad type",
     ]
     .map(String::from)
     .into();
-    numbered(&mut h, "Headline", HEADLINES);
-    numbered(&mut h, "Long headline", LONG_HEADLINES);
-    numbered(&mut h, "Description", DESCRIPTIONS);
-    h.push("Logo 1".into());
-    for (r, n) in &w.images {
-        numbered(&mut h, r.label(), *n);
-    }
-    numbered(&mut h, "Search theme", w.themes);
-    h
+    c.extend((1..=5).map(|i| format!("Headline {i}")));
+    c.extend((1..=5).map(|i| format!("Description {i}")));
+    c.push("Asset Group".into());
+    c.extend((6..=15).map(|i| format!("Headline {i}")));
+    c.extend(["Path 1", "Path 2", "Campaign Status", "Ad Group Status"].map(String::from));
+    c.extend(["Asset Group Status", "Status", "Business name"].map(String::from));
+    c.extend((1..=5).map(|i| format!("Long headline {i}")));
+    c
 }
 
-fn padded(out: &mut Vec<String>, items: &[String], n: usize) {
-    out.extend((0..n).map(|i| items.get(i).cloned().unwrap_or_default()));
+/// One row as column name to value. Missing columns are empty.
+#[derive(Default)]
+struct Row(BTreeMap<String, String>);
+
+impl Row {
+    fn set(mut self, col: &str, value: impl Into<String>) -> Self {
+        self.0.insert(col.to_string(), value.into());
+        self
+    }
+
+    fn numbered(mut self, name: &str, from: usize, values: &[String]) -> Self {
+        for (i, v) in values.iter().enumerate() {
+            self.0.insert(format!("{name} {}", from + i), v.clone());
+        }
+        self
+    }
 }
 
-fn campaign_row(input: &Input, c: &Campaign, width: usize) -> Vec<String> {
-    let mut row = vec![
-        c.name.clone(),
-        c.kind.label().into(),
-        input.export.status.as_str().into(),
-        c.daily_budget.format_budget(input.export.decimal_comma),
-        "Daily".into(),
-        c.bid_strategy.label().into(),
-        input.business.language_primary().into(),
-        input
-            .business
-            .locations
-            .first()
-            .cloned()
-            .unwrap_or_default(),
-    ];
-    row.resize(width, String::new());
-    row
+/// `250.00`: Editor writes money with a dot and 2 decimals whatever the account language.
+fn money(c: Cents) -> String {
+    format!("{}.{:02}", c.0 / 100, c.0 % 100)
 }
 
-fn group_row(c: &Campaign, g: &AssetGroup, w: &Widths, logo: &str) -> Vec<String> {
-    let mut row = vec![c.name.clone()];
-    row.resize(8, String::new());
-    row.extend([
-        g.name.clone(),
-        "Enabled".into(),
-        g.final_url.clone(),
-        g.business_name.clone(),
-    ]);
-    padded(&mut row, &g.headlines, HEADLINES);
-    padded(&mut row, &g.long_headlines, LONG_HEADLINES);
-    padded(&mut row, &g.descriptions, DESCRIPTIONS);
-    row.push(logo.into());
-    for (r, n) in &w.images {
-        let files: Vec<String> = g
-            .images
-            .iter()
-            .filter(|b| b.ratio == *r)
-            .map(|b| b.file.clone().unwrap_or_default())
-            .collect();
-        padded(&mut row, &files, *n);
+fn criterion(m: MatchType, negative: bool) -> &'static str {
+    match (m, negative) {
+        (MatchType::Phrase, false) => "Phrase",
+        (MatchType::Exact, false) => "Exact",
+        (MatchType::Phrase, true) => "Negative Phrase",
+        (MatchType::Exact, true) => "Negative Exact",
     }
-    padded(&mut row, &g.search_themes, w.themes);
-    row
 }
 
-/// The Editor CSV of every image campaign, or None when the account has none.
-/// Every brief must have its file and the input a logo: validation guarantees both.
-pub fn export_editor_csv(input: &Input, account: &Account) -> Result<Option<CsvFile>, ExportError> {
-    let campaigns: Vec<&Campaign> = account
-        .campaigns
-        .iter()
-        .filter(|c| c.kind.has_images())
-        .collect();
-    if campaigns.is_empty() {
-        return Ok(None);
+struct Ctx<'a> {
+    input: &'a Input,
+    kit: Option<&'a BrandKit>,
+    status: &'static str,
+}
+
+impl Ctx<'_> {
+    fn under(&self, c: &Campaign) -> Row {
+        Row::default()
+            .set("Campaign", &c.name)
+            .set("Campaign Status", self.status)
     }
-    let logo = crate::images::logo_rel_path(input).ok_or(ExportError::MissingLogo)?;
-    if let Some(b) = campaigns
-        .iter()
-        .flat_map(|c| &c.asset_groups)
-        .flat_map(|g| &g.images)
-        .find(|b| b.file.is_none())
-    {
-        return Err(ExportError::MissingImage(b.id.clone()));
+
+    fn in_group(&self, c: &Campaign, group: &str) -> Row {
+        self.under(c)
+            .set("Ad Group", group)
+            .set("Ad Group Status", ACTIVE)
     }
-    let w = widths(&campaigns);
-    let head = header(&w);
-    let mut sheet = Sheet::new(&head)?;
-    for c in campaigns {
-        sheet.row(campaign_row(input, c, head.len()))?;
-        for g in &c.asset_groups {
-            sheet.row(group_row(c, g, &w, &logo))?;
+
+    fn campaign(&self, c: &Campaign) -> Row {
+        let e = &self.input.export;
+        let eu = if e.eu_political_ads {
+            "Has EU political ads"
+        } else {
+            "Doesn't have EU political ads"
+        };
+        let row = self
+            .under(c)
+            .set("Campaign Type", c.kind.label())
+            .set("Budget", money(c.daily_budget))
+            .set("Budget type", "Daily")
+            .set("EU political ads", eu)
+            .set("Bid Strategy Type", c.bid_strategy.label());
+        // Demand Gen targets language on its ad groups: Editor refuses it on the campaign.
+        let row = if c.kind == CampaignKind::DemandGen {
+            row
+        } else {
+            row.set("Languages", self.input.business.language_primary())
+        };
+        let suffix = e.url_suffix.replace("{mads_campaign}", &c.slug);
+        match (c.kind, &self.input.app) {
+            (CampaignKind::AppInstalls, Some(app)) => row
+                .set("App campaign store", app.store_label())
+                .set("App campaign package name", &app.id)
+                .set("Campaign optimization", "Installs"),
+            (CampaignKind::AppInstalls, None) => row,
+            (CampaignKind::Search, _) => row
+                .set("Networks", "Google search")
+                .set("Final URL suffix", suffix),
+            _ => row.set("Final URL suffix", suffix),
         }
     }
-    Ok(Some(sheet.finish(EDITOR_CSV)?))
+
+    /// An ad group row with the bids every ad group of a real export carries.
+    fn group_row(&self, c: &Campaign, group: &str, max_cpc: String) -> Row {
+        self.in_group(c, group)
+            .set("Max CPC", max_cpc)
+            .set("Max CPM", MIN_BID)
+            .set("Target CPV", MIN_BID)
+            .set("Target CPM", MIN_BID)
+            .set("Ad Group Type", "Standard")
+    }
+
+    /// Location rows. Demand Gen targets location on its ad groups: Editor refuses it on the campaign.
+    fn locations(&self, c: &Campaign) -> Vec<Row> {
+        let Some(place) = self.input.business.locations.first() else {
+            return Vec::new();
+        };
+        let row = |r: Row| r.set("Location", place).set("Status", ACTIVE);
+        if c.kind == CampaignKind::DemandGen {
+            c.asset_groups
+                .iter()
+                .map(|g| row(self.in_group(c, &g.name)))
+                .collect()
+        } else {
+            vec![row(self.under(c))]
+        }
+    }
+
+    fn keyword(&self, c: &Campaign, ag: &AdGroup, text: &str, kind: &str) -> Row {
+        self.in_group(c, &ag.name)
+            .set("Keyword", text)
+            .set("Criterion Type", kind)
+            .set("Status", ACTIVE)
+    }
+
+    fn search_group(&self, c: &Campaign, ag: &AdGroup, out: &mut Vec<Row>) {
+        out.push(self.group_row(c, &ag.name, money(ag.default_cpc)));
+        for k in &ag.keywords {
+            out.push(self.keyword(c, ag, &k.text, criterion(k.match_type, false)));
+        }
+        for n in effective_negatives(c, ag) {
+            out.push(self.keyword(c, ag, &n.text, criterion(n.match_type, true)));
+        }
+        let Some(kit) = self.kit else {
+            return;
+        };
+        let ad = merge_rsa(&ag.rsa, kit);
+        out.push(
+            self.in_group(c, &ag.name)
+                .set("Final URL", &ag.final_url)
+                .set("Ad type", "Responsive search ad")
+                .numbered("Headline", 1, &ad.headlines)
+                .numbered("Description", 1, &ad.descriptions)
+                .set("Path 1", ad.path1.unwrap_or_default())
+                .set("Path 2", ad.path2.unwrap_or_default())
+                .set("Status", ACTIVE),
+        );
+    }
+
+    /// App and Demand Gen: an ad group with one ad holding the texts.
+    fn group_with_ad(&self, c: &Campaign, g: &AssetGroup, ad_type: &str, out: &mut Vec<Row>) {
+        let mut group = self.group_row(c, &g.name, MIN_BID.into());
+        if c.kind == CampaignKind::DemandGen {
+            group = group.set("Languages", self.input.business.language_primary());
+        }
+        out.push(group);
+        let mut ad = self
+            .in_group(c, &g.name)
+            .set("Ad type", ad_type)
+            .numbered("Headline", 1, &g.headlines)
+            .numbered("Description", 1, &g.descriptions)
+            .set("Status", ACTIVE);
+        if c.kind == CampaignKind::DemandGen {
+            ad = ad
+                .set("Final URL", &g.final_url)
+                .set("Business name", &g.business_name);
+        }
+        out.push(ad);
+    }
+
+    fn asset_group(&self, c: &Campaign, g: &AssetGroup) -> Row {
+        self.under(c)
+            .set("Asset Group", &g.name)
+            .set("Asset Group Status", ACTIVE)
+            .set("Final URL", &g.final_url)
+            .set("Business name", &g.business_name)
+            .numbered("Headline", 1, &g.headlines)
+            .numbered("Long headline", 1, &g.long_headlines)
+            .numbered("Description", 1, &g.descriptions)
+    }
+
+    fn rows_of(&self, c: &Campaign) -> Vec<Row> {
+        let mut out = vec![self.campaign(c)];
+        out.extend(self.locations(c));
+        match c.kind {
+            CampaignKind::Search => c
+                .ad_groups
+                .iter()
+                .for_each(|ag| self.search_group(c, ag, &mut out)),
+            CampaignKind::AppInstalls => c
+                .asset_groups
+                .iter()
+                .for_each(|g| self.group_with_ad(c, g, "App ad for installs", &mut out)),
+            CampaignKind::DemandGen => c
+                .asset_groups
+                .iter()
+                .for_each(|g| self.group_with_ad(c, g, "Demand Gen image ad", &mut out)),
+            CampaignKind::PerformanceMax => {
+                out.extend(c.asset_groups.iter().map(|g| self.asset_group(c, g)));
+            }
+        }
+        out
+    }
+}
+
+/// Quotes a field the way Editor does: when it holds a comma, a quote, a tab or a line break.
+fn field(v: &str) -> String {
+    if v.contains([',', '"', '\t', '\n', '\r']) {
+        format!("\"{}\"", v.replace('"', "\"\""))
+    } else {
+        v.to_string()
+    }
+}
+
+/// UTF-16 LE with a byte order mark, as Editor writes its exports.
+fn utf16le(text: &str) -> Vec<u8> {
+    let mut out = vec![0xFF, 0xFE];
+    out.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+    out
+}
+
+/// Every campaign of the account in one Editor import file. None for an empty account.
+pub fn export_editor(input: &Input, account: &Account) -> Option<CsvFile> {
+    if account.campaigns.is_empty() {
+        return None;
+    }
+    let ctx = Ctx {
+        input,
+        kit: account.brand_kit.as_ref(),
+        status: input.export.status.as_str(),
+    };
+    let cols = editor_columns();
+    let mut text = cols.join("\t");
+    text.push('\n');
+    for row in account.campaigns.iter().flat_map(|c| ctx.rows_of(c)) {
+        let line: Vec<String> = cols
+            .iter()
+            .map(|col| field(row.0.get(col).map_or("", String::as_str)))
+            .collect();
+        text.push_str(&line.join("\t"));
+        text.push('\n');
+    }
+    Some(CsvFile {
+        name: EDITOR_FILE,
+        bytes: utf16le(&text),
+    })
+}
+
+/// Reads an Editor file back: header and rows as column to value. For tests and tools.
+pub fn read_editor(bytes: &[u8]) -> Result<Vec<BTreeMap<String, String>>, String> {
+    let body = bytes
+        .strip_prefix(&[0xFF, 0xFE])
+        .ok_or("no UTF-16 LE byte order mark")?;
+    if body.len() % 2 != 0 {
+        return Err("odd number of UTF-16 bytes".into());
+    }
+    let (pairs, _) = body.as_chunks::<2>();
+    let units: Vec<u16> = pairs.iter().map(|b| u16::from_le_bytes(*b)).collect();
+    let text = String::from_utf16(&units).map_err(|e| e.to_string())?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(b'\t')
+        .flexible(true)
+        .from_reader(text.as_bytes());
+    let header: Vec<String> = rdr
+        .headers()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(String::from)
+        .collect();
+    rdr.records()
+        .map(|r| {
+            let r = r.map_err(|e| e.to_string())?;
+            Ok(header
+                .iter()
+                .zip(r.iter())
+                .filter(|(_, v)| !v.is_empty())
+                .map(|(h, v)| (h.clone(), v.to_string()))
+                .collect())
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::google::*;
+    use crate::google::{BidStrategy, Intent};
 
-    fn brief(id: &str, ratio: AspectRatio) -> ImageBrief {
-        ImageBrief {
-            id: id.into(),
-            ratio,
-            prompt: "p".into(),
-            reference: None,
-            file: Some(format!("images/c/g-{id}.jpg")),
-        }
-    }
-
-    fn account() -> Account {
-        let group = AssetGroup {
-            name: "tintos".into(),
-            final_url: "https://vinellu.com/w/a".into(),
-            business_name: "Vinellu".into(),
-            headlines: vec!["H1".into(), "H2, com virgula".into()],
-            long_headlines: vec!["Long".into()],
-            descriptions: vec!["D1".into(), "D2".into()],
-            search_themes: vec!["vinho".into(), "malbec".into()],
-            images: vec![
-                brief("a", AspectRatio::Landscape),
-                brief("b", AspectRatio::Square),
-                brief("c", AspectRatio::Square),
-            ],
-        };
-        Account {
-            brand_kit: None,
-            campaigns: vec![Campaign {
-                name: "Vinellu - PMax".into(),
-                slug: "vinellu-pmax".into(),
-                kind: CampaignKind::PerformanceMax,
-                intent: Intent::Generic,
-                daily_budget: Cents(2050),
-                bid_strategy: BidStrategy::MaximizeConversions,
-                rationale: String::new(),
-                planned_ad_groups: vec![],
-                ad_groups: vec![],
-                asset_groups: vec![group],
-                negatives: vec![],
-                assets: None,
+    fn demand_gen() -> Campaign {
+        Campaign {
+            name: "Feed".into(),
+            slug: "feed".into(),
+            kind: CampaignKind::DemandGen,
+            intent: Intent::Generic,
+            daily_budget: Cents(5000),
+            bid_strategy: BidStrategy::MaximizeClicks { max_cpc: None },
+            rationale: String::new(),
+            planned_ad_groups: vec![],
+            ad_groups: vec![],
+            asset_groups: vec![AssetGroup {
+                name: "tintos".into(),
+                final_url: "https://vinellu.com/app".into(),
+                business_name: "Vinellu".into(),
+                headlines: vec!["H".into()],
+                long_headlines: vec![],
+                descriptions: vec!["D".into()],
+                search_themes: vec![],
+                images: vec![],
             }],
+            negatives: vec![],
+            assets: None,
         }
     }
 
-    fn input() -> Input {
-        let mut i = crate::testutil::input();
-        i.logo = Some("/x/brand/logo.png".into());
-        i
-    }
-
-    fn lines(f: &CsvFile) -> Vec<String> {
-        let text = String::from_utf8(f.bytes.clone()).unwrap();
-        assert!(text.ends_with("\r\n"));
-        text.split("\r\n")
-            .filter(|l| !l.is_empty())
-            .map(String::from)
-            .collect()
-    }
-
     #[test]
-    fn writes_a_campaign_row_then_one_row_per_asset_group() {
-        let f = export_editor_csv(&input(), &account()).unwrap().unwrap();
-        assert_eq!(f.name, "editor/image-campaigns.csv");
-        let l = lines(&f);
-        assert_eq!(l.len(), 3);
-        let head: Vec<&str> = l[0].split(',').collect();
-        assert_eq!(
-            &head[..4],
-            ["Campaign", "Campaign type", "Campaign status", "Budget"]
-        );
-        assert!(head.contains(&"Square image 2") && !head.contains(&"Square image 3"));
-        assert!(head.contains(&"Vertical image 1") && head.contains(&"Search theme 2"));
-        assert!(l[1].starts_with(
-            "Vinellu - PMax,Performance Max,Paused,\"20,50\",Daily,Maximize conversions,pt,Brazil,"
-        ));
-        assert!(
-            l[2].contains(
-                ",tintos,Enabled,https://vinellu.com/w/a,Vinellu,H1,\"H2, com virgula\","
-            )
-        );
-        assert!(
-            l[2].contains(",images/logo.png,images/c/g-a.jpg,images/c/g-b.jpg,images/c/g-c.jpg,")
-        );
-        assert!(l[2].ends_with(",vinho,malbec"));
-        let cells = |row: &str| {
-            csv::ReaderBuilder::new()
-                .has_headers(false)
-                .from_reader(row.as_bytes())
-                .records()
-                .next()
-                .unwrap()
-                .unwrap()
-                .len()
+    fn demand_gen_targets_language_on_its_ad_groups_not_on_the_campaign() {
+        // Editor: "campaign languages are not allowed when location and language targeting is at
+        // the ad group level", which is how a Demand Gen campaign starts.
+        let account = Account {
+            brand_kit: None,
+            campaigns: vec![demand_gen()],
         };
-        assert_eq!(cells(&l[1]), head.len());
-        assert_eq!(cells(&l[2]), head.len());
-    }
-
-    #[test]
-    fn nothing_without_image_campaigns() {
-        let mut a = account();
-        a.campaigns[0].kind = CampaignKind::Search;
-        assert_eq!(export_editor_csv(&input(), &a).unwrap(), None);
-    }
-
-    #[test]
-    fn a_missing_file_or_logo_is_an_error() {
-        let mut a = account();
-        a.campaigns[0].asset_groups[0].images[1].file = None;
+        let file = export_editor(&crate::testutil::input(), &account).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        let campaign = rows
+            .iter()
+            .find(|r| r.contains_key("Campaign Type"))
+            .unwrap();
+        assert!(!campaign.contains_key("Languages"), "{campaign:?}");
+        let group = rows
+            .iter()
+            .find(|r| r.contains_key("Ad Group Type"))
+            .unwrap();
+        assert_eq!(group.get("Languages").map(String::as_str), Some("pt"));
         assert_eq!(
-            export_editor_csv(&input(), &a),
-            Err(ExportError::MissingImage("b".into()))
+            group.get("Max CPM").map(String::as_str),
+            Some("0.01"),
+            "no-bids warning"
         );
-        let mut i = input();
-        i.logo = None;
+        let locations: Vec<_> = rows.iter().filter(|r| r.contains_key("Location")).collect();
+        assert_eq!(locations.len(), 1);
         assert_eq!(
-            export_editor_csv(&i, &account()),
-            Err(ExportError::MissingLogo)
+            locations[0].get("Ad Group").map(String::as_str),
+            Some("tintos"),
+            "Demand Gen targets location on the ad group too"
         );
     }
 }

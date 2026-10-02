@@ -219,6 +219,12 @@ pub async fn run_init(
     }
 
     let (catalog, research, logo) = if finished {
+        if let Some(note) = state.lock().await.stale_formats_note() {
+            events.emit(Event::Step {
+                name: "keep".into(),
+                detail: note,
+            });
+        }
         let logo = save_logo(&cfg, &state, site.as_ref(), &events).await?;
         let (catalog, research) = write_files(&cfg, &state, &events).await?;
         (catalog, research, logo)
@@ -432,6 +438,9 @@ mod tests {
                 links: vec!["https://vinellu.com/app".into()],
                 image: String::new(),
                 theme_color: "#AD1457".into(),
+                app_links: vec![
+                    "https://play.google.com/store/apps/details?id=com.vinellu.app".into(),
+                ],
                 logos: vec![
                     "https://vinellu.com/tiny.png".into(),
                     "https://vinellu.com/apple-touch-icon.png".into(),
@@ -474,7 +483,7 @@ mod tests {
                 "write_business",
                 json!({"name": "Vinellu", "url": "https://vinellu.com", "language": "pt-BR", "locations": ["Brazil"], "goal": "cadastros no app",
                 "description": "App social de vinhos com reviews, safras e harmonização.", "competitors": ["Vivino"],
-                "pages": [{"name": "app", "url": "https://vinellu.com/app"}]}),
+                "pages": [{"name": "app", "url": "https://vinellu.com/app"}], "restricted": ["alcohol"]}),
             ),
             (
                 "add_catalog_items",
@@ -550,6 +559,7 @@ mod tests {
             "the tiny icon is skipped, the touch icon kept"
         );
         assert!(input.logo.is_some_and(|l| l.ends_with("brand/logo.png")));
+        assert_eq!(input.app.map(|a| a.id), Some("com.vinellu.app".to_string()));
         crate::images::check_logo(&std::fs::read(logo).unwrap()).unwrap();
         let design = std::fs::read_to_string(dir.path().join("DESIGN.md")).unwrap();
         assert!(
@@ -609,7 +619,7 @@ mod tests {
         );
     }
 
-    const OLD_TOML: &str = "[business]\nname = \"Old\"\n\n[budget]\ndaily = 1.0\ncurrency = \"USD\"\nmax_cpc = 2.5\n\n[export]\nstatus = \"Enabled\"\n\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n";
+    const OLD_TOML: &str = "[business]\nname = \"Old\"\n\n[budget]\ndaily = 1.0\ncurrency = \"USD\"\nmax_cpc = 2.5\n\n[export]\nstatus = \"Enabled\"\n\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n\n[app]\nstore = \"app_store\"\nid = \"123\"\n";
 
     #[tokio::test]
     async fn force_keeps_what_a_person_wrote_by_hand() {
@@ -627,7 +637,16 @@ mod tests {
         assert_eq!(input.budget.max_cpc, Some(Cents(250)));
         assert_eq!(input.export.status, crate::input::ExportStatus::Enabled);
         assert_eq!(input.formats.len(), 2);
+        assert_eq!(
+            input.app.map(|a| a.id),
+            Some("com.vinellu.app".to_string()),
+            "the app the site links to wins over the old one"
+        );
         assert!(events.iter().any(|e| matches!(e, Event::Step { name, detail } if name == "keep" && detail.contains("[campaigns]"))));
+        assert!(
+            events.iter().any(|e| matches!(e, Event::Step { detail, .. } if detail.contains("add \"app_installs\""))),
+            "the kept formats skip the app the site links to"
+        );
     }
 
     #[tokio::test]
@@ -915,7 +934,7 @@ mod tests {
             (
                 "write_business",
                 json!({"name": "Vinellu", "url": "https://vinellu.com", "language": "pt-BR", "locations": ["Brazil"], "goal": "g",
-                "description": "App social de vinhos com reviews, safras e harmonização."}),
+                "description": "App social de vinhos com reviews, safras e harmonização.", "restricted": []}),
             ),
             ("write_research", research_args()),
             ("finish", json!({})),

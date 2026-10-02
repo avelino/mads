@@ -18,6 +18,7 @@ Unknown keys are rejected in every table, so a typo fails fast. Input errors exi
 | `brand_terms` | string array | no | `[lowercase(name)]` | Each 1 to 80 characters |
 | `competitors` | string array | no | `[]` | Each 1 to 80 characters |
 | `avoid` | string array | no | `[]` | Each 1 to 80 characters |
+| `restricted` | string array | no | `[]` | Google Ads restricted content categories: `alcohol`, `gambling`, `healthcare`, `financial_services`, `political`, `sexual_content`. Any other value is a parse error. `mads init` always writes it, `[]` included. See [Restricted categories](../guides/restricted-categories.md). |
 
 Length counts Unicode characters, not bytes.
 
@@ -76,6 +77,15 @@ The file is Markdown. `generate` reads it and the plan agent gets it from `get_b
 The logo must be PNG or JPEG, square within 1 percent, at least 144x144 pixels and at most 150 KB. Anything else fails with the key `brand.logo` and the reason, for example `brand.logo: logo.png: 400x200 is not square`. A missing file is an error.
 
 Image campaigns (Performance Max and Demand Gen) need it. Without `[brand]` the plan can only use Search. See [Image campaigns](../guides/image-campaigns.md).
+
+## [app]
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `store` | string | yes | `google_play` or `app_store`. |
+| `id` | string | yes | The package name on Google Play (`com.example.app`), the numeric id on the App Store. |
+
+`app_installs` campaigns need it (`E24`). Their ads link to the store page. `mads init` writes it when a fetched page links to the app, Google Play first. `init --force` keeps a hand-written `[app]` when the site links to none.
 
 ## [focus]
 

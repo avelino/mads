@@ -69,6 +69,27 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
                 if let Some(research) = &r.research {
                     eprintln!("Read what the agent found in {}", research.display());
                 }
+                if let Ok(file) = std::fs::read_to_string(&r.business)
+                    .map_err(|e| e.to_string())
+                    .and_then(|t| mads_core::input::parse_input_toml(&t).map_err(|e| e.to_string()))
+                {
+                    let cats: Vec<&str> = file
+                        .business
+                        .restricted
+                        .iter()
+                        .map(|c| c.policy())
+                        .collect();
+                    if cats.is_empty() {
+                        eprintln!(
+                            "Restricted categories: none (check `restricted` in business.toml)"
+                        );
+                    } else {
+                        eprintln!(
+                            "Restricted categories: {}. Google may refuse some keywords: the report explains how to ask for an exception",
+                            cats.join(", ")
+                        );
+                    }
+                }
                 let design = args.out_dir.join(mads_core::init::DESIGN_FILE);
                 if design.exists() {
                     eprintln!(

@@ -85,4 +85,6 @@ The last import step in the report follows `export.status`. With `Enabled` it sa
 
 Sitelinks, callouts and structured snippets are validated but not exported. Add them in the Google Ads interface until the asset templates are verified.
 
-Performance Max and Demand Gen campaigns are not in files 1 to 5. They are in `google-ads/editor/image-campaigns.csv` with their pictures, and you import them with Google Ads Editor. See [Image campaigns](image-campaigns.md#import).
+When `business.toml` lists a restricted category, Google may refuse some keywords or ads at upload, such as `Alcohol sale: Your creative promotes the online sale of alcohol.` The `Restricted categories` section of `report.md` has the exception text to paste. See [Restricted categories](restricted-categories.md#when-google-refuses-a-keyword-or-an-ad).
+
+Performance Max, Demand Gen and App campaigns are not in files 1 to 5. `google-ads/editor/account.csv` holds the whole account, Search included, for Google Ads Editor, and you attach the pictures there by hand. Import that file or files 1 to 5, never both. See [Image campaigns](image-campaigns.md#import).

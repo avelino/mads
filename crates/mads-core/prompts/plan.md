@@ -33,6 +33,15 @@ Skip an intent that does not fit the business. A business with no catalog has no
 
 Ad groups are tightly themed: one entity, or a few entities that share the same searches. Every ad group about a catalog item must list that item's `id` in `entity_ids`: an ad group with no `entity_ids` lands on the home page, which converts worse than the item page. Leave `final_url` empty to land on the entity page (one entity) or the business URL (none). Never invent a URL.
 
+## Restricted categories
+
+When `business.restricted` is not empty, Google Ads reviews this account under its restricted content policy and refuses keywords and ads it reads as a breach. For every listed category:
+
+- Never use sale or transaction words for the restricted subject in keywords, ad texts or sitelinks: buy, price, cheap, deal, discount, shop, store, order, delivery, free shipping, in the business language too. Frame searches and texts as information, reviews, comparison or community.
+- `alcohol`: no promise of effects, no excess, nothing aimed at minors.
+- `gambling`, `financial_services`, `healthcare`: no promise of gains, results or cures, no urgency.
+- Expect some product names to be refused anyway: the report tells the advertiser how to ask Google for an exception.
+
 ## Ad format
 
 Each campaign has a `kind`, the ad format you expect to bring the most customers for its intent:
@@ -41,7 +50,11 @@ Each campaign has a `kind`, the ad format you expect to bring the most customers
 - `demand_gen`: picture ads in YouTube, Discover and Gmail feeds. Use it to create demand people do not search for yet, when the product shows well in a picture (something people see, wear, eat, visit or use on a screen). It does not need conversion tracking: with `maximize_clicks` it buys clicks.
 - `performance_max`: one campaign that Google spreads over Search, YouTube, Display, Discover, Gmail and Maps, with texts and pictures. It optimizes for conversions, so use it only when `conversion_tracking` is true and the budget lets Google learn. Without conversion tracking do not use it.
 
-Image formats are only possible when `get_business` says `image_campaigns.available` is true. When it is false, plan `search` campaigns only.
+- `app_installs`: installs of the business's app from Google Play or the App Store. Google shows it in the store, YouTube, Search and Display, and optimizes for installs. Use it when the goal is installs and `get_business` has `app`. It takes `maximize_conversions` and needs no `conversion_tracking`: the store counts the installs. Its `ad_groups` are themes of the app (one use, one audience), they land on the store page by themselves.
+
+Image formats are only possible when `get_business` says `image_campaigns.available` is true. `app_installs` is possible when `app_campaigns.available` is true.
+
+When `app_campaigns.available` is true, the default is one `app_installs` campaign: it optimizes for installs, which a Demand Gen or Search ad that says "download the app" cannot do. Leave it out only for a concrete reason, such as a goal that is sales on the site, and then start the rationale of your largest campaign with `No app campaign:` and that reason. A plan with the app available, no `app_installs` campaign and no such reason is refused with `NO_APP_REASON`. When `required_formats` is set, it decides the formats and neither reason is asked. When it is false, plan `search` campaigns only.
 
 Mix formats only when each one has a clear job: Search captures the demand that exists, Demand Gen creates new demand, Performance Max scales what converts. Never plan two campaigns that compete for the same people with the same message.
 

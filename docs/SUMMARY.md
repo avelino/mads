@@ -18,6 +18,7 @@
 * [Init from a URL](guides/init-from-url.md)
 * [How campaigns are built](guides/how-campaigns-are-built.md)
 * [Image campaigns](guides/image-campaigns.md)
+* [Restricted categories](guides/restricted-categories.md)
 * [Review and import](guides/review-and-import.md)
 * [Resume and export](guides/resume-and-export.md)
 * [Cost and limits](guides/cost-and-limits.md)

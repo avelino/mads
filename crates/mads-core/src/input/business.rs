@@ -42,6 +42,7 @@ struct RawFile {
     campaigns: Option<RawCampaigns>,
     design: Option<RawResearch>,
     focus: Option<RawFocus>,
+    app: Option<App>,
 }
 
 #[derive(Deserialize)]
@@ -71,6 +72,8 @@ struct RawBusiness {
     avoid: Vec<String>,
     #[serde(default)]
     pages: Vec<RawPage>,
+    #[serde(default)]
+    restricted: Vec<RestrictedCategory>,
 }
 
 #[derive(Deserialize)]
@@ -134,6 +137,92 @@ impl ExportStatus {
             ExportStatus::Enabled => "Enabled",
         }
     }
+}
+
+/// Store of the app an `app_installs` campaign promotes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppStore {
+    GooglePlay,
+    AppStore,
+}
+
+/// `[app]`: the app an `app_installs` campaign promotes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct App {
+    pub store: AppStore,
+    /// Package name on Google Play (`com.example.app`), numeric id on the App Store.
+    pub id: String,
+}
+
+impl App {
+    /// The store page, which app ads link to.
+    pub fn store_url(&self) -> String {
+        match self.store {
+            AppStore::GooglePlay => {
+                format!("https://play.google.com/store/apps/details?id={}", self.id)
+            }
+            AppStore::AppStore => format!("https://apps.apple.com/app/id{}", self.id),
+        }
+    }
+
+    /// The `App campaign store` value Google Ads Editor writes.
+    pub fn store_label(&self) -> &'static str {
+        match self.store {
+            AppStore::GooglePlay => "Google Play",
+            AppStore::AppStore => "iTunes",
+        }
+    }
+}
+
+impl App {
+    /// The app a store link points at: `play.google.com/store/apps/details?id=…` or
+    /// `apps.apple.com/…/id<digits>`. None for any other link.
+    pub fn from_store_link(link: &str) -> Option<App> {
+        let url = url::Url::parse(link).ok()?;
+        match url.host_str()? {
+            "play.google.com" if url.path().starts_with("/store/apps/details") => {
+                let id = url.query_pairs().find(|(k, _)| k == "id")?.1.to_string();
+                check_app(Some(App {
+                    store: AppStore::GooglePlay,
+                    id,
+                }))
+                .ok()?
+            }
+            "apps.apple.com" | "itunes.apple.com" => {
+                let last = url.path_segments()?.next_back()?;
+                let id = last.strip_prefix("id")?.to_string();
+                check_app(Some(App {
+                    store: AppStore::AppStore,
+                    id,
+                }))
+                .ok()?
+            }
+            _ => None,
+        }
+    }
+}
+
+fn check_app(app: Option<App>) -> Result<Option<App>, InputError> {
+    let Some(a) = app else {
+        return Ok(None);
+    };
+    let ok = match a.store {
+        AppStore::GooglePlay => {
+            a.id.contains('.')
+                && a.id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+        }
+        AppStore::AppStore => !a.id.is_empty() && a.id.chars().all(|c| c.is_ascii_digit()),
+    };
+    if !ok {
+        let msg =
+            "Google Play takes a package name such as com.example.app, the App Store a numeric id";
+        return Err(invalid("app.id", msg));
+    }
+    Ok(Some(a))
 }
 
 /// The one offer an account advertises, such as a route or a product line. Every final URL is one of `urls`.
@@ -209,6 +298,48 @@ pub struct Business {
     pub competitors: Vec<String>,
     pub avoid: Vec<String>,
     pub pages: Vec<Page>,
+    /// Google Ads restricted content categories the business falls in. Empty: none.
+    #[serde(default)]
+    pub restricted: Vec<RestrictedCategory>,
+}
+
+/// A category of Google Ads' restricted content policy. Ads and keywords in it face extra review,
+/// country rules and automatic disapprovals.
+// No doc comments on the variants: schemars would turn them into a `oneOf` some providers reject.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum RestrictedCategory {
+    Alcohol,
+    Gambling,
+    Healthcare,
+    FinancialServices,
+    Political,
+    SexualContent,
+}
+
+impl RestrictedCategory {
+    pub const ALL: [RestrictedCategory; 6] = [
+        RestrictedCategory::Alcohol,
+        RestrictedCategory::Gambling,
+        RestrictedCategory::Healthcare,
+        RestrictedCategory::FinancialServices,
+        RestrictedCategory::Political,
+        RestrictedCategory::SexualContent,
+    ];
+
+    /// The policy's name in Google Ads help.
+    pub fn policy(self) -> &'static str {
+        match self {
+            RestrictedCategory::Alcohol => "Alcohol",
+            RestrictedCategory::Gambling => "Gambling and games",
+            RestrictedCategory::Healthcare => "Healthcare and medicines",
+            RestrictedCategory::FinancialServices => "Financial services",
+            RestrictedCategory::Political => "Political content",
+            RestrictedCategory::SexualContent => "Sexual content",
+        }
+    }
 }
 
 impl Business {
@@ -249,6 +380,7 @@ pub struct InputFile {
     /// DESIGN.md, relative to the TOML file.
     pub design_file: Option<String>,
     pub focus: Option<Focus>,
+    pub app: Option<App>,
 }
 
 /// Everything `generate` consumes.
@@ -273,6 +405,9 @@ pub struct Input {
     /// The offer the account advertises. None: the whole business.
     #[serde(default)]
     pub focus: Option<Focus>,
+    /// The app `app_installs` campaigns promote.
+    #[serde(default)]
+    pub app: Option<App>,
 }
 
 fn check_len(key: &str, s: &str, min: usize, max: usize) -> Result<(), InputError> {
@@ -399,6 +534,7 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
             competitors: b.competitors,
             avoid: b.avoid,
             pages,
+            restricted: b.restricted,
         },
         budget: Budget {
             daily,
@@ -412,6 +548,7 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
         formats: check_formats(raw.campaigns, raw.brand.is_some(), b_tracking)?,
         design_file: raw.design.map(|d| d.file),
         focus: check_focus(raw.focus)?,
+        app: check_app(raw.app)?,
     })
 }
 
@@ -487,6 +624,7 @@ pub fn load_input(path: &Path) -> Result<Input, InputError> {
         formats: file.formats,
         design,
         focus: file.focus,
+        app: file.app,
     })
 }
 
@@ -781,6 +919,66 @@ currency = "BRL"
             load_input(&dir.path().join("business.toml")).unwrap().logo,
             None
         );
+    }
+
+    #[test]
+    fn restricted_categories_are_optional_and_known() {
+        assert!(
+            parse_input_toml(MINIMAL)
+                .unwrap()
+                .business
+                .restricted
+                .is_empty()
+        );
+        let toml = MINIMAL.replace("goal =", "restricted = [\"alcohol\"]\ngoal =");
+        assert_eq!(
+            parse_input_toml(&toml).unwrap().business.restricted,
+            [RestrictedCategory::Alcohol]
+        );
+        let unknown = MINIMAL.replace("goal =", "restricted = [\"wine\"]\ngoal =");
+        assert!(matches!(
+            parse_input_toml(&unknown),
+            Err(InputError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn app_is_optional_and_checked() {
+        assert!(parse_input_toml(MINIMAL).unwrap().app.is_none());
+        let play = format!("{MINIMAL}\n[app]\nstore = \"google_play\"\nid = \"com.vinellu.app\"\n");
+        let app = parse_input_toml(&play).unwrap().app.unwrap();
+        assert_eq!(
+            app.store_url(),
+            "https://play.google.com/store/apps/details?id=com.vinellu.app"
+        );
+        assert_eq!(app.store_label(), "Google Play");
+        let apple = format!("{MINIMAL}\n[app]\nstore = \"app_store\"\nid = \"1234567\"\n");
+        assert_eq!(
+            parse_input_toml(&apple).unwrap().app.unwrap().store_url(),
+            "https://apps.apple.com/app/id1234567"
+        );
+        let bad = format!("{MINIMAL}\n[app]\nstore = \"app_store\"\nid = \"com.x\"\n");
+        assert_eq!(err_key(&bad), "app.id");
+    }
+
+    #[test]
+    fn store_links_name_the_app() {
+        let play = App::from_store_link(
+            "https://play.google.com/store/apps/details?id=com.vinellu.app&hl=pt_BR",
+        )
+        .unwrap();
+        assert_eq!(
+            (play.store, play.id.as_str()),
+            (AppStore::GooglePlay, "com.vinellu.app")
+        );
+        let apple =
+            App::from_store_link("https://apps.apple.com/br/app/vinellu/id6748123456").unwrap();
+        assert_eq!(
+            (apple.store, apple.id.as_str()),
+            (AppStore::AppStore, "6748123456")
+        );
+        assert!(App::from_store_link("https://play.google.com/store/apps/dev?id=123").is_none());
+        assert!(App::from_store_link("https://vinellu.com/app").is_none());
     }
 
     #[test]

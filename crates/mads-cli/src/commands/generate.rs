@@ -94,6 +94,16 @@ pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
             f.label()
         )));
     }
+    if input.app.is_some()
+        && !input.formats.is_empty()
+        && !input
+            .formats
+            .contains(&mads_core::google::CampaignKind::AppInstalls)
+    {
+        eprintln!(
+            "note: business.toml has [app] but [campaigns] formats leaves out \"app_installs\": no App campaign will be planned"
+        );
+    }
     preflight(&selection)
         .await
         .map_err(|e| usage(e.to_string()))?;

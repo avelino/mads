@@ -51,6 +51,9 @@ pub enum CampaignKind {
     Search,
     PerformanceMax,
     DemandGen,
+    // App installs from Google Play or the App Store. No doc comment on variants: schemars would
+    // turn it into a `oneOf` some providers reject.
+    AppInstalls,
 }
 
 impl CampaignKind {
@@ -64,6 +67,7 @@ impl CampaignKind {
             CampaignKind::Search => "Search",
             CampaignKind::PerformanceMax => "Performance Max",
             CampaignKind::DemandGen => "Demand Gen",
+            CampaignKind::AppInstalls => "App - Installs",
         }
     }
 }

@@ -79,6 +79,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
+            app: None,
             business: Business {
                 name: "Acme".into(),
                 url: "https://acme.com".into(),
@@ -87,6 +88,7 @@ mod tests {
                 goal: "g".into(),
                 description: "d".repeat(30),
                 conversion_tracking: false,
+                restricted: vec![],
                 brand_terms: vec!["acme".into()],
                 competitors: vec![],
                 avoid: vec![],

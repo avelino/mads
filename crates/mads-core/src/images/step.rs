@@ -271,7 +271,7 @@ pub async fn run_image_step(
         let input = guard.input.clone();
         let (jobs, reused) = plan_jobs(&mut guard.account.campaigns, &input, &cfg.dir);
         result.reused = reused;
-        (jobs, input)
+        (fair_order(jobs), input)
     };
     if let Err(e) = copy_logo(&input, &cfg.dir) {
         result.notes.push(e);
@@ -291,6 +291,24 @@ pub async fn run_image_step(
     };
     generate_all(jobs, ws, web, cfg, model, events, &mut result).await;
     result
+}
+
+/// Orders the jobs so a cap is shared: the first picture of every group, then the second of
+/// every group, and so on. Without it, one group with many briefs can take the whole cap and
+/// leave another group with none, which stops the export.
+fn fair_order(jobs: Vec<Job>) -> Vec<Job> {
+    let mut seen: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    let mut ranked: Vec<(usize, Job)> = jobs
+        .into_iter()
+        .map(|j| {
+            let n = seen.entry((j.at.0, j.at.1)).or_insert(0);
+            *n += 1;
+            (*n, j)
+        })
+        .collect();
+    // Stable: within one round the original order (campaign, group) is kept.
+    ranked.sort_by_key(|(rank, _)| *rank);
+    ranked.into_iter().map(|(_, j)| j).collect()
 }
 
 /// True when the asset group still meets Google's minimum pictures without brief `bi`.
@@ -655,5 +673,136 @@ mod design_tests {
             "{}",
             prompts[0]
         );
+    }
+}
+
+#[cfg(test)]
+mod fair_tests {
+    use super::*;
+
+    fn job(ci: usize, gi: usize, bi: usize) -> Job {
+        Job {
+            at: (ci, gi, bi),
+            label: format!("{ci}/{gi}/{bi}"),
+            rel: String::new(),
+            request_prompt: String::new(),
+            ratio: AspectRatio::Square,
+            reference_url: None,
+            palette: None,
+        }
+    }
+
+    #[test]
+    fn the_cap_is_shared_across_groups_first_picture_of_each_group_first() {
+        // An App group with 4 briefs, then two Demand Gen groups: a cap of 3 must reach all three.
+        let jobs = vec![
+            job(0, 0, 0),
+            job(0, 0, 1),
+            job(0, 0, 2),
+            job(0, 0, 3),
+            job(1, 0, 0),
+            job(1, 0, 1),
+            job(1, 1, 0),
+        ];
+        let order: Vec<String> = fair_order(jobs).into_iter().map(|j| j.label).collect();
+        assert_eq!(
+            order,
+            [
+                "0/0/0", "1/0/0", "1/1/0", "0/0/1", "1/0/1", "0/0/2", "0/0/3"
+            ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use tokio::sync::Mutex;
+
+    use super::*;
+    use crate::{
+        google::{AssetGroup, BidStrategy, CampaignKind, Cents, ImageBrief, Intent},
+        images::SolidImageModel,
+        testutil,
+        workspace::Workspace,
+    };
+
+    struct NoWeb;
+
+    #[async_trait]
+    impl Web for NoWeb {
+        async fn check_url(&self, _url: &str) -> Result<u16, String> {
+            Ok(200)
+        }
+    }
+
+    fn group(name: &str, n: usize) -> AssetGroup {
+        let ratios = [
+            AspectRatio::Landscape,
+            AspectRatio::Square,
+            AspectRatio::Portrait,
+        ];
+        AssetGroup {
+            name: name.into(),
+            final_url: String::new(),
+            business_name: String::new(),
+            headlines: vec![],
+            long_headlines: vec![],
+            descriptions: vec![],
+            search_themes: vec![],
+            images: (0..n)
+                .map(|i| ImageBrief {
+                    id: format!("p{i}"),
+                    ratio: ratios[i % ratios.len()],
+                    prompt: format!("a prompt long enough number {i}"),
+                    reference: None,
+                    file: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_big_group_does_not_starve_a_small_one() {
+        // The Vinellu run: 8 briefs in the first group, 1 in the last, a cap that only fits 3.
+        let mut ws = Workspace::new(testutil::input());
+        ws.account.campaigns.push(Campaign {
+            name: "C".into(),
+            slug: "c".into(),
+            kind: CampaignKind::DemandGen,
+            intent: Intent::Generic,
+            daily_budget: Cents(100),
+            bid_strategy: BidStrategy::MaximizeClicks { max_cpc: None },
+            rationale: String::new(),
+            planned_ad_groups: vec![],
+            ad_groups: vec![],
+            asset_groups: vec![group("big", 8), group("small", 1)],
+            negatives: vec![],
+            assets: None,
+        });
+        let ws = Arc::new(Mutex::new(ws));
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = ImageStepConfig {
+            dir: dir.path().to_path_buf(),
+            workspace_path: None,
+            model: Some(Arc::new(SolidImageModel)),
+            max_new: 3,
+            parallel: 2,
+        };
+        let (events, _rx) = EventSink::channel();
+        let r = run_image_step(&ws, &NoWeb, &cfg, &events).await;
+        assert_eq!(r.generated, 3, "{:?}", r.notes);
+        let groups = ws.lock().await.account.campaigns[0].asset_groups.clone();
+        assert!(
+            groups[1].images[0].file.is_some(),
+            "the small group got its picture"
+        );
+        assert!(
+            groups[0].images.iter().all(|b| b.file.is_some()),
+            "the big group kept only what it got"
+        );
+        assert_eq!(groups[0].images.len(), 2);
     }
 }

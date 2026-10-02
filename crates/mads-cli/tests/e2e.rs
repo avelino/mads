@@ -444,7 +444,7 @@ fn init_script(site: &str) -> Value {
         (
             "write_business",
             json!({"name": "Vinellu", "url": site, "language": "pt-BR", "locations": ["Brazil"], "goal": "cadastros no app",
-            "description": "App social de vinhos com reviews, safras e harmonização.", "pages": [{"name": "app", "url": format!("{site}/app")}]}),
+            "description": "App social de vinhos com reviews, safras e harmonização.", "pages": [{"name": "app", "url": format!("{site}/app")}], "restricted": ["alcohol"]}),
         ),
         (
             "add_catalog_items",
@@ -745,7 +745,7 @@ fn generate_with_images_writes_the_editor_csv_and_the_pictures() {
     let run = p.run_dir();
     let editor = run.join("google-ads/editor");
     for f in [
-        "image-campaigns.csv",
+        "account.csv",
         "images/logo.png",
         "images/vinellu-feed/tintos-jantar.jpg",
         "images/vinellu-feed/tintos-taca.jpg",
@@ -768,6 +768,18 @@ fn generate_with_images_writes_the_editor_csv_and_the_pictures() {
     );
     let report = fs::read_to_string(run.join("report.md")).unwrap();
     assert!(report.contains("Model solid: 3 generated"), "{report}");
+    let rows = mads_core::google::read_editor(&fs::read(editor.join("account.csv")).unwrap())
+        .expect("a UTF-16 Editor file");
+    let types: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r.get("Campaign Type").map(String::as_str))
+        .collect();
+    assert_eq!(
+        types,
+        ["Search", "Demand Gen"],
+        "one file for the whole account"
+    );
+    assert!(report.contains("Pick one way"), "{report}");
 
     p.mads()
         .args(["export"])

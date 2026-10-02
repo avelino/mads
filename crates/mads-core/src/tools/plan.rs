@@ -173,6 +173,8 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
         "catalog_size": ws.input.catalog.len(),
         "catalog_photos": ws.input.catalog.iter().filter(|c| c.image.is_some()).count(),
         "image_campaigns": image_availability(t, &ws),
+        "app_campaigns": availability(kind_unavailable(t, &ws, CampaignKind::AppInstalls)),
+        "app": ws.input.app.as_ref().map(|a| json!({"store": a.store, "id": a.id, "store_url": a.store_url()})),
         "focus": ws.input.focus,
         "rules": rules_summary(&t.settings),
     });
@@ -186,21 +188,43 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
 }
 
 /// Why image campaigns can or cannot be planned in this run.
-fn image_unavailable(t: &MissionTools, ws: &Workspace) -> Option<&'static str> {
+/// Why a campaign of this kind cannot be planned in this run. None: it can.
+fn kind_unavailable(t: &MissionTools, ws: &Workspace, kind: CampaignKind) -> Option<&'static str> {
+    if !kind.has_images() {
+        return None;
+    }
     if !t.settings.image_model {
-        Some("no image model in this run (set --image-provider and its API key)")
-    } else if ws.input.logo.is_none() {
-        Some("no logo: set [brand] logo in business.toml")
-    } else {
-        None
+        return Some("no image model in this run (set --image-provider and its API key)");
+    }
+    match kind {
+        CampaignKind::AppInstalls if ws.input.app.is_none() => {
+            Some("no app: set [app] store and id in business.toml")
+        }
+        CampaignKind::AppInstalls => None,
+        _ if ws.input.logo.is_none() => Some("no logo: set [brand] logo in business.toml"),
+        _ => None,
+    }
+}
+
+/// Why Performance Max and Demand Gen cannot be planned. None: they can.
+fn image_unavailable(t: &MissionTools, ws: &Workspace) -> Option<&'static str> {
+    kind_unavailable(t, ws, CampaignKind::DemandGen)
+}
+
+fn availability(reason: Option<&str>) -> Value {
+    match reason {
+        None => json!({"available": true}),
+        Some(reason) => json!({"available": false, "reason": reason}),
     }
 }
 
 fn image_availability(t: &MissionTools, ws: &Workspace) -> Value {
-    match image_unavailable(t, ws) {
-        None => json!({"available": true}),
-        Some(reason) => json!({"available": false, "reason": reason}),
-    }
+    availability(image_unavailable(t, ws))
+}
+
+fn any_image_kind_available(t: &MissionTools, ws: &Workspace) -> bool {
+    image_unavailable(t, ws).is_none()
+        || kind_unavailable(t, ws, CampaignKind::AppInstalls).is_none()
 }
 
 async fn query_catalog(t: &MissionTools, a: QueryCatalogArgs) -> ToolOutput {
@@ -279,11 +303,20 @@ async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput
         .campaigns
         .into_iter()
         .enumerate()
-        .map(|(i, c)| build_campaign(ws, &rules, c, i, image_unavailable(t, ws), &mut issues))
+        .map(|(i, c)| {
+            let unavailable = kind_unavailable(t, ws, c.kind);
+            build_campaign(ws, &rules, c, i, unavailable, &mut issues)
+        })
         .collect();
     check_slugs(&campaigns, &mut issues);
-    if image_unavailable(t, ws).is_none() {
-        check_image_choice(&campaigns, &mut issues);
+    // `[campaigns] formats` is the advertiser's choice: E21 checks it, nothing else asks why.
+    if ws.input.formats.is_empty() {
+        if any_image_kind_available(t, ws) {
+            check_image_choice(&campaigns, &mut issues);
+        }
+        if kind_unavailable(t, ws, CampaignKind::AppInstalls).is_none() {
+            check_app_choice(&campaigns, &mut issues);
+        }
     }
     let candidate = Account {
         brand_kit: ws.account.brand_kit.clone(),
@@ -385,7 +418,7 @@ fn build_campaign(
             "campaign has no planned ad groups",
         ));
     }
-    let planned = plan_ad_groups(ws, rules, &c.ad_groups, &path, issues);
+    let planned = plan_ad_groups(ws, rules, c.kind, &c.ad_groups, &path, issues);
     Campaign {
         kind: c.kind,
         asset_groups: Vec::new(),
@@ -405,6 +438,7 @@ fn build_campaign(
 fn plan_ad_groups(
     ws: &Workspace,
     rules: &Rules,
+    kind: CampaignKind,
     groups: &[PlanAdGroup],
     path: &str,
     issues: &mut Vec<Issue>,
@@ -437,7 +471,11 @@ fn plan_ad_groups(
                 name: g.name.clone(),
                 theme: g.theme.clone(),
                 entity_ids: g.entity_ids.clone(),
-                final_url: resolve_url(ws, rules, g, &at, issues),
+                final_url: match (kind, &ws.input.app) {
+                    // App ads link to the store page: the site and the focus do not apply.
+                    (CampaignKind::AppInstalls, Some(app)) => app.store_url(),
+                    _ => resolve_url(ws, rules, g, &at, issues),
+                },
             }
         })
         .collect()
@@ -494,6 +532,24 @@ fn check_image_choice(campaigns: &[Campaign], issues: &mut Vec<Issue>) {
             "image campaigns are available: plan one, or start a rationale with '{NO_IMAGE} <reason>'"
         );
         issues.push(Issue::error("NO_IMAGE_REASON", "campaigns", msg));
+    }
+}
+
+/// The marker a rationale carries when the plan skips the app it could advertise.
+const NO_APP: &str = "No app campaign:";
+
+/// With the app available, the plan has an App campaign or says why not. An image campaign that
+/// asks people to install the app does worse than an App campaign, which optimizes for installs.
+fn check_app_choice(campaigns: &[Campaign], issues: &mut Vec<Issue>) {
+    let has_app = campaigns
+        .iter()
+        .any(|c| c.kind == CampaignKind::AppInstalls);
+    let explained = campaigns.iter().any(|c| c.rationale.contains(NO_APP));
+    if !has_app && !explained && !campaigns.is_empty() {
+        let msg = format!(
+            "the app is available: plan an app_installs campaign, or start a rationale with '{NO_APP} <reason>'"
+        );
+        issues.push(Issue::error("NO_APP_REASON", "campaigns", msg));
     }
 }
 

@@ -33,6 +33,7 @@ pub struct Rules<'a> {
     /// Catalog id to whether the item has a real photo.
     catalog_photos: BTreeMap<String, bool>,
     has_logo: bool,
+    has_app: bool,
     /// Formats `business.toml` requires, at least one campaign each.
     formats: &'a [CampaignKind],
     /// With `[focus]`, the only final URLs allowed.
@@ -95,6 +96,7 @@ impl<'a> Rules<'a> {
                 .map(|c| (c.id.clone(), c.image.is_some()))
                 .collect(),
             has_logo: input.logo.is_some(),
+            has_app: input.app.is_some(),
             formats: &input.formats,
             focus,
             focus_terms: input
@@ -291,7 +293,10 @@ impl<'a> Rules<'a> {
     fn bid_strategy(&self, out: &mut Vec<Issue>, c: &Campaign, path: &str) {
         let at = format!("{path}.bid_strategy");
         match c.bid_strategy {
-            BidStrategy::MaximizeConversions if !self.business.conversion_tracking => {
+            // App installs are tracked by the store, not by the site's conversion tag.
+            BidStrategy::MaximizeConversions
+                if !self.business.conversion_tracking && c.kind != CampaignKind::AppInstalls =>
+            {
                 out.push(Issue::error(
                     "E10",
                     at.clone(),
@@ -305,6 +310,7 @@ impl<'a> Rules<'a> {
             CampaignKind::Search => c.bid_strategy == BidStrategy::ManualCpc,
             CampaignKind::PerformanceMax => c.bid_strategy == BidStrategy::MaximizeConversions,
             CampaignKind::DemandGen => c.bid_strategy != BidStrategy::ManualCpc,
+            CampaignKind::AppInstalls => c.bid_strategy == BidStrategy::MaximizeConversions,
         };
         if !fits {
             let msg = format!(
@@ -748,6 +754,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
+            app: None,
             business: Business {
                 name: s("Vinellu"),
                 url: s("https://vinellu.com"),
@@ -756,6 +763,7 @@ mod tests {
                 goal: s("cadastros"),
                 description: s("App social de vinhos com reviews e safras."),
                 conversion_tracking: false,
+                restricted: vec![],
                 brand_terms: vec![s("vinellu")],
                 competitors: vec![s("Vivino")],
                 avoid: vec![s("melhor do mundo")],

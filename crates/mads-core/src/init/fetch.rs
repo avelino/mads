@@ -18,6 +18,9 @@ pub struct FetchedPage {
     /// `<meta name="theme-color">`, the color the site asks browsers to use. Empty when absent.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub theme_color: String,
+    /// Links to the business's app on Google Play or the App Store. Not shown to the agent.
+    #[serde(skip)]
+    pub app_links: Vec<String>,
     /// Logo candidates found in the markup, best first. Not shown to the agent.
     #[serde(skip)]
     pub logos: Vec<String>,

@@ -9,9 +9,10 @@ LLM agents make the marketing decisions. Deterministic Rust code enforces the ru
 - Studies your business with `mads init --from-url`: reads the site, searches the web for demand, ranks campaign ideas by expected return and drafts `business.toml`, `catalog.csv` and `research.md`. Or you write the files yourself.
 - Reads `business.toml` and an optional `catalog.csv` (the products, labels or pages people search for by name).
 - Runs one plan mission and one mission per campaign. Campaigns run in parallel.
-- Picks a format per campaign: Search, Demand Gen or Performance Max. Image campaigns get generated pictures (Gemini or OpenAI), your real logo and real product photos as references. Or you choose the formats in `business.toml`. See [Image campaigns](docs/guides/image-campaigns.md).
-- Validates 21 error rules and 7 warning rules: text lengths, `!` in headlines, URLs outside your site, negatives that block your own keywords, budgets that do not add up, picture counts and sizes.
+- Picks a format per campaign: Search, Demand Gen, Performance Max or App installs. Image campaigns get generated pictures (Gemini or OpenAI), your real logo and real product photos as references. Or you choose the formats in `business.toml`. See [Image campaigns](docs/guides/image-campaigns.md).
+- Validates 24 error rules and 7 warning rules: text lengths, `!` in headlines, URLs outside your site, negatives that block your own keywords, budgets that do not add up, picture counts and sizes.
 - Adds brand and competitor terms as negatives to the campaigns they do not belong to.
+- Detects Google Ads restricted categories (alcohol, gambling, healthcare, financial services, political, sexual content) during `init`, keeps sales language out of keywords and ads, and writes the exception request into the report. See [Restricted categories](docs/guides/restricted-categories.md).
 - Exports the Google Ads bulk upload CSVs, a Google Ads Editor CSV with the pictures for image campaigns, and a `report.md` with budgets, bids, warnings and token usage.
 - Runs unattended in CI with GitHub annotations and a step summary.
 
@@ -181,7 +182,7 @@ On GitHub Actions `--format auto` picks `github`. Validation issues become annot
 ## Limitations
 
 - **Search, Performance Max and Demand Gen.** No video, Shopping, Display-only, Dynamic Search Ads or broad match. Image campaigns need an image model key and a logo, see [Image campaigns](docs/guides/image-campaigns.md).
-- **Image campaigns go through Google Ads Editor.** Their CSV follows Google's documented Editor headers and is not verified against a real Editor export yet.
+- **Image campaigns go through Google Ads Editor, and pictures are attached by hand.** `editor/account.csv` holds the whole account in Editor's own format (Search and App rows checked against a real export), but Editor does not import the link between an ad and its images. Search, App and Demand Gen imported into Editor 2.13.3 with no error. Performance Max rows have not gone through a real import yet.
 - **One location per account.** `business.locations` takes exactly one entry.
 - **Search bids with `manual_cpc` only.** `maximize_clicks` and `maximize_conversions` on Search return `UNSUPPORTED` until the Google bulk templates for them are verified. Performance Max uses `maximize_conversions` and Demand Gen `maximize_clicks` or `maximize_conversions`.
 - **Campaign negatives are expanded.** The campaign-level negative list is exported as ad group negatives in every ad group, not as campaign-level rows.

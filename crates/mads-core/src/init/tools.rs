@@ -196,6 +196,7 @@ impl InitTools {
         page.links.iter().for_each(|l| state.note_seen(l));
         state.note_page_media(&page.image, &page.logos);
         state.note_theme_color(&page.url, &page.theme_color);
+        state.note_app_links(&page.app_links);
         let summary = format!("fetch_page {} ({} links)", page.url, page.links.len());
         ToolOutput::ok(
             serde_json::to_value(&page).unwrap_or(Value::Null),
@@ -500,6 +501,7 @@ mod tests {
             image: String::new(),
             theme_color: String::new(),
             logos: vec![],
+            app_links: vec![],
         }
     }
 
@@ -596,7 +598,28 @@ mod tests {
     fn business_args() -> Value {
         json!({"name": "Vinellu", "url": "https://vinellu.com", "language": "pt-BR", "locations": ["Brazil"], "goal": "cadastros no app",
                "description": "App social de vinhos com reviews, safras e harmonização.",
-               "pages": [{"name": "app", "url": "https://vinellu.com/app"}]})
+               "pages": [{"name": "app", "url": "https://vinellu.com/app"}], "restricted": []})
+    }
+
+    #[tokio::test]
+    async fn write_business_needs_an_explicit_restricted_list() {
+        let t = tools(site());
+        let base = || {
+            let mut a = business_args();
+            a.as_object_mut().unwrap().remove("pages");
+            a
+        };
+        let mut args = base();
+        args.as_object_mut().unwrap().remove("restricted");
+        let out = t.call("write_business", args).await;
+        assert!(out.is_error);
+        assert!(out.text().contains("restricted"), "{}", out.text());
+        let mut alcohol = base();
+        alcohol["restricted"] = json!(["alcohol"]);
+        assert!(!t.call("write_business", alcohol).await.is_error);
+        let mut unknown = base();
+        unknown["restricted"] = json!(["wine"]);
+        assert!(t.call("write_business", unknown).await.is_error);
     }
 
     #[tokio::test]

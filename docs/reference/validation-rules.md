@@ -28,7 +28,7 @@ Errors block the export. Warnings go to the report, to progress output and, on G
 | `E07` | URL outside the allowed set. | Planned final URLs, ad group final URLs and sitelink URLs. The set is `business.url`, `business.pages` and the catalog. Message `URL not in business.url, business.pages or catalog: <url>`. |
 | `E08` | Bad keyword syntax. | More than 10 words, or any of ``! @ % ^ * ( ) = { } ; ~ ` < > ? \ \| , [ ] "``. Applies to keywords and negatives. |
 | `E09` | A negative blocks a keyword in its scope. | A phrase negative blocks a keyword when its words appear contiguously in the keyword's words. An exact negative blocks a keyword with equal text. Ad group negatives apply to their ad group. Campaign negatives apply to every ad group in the campaign. Message `negative '<n>' blocks keyword '<k>'`. |
-| `E10` | `maximize_conversions` while `business.conversion_tracking` is `false`. | Reached by Performance Max and Demand Gen campaigns. Search takes only `manual_cpc`. |
+| `E10` | `maximize_conversions` while `business.conversion_tracking` is `false`. | Reached by Performance Max and Demand Gen campaigns. Search takes only `manual_cpc`. App campaigns are exempt: the store counts the installs. |
 | `E11` | CPC problems. | A CPC of zero, an ad group CPC that is not greater than 0 with at most 2 decimals, or a CPC above `budget.max_cpc` when set. |
 | `E12` | Structure. | Duplicate campaign name in the account. Duplicate ad group name in a campaign. An ad group not in the plan. A planned ad group missing at finish. An ad group without keywords. A missing brand kit or missing campaign assets at finish. An unknown catalog id in `entity_ids`. A campaign with no planned ad groups. A name with no letters or digits, or two names that give the same slug. |
 | `E13` | Count out of range. | See the table below. |
@@ -40,6 +40,7 @@ Errors block the export. Warnings go to the report, to progress output and, on G
 | `E19` | `reference` names an unknown catalog item or one without `image`. | Message `unknown catalog id '<id>'` or `catalog item '<id>' has no image to use as reference`. |
 | `E22` | A landing page outside `[focus]`. | Planned group, ad group and asset group final URLs must be one of `focus.urls`. Sitelinks may go elsewhere. In init, a catalog item outside the focus, or `--focus` without a focus that holds the start URL. Message `final URL is not a [focus] page: <url>`. |
 | `E23` | A keyword or search theme without the focus words. | With `focus.terms`, every keyword and Performance Max search theme needs one term of each group. Compared without accents or punctuation, so `sao paulo` matches `São Paulo`. Message `'<text>' is not about the focus: add a word like <terms>`. In init, `--focus` without `focus.terms`. |
+| `E24` | App campaign without the app. | Message `app campaigns need the app: set [app] store and id in business.toml`. An App campaign needs no logo and its ads link to the store page, so `E07`, `E18` and `E22` do not apply to it. |
 | `E21` | A format from `[campaigns] formats` has no campaign. | Message `business.toml asks for a <kind> campaign and the plan has none`. Path `campaigns`. |
 | `E20` | A brief has no picture at the end. | The image step could not make it: a model error, `mads export` without the file, or a brief over `--max-images` that its asset group cannot do without. A brief over the cap that the group can do without is removed instead, with a note in the report. Message `image '<id>' has no file`. Agents never see it: their tools skip it, because pictures are made after the missions. |
 
@@ -83,7 +84,7 @@ The asset group `business_name` has at most 25 characters (`E01`).
 | `W04` | Merged RSA with fewer than 15 headlines or fewer than 4 descriptions. | Message `merged ad has <h> headlines and <d> descriptions (15 and 4 recommended)`. |
 | `W05` | Fewer than 4 sitelinks, fewer than 4 callouts or no structured snippet. | Message `recommended: 4+ sitelinks, 4+ callouts and 1 structured snippet`. |
 | `W06` | Fewer pictures than Google recommends for ad strength. | Performance Max 4 landscape, 4 square and 2 portrait. Demand Gen 1 landscape, 1 square and 1 portrait. Message `recommended for ad strength: <missing>`. |
-| `W07` | A prompt asks for text in the picture. | The words `text`, `logo`, `caption`, `headline`, `words`, `lettering`, `typography`, `slogan` or `label that reads`. Google adds the ad text itself. |
+| `W07` | A prompt asks for text in the picture, or shows an object that carries writing. | The words `text`, `logo`, `caption`, `headline`, `words`, `lettering`, `typography`, `slogan` or `label that reads`: Google adds the ad text itself. Or `menu`, `wine list`, `sign`, `signboard`, `billboard`, `poster`, `book`, `newspaper`, `magazine`, `screen`, `monitor`, `packaging`, `price tag`, `ticket`: the model fills them with invented text, so show them from the side, closed or out of focus. |
 
 ## Tool-only codes
 
@@ -95,7 +96,8 @@ These come from the tool layer, not the rule set. The agent sees them in tool re
 | `UNKNOWN_TOOL` | The tool does not exist or is not in this mission's toolset. |
 | `LIMIT` | The mission used its tool call budget (`--max-turns` times 4). |
 | `UNSUPPORTED` | A Search campaign with a bid strategy other than `manual_cpc`, or an image campaign in a run without an image model or a logo. |
-| `NO_IMAGE_REASON` | Image campaigns are available, the plan has none, and no campaign `rationale` contains `No image campaign: <reason>`. |
+| `NO_IMAGE_REASON` | Image campaigns are available, the plan has none, and no campaign `rationale` contains `No image campaign: <reason>`. Not asked when `[campaigns] formats` is set. |
+| `NO_APP_REASON` | `[app]` and an image model are there, the plan has no `app_installs` campaign, and no `rationale` contains `No app campaign: <reason>`. Not asked when `[campaigns] formats` is set. |
 | `NOT_FOUND` | The campaign of this mission no longer exists in the plan. |
 | `PERSIST` | The workspace could not be saved to disk. |
 | `HOST`, `FETCH` | Init only. The URL is outside the site, or the request failed. |

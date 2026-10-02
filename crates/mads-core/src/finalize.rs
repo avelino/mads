@@ -1,6 +1,6 @@
 use crate::{
     events::{Event, EventSink},
-    google::{Account, CsvFile, ExportError, Issue, Rules, export_csvs, export_editor_csv},
+    google::{Account, CsvFile, ExportError, Issue, Rules, export_csvs, export_editor},
     input::Input,
     post::{UrlResult, check_urls, collect_urls, url_issues},
     web::Web,
@@ -37,7 +37,7 @@ fn invalid(errors: Vec<Issue>, warnings: Vec<Issue>, urls: Option<Vec<UrlResult>
 /// Bulk upload files 1 to 5 for Search, then the Editor file for image campaigns.
 fn export_all(input: &Input, account: &Account) -> Result<Vec<CsvFile>, ExportError> {
     let mut files = export_csvs(input, account)?;
-    files.extend(export_editor_csv(input, account)?);
+    files.extend(export_editor(input, account));
     Ok(files)
 }
 
@@ -138,6 +138,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
+            app: None,
             business: Business {
                 name: "Vinellu".into(),
                 url: "https://vinellu.com".into(),
@@ -146,6 +147,7 @@ mod tests {
                 goal: "cadastros".into(),
                 description: "App social de vinhos com reviews e safras.".into(),
                 conversion_tracking: false,
+                restricted: vec![],
                 brand_terms: vec!["vinellu".into()],
                 competitors: vec![],
                 avoid: vec![],
@@ -168,7 +170,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valid_account_exports_five_files() {
+    async fn valid_account_exports_the_web_files_and_the_editor_file() {
         let account = reference_account();
         let input = reference_input(&account);
         let (events, _rx) = EventSink::channel();
@@ -182,7 +184,19 @@ mod tests {
         )
         .await;
         assert_eq!(out.exit_code, 0, "{:?}", out.errors);
-        assert_eq!(out.csv.len(), 5);
+        let names: Vec<&str> = out.csv.iter().map(|f| f.name).collect();
+        assert_eq!(
+            names,
+            [
+                "1-campaign.csv",
+                "2-ad-groups.csv",
+                "3-keywords.csv",
+                "4-negative-keywords.csv",
+                "5-responsive-search-ads.csv",
+                "editor/account.csv"
+            ],
+            "the web files for Search, and the whole account for Editor"
+        );
         assert_eq!(out.urls.as_ref().map(Vec::len), Some(12));
     }
 

@@ -22,8 +22,8 @@ out/20261001-122850-b51417/
     3-keywords.csv
     4-negative-keywords.csv
     5-responsive-search-ads.csv
-    editor/                      image campaigns, for Google Ads Editor
-      image-campaigns.csv
+    editor/                      the whole account, for Google Ads Editor
+      account.csv                UTF-16, tab separated, as Editor exports
       images/
         logo.png
         <campaign>/<asset-group>-<image-id>.jpg
@@ -31,7 +31,7 @@ out/20261001-122850-b51417/
 ```
 
 - `google-ads/` has no CSV when the run exits `1` or `3`. Pictures in `editor/images/` stay: they cost money and the next `--resume` or `export` reuses them.
-- Files 1 to 5 hold Search campaigns only, and are not written when the account has none. `editor/` exists only when the account has a Performance Max or Demand Gen campaign. See [Image campaigns](../guides/image-campaigns.md).
+- Files 1 to 5 hold Search campaigns only, for the web bulk upload, and are not written when the account has none. `editor/account.csv` holds every campaign. Import one or the other, never both. `editor/images/` exists only when the account has an image or App campaign, and its files are attached by hand in Editor. See [Image campaigns](../guides/image-campaigns.md#import).
 - `workspace.json` points `input.logo` at the copy in `input/`, so the run does not depend on where the logo was. Each ad platform gets its own folder, so other platforms will not mix with these files.
 - `input/` is a record. `export` and `--resume` read `workspace.json`, not `input/`.
 - `transcripts/` has one file per mission: `<mission>.jsonl` for API providers (every message) and `<mission>.cli.jsonl` for agent CLIs (the raw stream). A `:` in a mission id becomes `-`, so `campaign:vinellu-catalogo` is `campaign-vinellu-catalogo.jsonl`.

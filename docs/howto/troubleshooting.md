@@ -269,6 +269,16 @@ The run exits `0`, and `google-ads/` has no `editor/` folder. The plan agent cho
 
 To require a format, add `[campaigns] formats = ["search", "demand_gen"]` to `business.toml` and generate again. Check also that `get_business` in the plan transcript shows `"image_campaigns":{"available":true}`. Otherwise its `reason` says what is missing: the image model or the logo.
 
+## Google refuses keywords with a policy error
+
+The run exits `0`, but posting from Google Ads Editor shows errors under Keywords, with a message such as:
+
+```text
+Alcohol sale: Your creative promotes the online sale of alcohol. : 'tres medallas vinho'
+```
+
+That is Google's restricted content policy, not a file format problem. Check that `restricted` in `business.toml` lists the category, then follow [Restricted categories](../guides/restricted-categories.md#when-google-refuses-a-keyword-or-an-ad): request an exception with the text from `report.md`, or remove the refused items.
+
 ## The run looks right but Google rejects a row
 
 - Compare headers with a template from your account. See [the bulk upload format](google-ads-bulk-upload-format.md).

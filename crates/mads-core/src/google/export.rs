@@ -15,10 +15,6 @@ pub enum ExportError {
     PendingTemplate(String),
     #[error("csv write failed: {0}")]
     Csv(String),
-    #[error("image campaigns need a logo")]
-    MissingLogo,
-    #[error("image '{0}' has no file")]
-    MissingImage(String),
 }
 
 impl From<csv::Error> for ExportError {
@@ -119,7 +115,7 @@ fn match_label(m: MatchType) -> &'static str {
 
 /// Negatives of one ad group as rows: campaign level first, then the ad group's own, no duplicates.
 /// Campaign-level rows need a bulk template that is not verified, so they are expanded per ad group.
-fn effective_negatives<'a>(c: &'a Campaign, ag: &'a AdGroup) -> Vec<&'a Keyword> {
+pub(crate) fn effective_negatives<'a>(c: &'a Campaign, ag: &'a AdGroup) -> Vec<&'a Keyword> {
     let mut seen = std::collections::BTreeSet::new();
     c.negatives
         .iter()
@@ -267,6 +263,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
+            app: None,
             business: Business {
                 name: "Acme".into(),
                 url: "https://acme.com".into(),
@@ -275,6 +272,7 @@ mod tests {
                 goal: "g".into(),
                 description: "d".repeat(30),
                 conversion_tracking: false,
+                restricted: vec![],
                 brand_terms: vec!["acme".into()],
                 competitors: vec![],
                 avoid: vec![],

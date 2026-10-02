@@ -113,6 +113,14 @@ Without a usable candidate init prints that no logo was found, and the plan can 
 
 The agent also sees the `og:image` of each page and can set it as the `image` of a catalog item when it is a photo of the item. Image ads then show the real product. An `image` the run did not see on a fetched page fails with `E07`.
 
+## Restricted categories
+
+init decides for every business whether it falls in a Google Ads restricted content category, such as `alcohol` or `gambling`, and writes the answer to `restricted` in `[business]`. The agent cannot skip it: `write_business` refuses a call without the key, and an empty list (`restricted = []`) means it checked and none applies. It judges by what the ads would talk about, so a site that reviews a restricted product gets the category too. init prints the decision at the end. Check it before you generate: it changes the prompts and adds a section to the report. See [Restricted categories](restricted-categories.md).
+
+## The app
+
+When a fetched page links to the business's app on Google Play or the App Store, init writes `[app]` with its store and id. It reads the whole page, not only visible links: many sites list their app only in JSON-LD (`downloadUrl`, `sameAs`). Google Play wins when both appear, because one App campaign takes one store. With `[app]` the plan can use `app_installs` campaigns.
+
 ## The design
 
 init writes `DESIGN.md` and a `[design]` table in `business.toml`. The `## Colors` section comes from code: the dominant colors of the saved logo (white, black, gray and transparent pixels are skipped, close shades merge, at most 3) and the `<meta name="theme-color">` of every fetched page. The agent can add `Style`, `Imagery`, `Voice` and `Avoid` with `write_design`. It is optional, and finish does not need it. The file is not written when there is neither a color nor a design draft.
@@ -196,6 +204,7 @@ Treat the draft as a first pass. Read every line. These are the usual fixes.
 - **pages.** Keep the pages that make good sitelinks and delete the rest. They all exist, because the agent may only use URLs it fetched or saw in the sitemap.
 - **Catalog.** Delete items you do not sell or do not want ads for. Check `third_party`, `aliases` and `notes`. The `notes` of each item are facts an ad can use. Clear an `image` that is a banner and not a photo of the item.
 - **brand/logo.png.** Open it. Replace it with your real logo when it is wrong.
+- **restricted.** Check the categories init chose. Add one it missed, remove a wrong one. See [Restricted categories](restricted-categories.md).
 - **DESIGN.md.** Check the colors and the style. Add the colors of your brand guide when the site does not show them.
 
 Then run `mads generate` on the reviewed files. See [Getting started](../getting-started.md).

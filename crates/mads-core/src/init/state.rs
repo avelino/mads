@@ -49,6 +49,9 @@ pub struct BusinessDraft {
     /// The one offer the account advertises. Leave empty to advertise the whole business.
     #[serde(default, skip_serializing)]
     pub focus: FocusDraft,
+    /// Google Ads restricted content categories the business falls in, an empty list for none.
+    /// Required, so the choice is always made and written down.
+    pub restricted: Vec<crate::input::RestrictedCategory>,
 }
 
 /// `[focus]` of business.toml: a name and the pages of one offer.
@@ -114,6 +117,7 @@ pub struct KeptByHand {
     max_cpc: Option<toml::Value>,
     export: Option<toml::Value>,
     campaigns: Option<toml::Value>,
+    app: Option<crate::input::App>,
 }
 
 impl KeptByHand {
@@ -126,6 +130,7 @@ impl KeptByHand {
             max_cpc: old.get("budget").and_then(|b| b.get("max_cpc")).cloned(),
             export: old.get("export").cloned(),
             campaigns: old.get("campaigns").cloned(),
+            app: old.get("app").cloned().and_then(|v| v.try_into().ok()),
         }
     }
 
@@ -135,6 +140,7 @@ impl KeptByHand {
             ("budget.max_cpc", self.max_cpc.is_some()),
             ("[export]", self.export.is_some()),
             ("[campaigns]", self.campaigns.is_some()),
+            ("[app]", self.app.is_some()),
         ]
         .into_iter()
         .filter_map(|(n, kept)| kept.then_some(n))
@@ -166,6 +172,8 @@ struct OutFile<'a> {
     design: Option<OutFileRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     focus: Option<&'a FocusDraft>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app: Option<&'a crate::input::App>,
     #[serde(skip_serializing_if = "Option::is_none")]
     export: Option<&'a toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -212,6 +220,8 @@ pub struct InitState {
     focus_required: bool,
     start_url: String,
     kept: KeptByHand,
+    /// The first Google Play app the site links to, else the first App Store one.
+    app: Option<crate::input::App>,
 }
 
 fn bare_host(url: &str) -> Option<String> {
@@ -254,6 +264,37 @@ impl InitState {
             focus_required: false,
             start_url: start_url.to_string(),
             kept: KeptByHand::default(),
+            app: None,
+        }
+    }
+
+    /// A kept `[campaigns] formats` that leaves out the app this run found: the old choice is
+    /// kept, and the person should know it skips the App campaign.
+    pub fn stale_formats_note(&self) -> Option<String> {
+        let formats = self.kept.campaigns.as_ref()?.get("formats")?.as_array()?;
+        let has_app_format = formats.iter().any(|f| f.as_str() == Some("app_installs"));
+        let app = self.app.as_ref().or(self.kept.app.as_ref())?;
+        (!has_app_format).then(|| {
+            format!(
+                "kept formats leave out the app {} found on the site: add \"app_installs\" to [campaigns] formats to advertise it",
+                app.id
+            )
+        })
+    }
+
+    /// Keeps the app a page links to. Google Play wins over the App Store: one campaign takes one store.
+    pub fn note_app_links(&mut self, links: &[String]) {
+        use crate::input::{App, AppStore};
+        for app in links.iter().filter_map(|l| App::from_store_link(l)) {
+            let better = match &self.app {
+                None => true,
+                Some(current) => {
+                    current.store == AppStore::AppStore && app.store == AppStore::GooglePlay
+                }
+            };
+            if better {
+                self.app = Some(app);
+            }
         }
     }
 
@@ -449,6 +490,7 @@ impl InitState {
             design: (complete && self.design_markdown(&business.name).is_some())
                 .then_some(OutFileRef { file: DESIGN_FILE }),
             focus: Some(&business.focus).filter(|f| !f.is_empty()),
+            app: self.app.as_ref().or(kept.app.as_ref()).filter(|_| complete),
             export: kept.export.as_ref().filter(|_| complete),
             campaigns: kept.campaigns.as_ref().filter(|_| complete),
         };
@@ -647,6 +689,7 @@ mod tests {
                 url: "https://vinellu.com/app".into(),
             }],
             focus: FocusDraft::default(),
+            restricted: vec![crate::input::RestrictedCategory::Alcohol],
         }
     }
 
@@ -992,6 +1035,24 @@ mod tests {
             avoid: vec![],
         };
         assert!(s.set_design(bad).is_err());
+    }
+
+    #[test]
+    fn the_restricted_decision_is_written_even_when_empty() {
+        let mut s = state();
+        let mut b = business();
+        b.restricted = vec![];
+        s.set_business(b).unwrap();
+        let toml = s.render_files().unwrap().toml;
+        assert!(toml.contains("restricted = []"), "{toml}");
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        let toml = s.render_files().unwrap().toml;
+        assert!(toml.contains("restricted = [\"alcohol\"]"), "{toml}");
+        assert_eq!(
+            parse_input_toml(&toml).unwrap().business.restricted,
+            [crate::input::RestrictedCategory::Alcohol]
+        );
     }
 
     #[test]

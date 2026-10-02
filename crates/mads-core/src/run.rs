@@ -1208,7 +1208,7 @@ mod image_tests {
         assert_eq!(r.exit_code, 0, "{events:#?}");
         let editor = r.run_dir.join("google-ads/editor");
         for f in [
-            "image-campaigns.csv",
+            "account.csv",
             "images/logo.png",
             "images/vinellu-feed/tintos-jantar.jpg",
             "images/vinellu-feed/tintos-garrafa.jpg",
@@ -1220,11 +1220,27 @@ mod image_tests {
             !r.run_dir.join("google-ads/1-campaign.csv").exists(),
             "no search campaign, no bulk files"
         );
-        let csv = std::fs::read_to_string(editor.join("image-campaigns.csv")).unwrap();
-        assert!(csv.contains("Demand Gen") && csv.contains("images/vinellu-feed/tintos-story.jpg"));
+        let rows = crate::google::read_editor(&std::fs::read(editor.join("account.csv")).unwrap())
+            .unwrap();
+        let csv: String = rows
+            .iter()
+            .flat_map(|r| r.values().cloned())
+            .collect::<Vec<_>>()
+            .join("|");
+        assert!(
+            csv.contains("Demand Gen") && !csv.contains(".jpg"),
+            "pictures stay out of the file"
+        );
         let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
+        assert!(
+            report.contains("`editor/images/vinellu-feed/tintos-story.jpg`"),
+            "{report}"
+        );
         assert!(report.contains("## Images") && report.contains("Model solid: 3 generated"));
-        assert!(report.contains("not verified"));
+        assert!(
+            !report.contains("real import yet"),
+            "Demand Gen went through a real Editor import: no warning"
+        );
     }
 
     #[tokio::test]
@@ -1252,9 +1268,7 @@ mod image_tests {
             .unwrap();
         assert_eq!(broken.exit_code, 3);
         assert!(
-            !r.run_dir
-                .join("google-ads/editor/image-campaigns.csv")
-                .exists(),
+            !r.run_dir.join("google-ads/editor/account.csv").exists(),
             "stale csv removed"
         );
         assert!(
@@ -1281,9 +1295,10 @@ mod image_tests {
             "{report}"
         );
         assert!(report.contains("2 generated"));
-        let csv = std::fs::read_to_string(r.run_dir.join("google-ads/editor/image-campaigns.csv"))
-            .unwrap();
-        assert!(!csv.contains("tintos-story.jpg"));
+        assert!(
+            !report.contains("tintos-story.jpg"),
+            "a dropped brief is not in the Images table"
+        );
     }
 
     #[tokio::test]

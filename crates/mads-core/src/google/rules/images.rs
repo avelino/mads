@@ -30,6 +30,24 @@ const TEXT_WORDS: &[&str] = &[
     "label that reads",
 ];
 
+/// Objects that carry writing. The image model fills them with invented, often English, text.
+const WRITING_OBJECTS: &[&str] = &[
+    "menu",
+    "wine list",
+    "sign",
+    "signboard",
+    "billboard",
+    "poster",
+    "book",
+    "newspaper",
+    "magazine",
+    "screen",
+    "monitor",
+    "packaging",
+    "price tag",
+    "ticket",
+];
+
 /// Counts and lengths of the texts, per kind: (min, max, max chars).
 struct TextLimits {
     headlines: (usize, usize, usize),
@@ -40,6 +58,12 @@ struct TextLimits {
 
 fn limits(kind: CampaignKind) -> TextLimits {
     match kind {
+        CampaignKind::AppInstalls => TextLimits {
+            headlines: (1, 5, 30),
+            long_headlines: (0, 0),
+            descriptions: (1, 5),
+            search_themes: 0,
+        },
         CampaignKind::DemandGen => TextLimits {
             headlines: (1, 5, DEMAND_GEN_HEADLINE),
             long_headlines: (0, 0),
@@ -85,7 +109,12 @@ impl Rules<'_> {
                     wrong("assets"),
                 ));
             }
-            if !self.has_logo {
+            if c.kind == CampaignKind::AppInstalls {
+                if !self.has_app {
+                    let msg = "app campaigns need the app: set [app] store and id in business.toml";
+                    out.push(Issue::error("E24", path, msg));
+                }
+            } else if !self.has_logo {
                 let msg = "image campaigns need a logo: set [brand] logo in business.toml";
                 out.push(Issue::error("E18", path, msg));
             }
@@ -144,14 +173,17 @@ impl Rules<'_> {
         path: &str,
     ) {
         length(out, &format!("{path}.name"), &g.name, NAME, "E01");
-        self.url(out, &format!("{path}.final_url"), &g.final_url);
-        self.focus_url(out, &format!("{path}.final_url"), &g.final_url);
-        self.ad_text(
-            out,
-            &format!("{path}.business_name"),
-            &g.business_name,
-            BUSINESS_NAME,
-        );
+        // App ads link to the store page and show the store's icon and name, not the site's.
+        if kind != CampaignKind::AppInstalls {
+            self.url(out, &format!("{path}.final_url"), &g.final_url);
+            self.focus_url(out, &format!("{path}.final_url"), &g.final_url);
+            self.ad_text(
+                out,
+                &format!("{path}.business_name"),
+                &g.business_name,
+                BUSINESS_NAME,
+            );
+        }
         self.asset_texts(out, kind, g, path);
         self.briefs(out, kind, &g.images, complete, &format!("{path}.images"));
     }
@@ -275,8 +307,12 @@ impl Rules<'_> {
             let msg = format!("id '{}' must be a slug such as wine-on-table", b.id);
             out.push(Issue::error("E16", format!("{at}.id"), msg));
         }
-        if kind == CampaignKind::PerformanceMax && b.ratio == AspectRatio::Vertical {
-            let msg = "Performance Max takes no vertical (9:16) image";
+        let no_vertical = matches!(
+            kind,
+            CampaignKind::PerformanceMax | CampaignKind::AppInstalls
+        );
+        if no_vertical && b.ratio == AspectRatio::Vertical {
+            let msg = format!("{} takes no vertical (9:16) image", kind.label());
             out.push(Issue::error("E16", format!("{at}.ratio"), msg));
         }
         let n = super::char_len(b.prompt.trim());
@@ -291,6 +327,14 @@ impl Rules<'_> {
         {
             let msg =
                 format!("prompt mentions '{w}': Google adds the text, keep the picture clean");
+            out.push(Issue::warning("W07", format!("{at}.prompt"), msg));
+        } else if let Some(w) = WRITING_OBJECTS
+            .iter()
+            .find(|w| super::contains_word_sequence(&words, w))
+        {
+            let msg = format!(
+                "prompt shows a {w}: the model writes invented text on it, show it from the side, closed or out of focus"
+            );
             out.push(Issue::warning("W07", format!("{at}.prompt"), msg));
         }
         if let Some(id) = &b.reference {
@@ -320,6 +364,9 @@ fn ratio_minimum(out: &mut Vec<Issue>, kind: CampaignKind, images: &[ImageBrief]
         }
         CampaignKind::DemandGen if land + square == 0 => {
             Some("Demand Gen needs at least 1 landscape or square image")
+        }
+        CampaignKind::AppInstalls if images.is_empty() => {
+            Some("App campaigns need at least 1 image")
         }
         _ => None,
     };
@@ -402,6 +449,7 @@ mod tests {
             CampaignKind::Search => BidStrategy::ManualCpc,
             CampaignKind::PerformanceMax => BidStrategy::MaximizeConversions,
             CampaignKind::DemandGen => BidStrategy::MaximizeClicks { max_cpc: None },
+            CampaignKind::AppInstalls => BidStrategy::MaximizeConversions,
         };
         Campaign {
             name: "Vinellu - Imagem".into(),
@@ -601,6 +649,64 @@ mod tests {
         );
     }
 
+    fn app_campaign() -> Campaign {
+        let mut c = campaign(CampaignKind::AppInstalls);
+        let g = &mut c.asset_groups[0];
+        g.final_url = "https://play.google.com/store/apps/details?id=com.vinellu.app".into();
+        g.business_name = String::new();
+        g.long_headlines.clear();
+        g.search_themes.clear();
+        c
+    }
+
+    fn app_input(logo: bool) -> Input {
+        let mut i = input(logo);
+        i.app = Some(crate::input::App {
+            store: crate::input::AppStore::GooglePlay,
+            id: "com.vinellu.app".into(),
+        });
+        i
+    }
+
+    #[test]
+    fn an_app_campaign_needs_the_app_but_no_logo_and_no_site_url() {
+        assert!(
+            codes(&app_input(false), &app_campaign()).is_empty(),
+            "{:?}",
+            codes(&app_input(false), &app_campaign())
+        );
+        assert!(codes(&input(true), &app_campaign()).contains(&"E24".to_string()));
+    }
+
+    #[test]
+    fn an_app_campaign_needs_no_conversion_tracking_on_the_site() {
+        // Store installs are tracked by the store itself: E10 is about the site's conversion tag.
+        let mut inp = app_input(false);
+        inp.business.conversion_tracking = false;
+        let errors: Vec<String> = Rules::new(&inp, 50)
+            .campaign(&app_campaign(), None, true, "c")
+            .into_iter()
+            .filter(Issue::is_error)
+            .map(|i| i.code)
+            .collect();
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn app_campaigns_take_maximize_conversions_and_no_vertical_image() {
+        let mut c = app_campaign();
+        c.bid_strategy = BidStrategy::MaximizeClicks { max_cpc: None };
+        assert!(codes(&app_input(true), &c).contains(&"E17".to_string()));
+        let mut c = app_campaign();
+        c.asset_groups[0]
+            .images
+            .push(brief("story", AspectRatio::Vertical));
+        assert!(codes(&app_input(true), &c).contains(&"E16".to_string()));
+        let mut c = app_campaign();
+        c.asset_groups[0].headlines = texts("Titulo", 6);
+        assert!(codes(&app_input(true), &c).contains(&"E13".to_string()));
+    }
+
     #[test]
     fn w06_and_w07_are_warnings() {
         let c = campaign(CampaignKind::PerformanceMax);
@@ -608,6 +714,13 @@ mod tests {
         let mut c = campaign(CampaignKind::PerformanceMax);
         c.asset_groups[0].images[0].prompt = "A bottle with a label that reads Alamos".into();
         assert!(warnings(&c).contains(&"W07".to_string()));
+        let mut c = campaign(CampaignKind::PerformanceMax);
+        c.asset_groups[0].images[0].prompt =
+            "Woman reading the wine list at a restaurant table".into();
+        assert!(
+            warnings(&c).contains(&"W07".to_string()),
+            "a menu gets invented text"
+        );
         assert!(!warnings(&campaign(CampaignKind::PerformanceMax)).contains(&"W07".to_string()));
     }
 }

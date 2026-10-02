@@ -18,6 +18,7 @@ pub fn input() -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
+        app: None,
         business: Business {
             name: "Vinellu".into(),
             url: "https://vinellu.com".into(),
@@ -26,6 +27,7 @@ pub fn input() -> Input {
             goal: "cadastros no app".into(),
             description: "App social de vinhos com reviews, safras e harmonização.".into(),
             conversion_tracking: false,
+            restricted: vec![],
             brand_terms: vec!["vinellu".into()],
             competitors: vec!["Vivino".into()],
             avoid: vec!["melhor do mundo".into()],

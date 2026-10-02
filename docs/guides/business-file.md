@@ -100,7 +100,21 @@ Agents need at least 4 sitelinks to distinct allowed pages. With a small site, l
 
 ### conversion_tracking
 
-Set `true` only when your Google Ads account tracks conversions. It is `false` by default. The only bid strategy accepted today is `manual_cpc`, so this key has no effect on the output yet. The rule that uses it (`E10`, `maximize_conversions` without tracking) is in place for when other strategies are enabled.
+Set `true` only when your Google Ads account tracks conversions. It is `false` by default. Search campaigns bid with `manual_cpc`, so they ignore it. Performance Max needs it: the plan agent uses Performance Max only with tracking, and `maximize_conversions` without it fails with `E10`.
+
+## Logo and formats
+
+Image campaigns need `[brand] logo`, a square PNG or JPEG. `mads init` downloads one from your site. `[campaigns] formats` makes formats mandatory instead of leaving the choice to the agent.
+
+```toml
+[brand]
+logo = "brand/logo.png"
+
+[campaigns]
+formats = ["search", "demand_gen"]
+```
+
+See [Image campaigns](image-campaigns.md) and the [business.toml reference](../reference/business-toml.md#campaigns).
 
 ## Budget
 

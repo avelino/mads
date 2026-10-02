@@ -25,6 +25,10 @@ fn reference_input() -> Input {
             decimal_comma: true,
         },
         research: String::new(),
+        logo: None,
+        formats: Vec::new(),
+        design: String::new(),
+        focus: None,
         catalog: vec![],
     }
 }

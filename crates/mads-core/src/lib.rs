@@ -2,6 +2,7 @@ pub mod agent;
 pub mod events;
 pub mod finalize;
 pub mod google;
+pub mod images;
 pub mod init;
 pub mod input;
 pub mod mission;

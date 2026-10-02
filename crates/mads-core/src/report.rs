@@ -2,7 +2,8 @@ use std::{collections::BTreeMap, fmt::Write};
 
 use crate::{
     events::Totals,
-    google::{Account, BidStrategy, Issue},
+    google::{Account, EDITOR_CSV, Issue},
+    images::ImageStepResult,
     input::{ExportStatus, Input},
     post::UrlResult,
     workspace::{MissionState, MissionStatus},
@@ -32,6 +33,8 @@ pub struct ReportData {
     pub missions: BTreeMap<String, MissionState>,
     pub totals: Totals,
     pub status: ReportStatus,
+    /// What the image step did. Default when the run has no image campaign.
+    pub images: ImageStepResult,
 }
 
 const EXAMPLES_PER_CODE: usize = 5;
@@ -51,9 +54,60 @@ pub fn render_report(d: &ReportData) -> String {
     bids(&mut md, d);
     validation(&mut md, d);
     url_check(&mut md, d);
+    images(&mut md, d);
     usage(&mut md, d);
     import_steps(&mut md, d.input.export.status);
+    editor_steps(&mut md, d);
     md
+}
+
+fn has_images(d: &ReportData) -> bool {
+    d.account.campaigns.iter().any(|c| c.kind.has_images())
+}
+
+fn images(md: &mut String, d: &ReportData) {
+    if !has_images(d) {
+        return;
+    }
+    let model = d.images.model.as_deref().unwrap_or("none");
+    let _ = writeln!(
+        md,
+        "## Images\n\nModel {model}: {} generated in this run, {} reused.\n",
+        d.images.generated, d.images.reused
+    );
+    md.push_str("| Campaign | Asset group | Image | Ratio | Reference | File |\n|---|---|---|---|---|---|\n");
+    for c in d.account.campaigns.iter().filter(|c| c.kind.has_images()) {
+        for g in &c.asset_groups {
+            for b in &g.images {
+                let file = b
+                    .file
+                    .as_deref()
+                    .map_or("missing".to_string(), |f| format!("`editor/{f}`"));
+                let reference = b.reference.as_deref().unwrap_or("");
+                let _ = writeln!(
+                    md,
+                    "| {} | {} | {} | {:?} | {reference} | {file} |",
+                    c.name, g.name, b.id, b.ratio
+                );
+            }
+        }
+    }
+    md.push('\n');
+}
+
+fn editor_steps(md: &mut String, d: &ReportData) {
+    if !has_images(d) {
+        return;
+    }
+    let _ = writeln!(
+        md,
+        "\n### Image campaigns\n\n\
+         Performance Max and Demand Gen campaigns are in `google-ads/{EDITOR_CSV}`, for Google Ads Editor.\n\n\
+         1. Open Google Ads Editor and download the account.\n\
+         2. Account, Import, From file, and pick `{EDITOR_CSV}`. Keep the `images/` folder next to it: image columns are paths relative to the file.\n\
+         3. Review the changes, then post them.\n\n\
+         > The columns of this file follow Google's documented headers and are not verified against a real Editor template yet. Check the import preview before posting."
+    );
 }
 
 fn status_line(d: &ReportData) -> &'static str {
@@ -70,17 +124,9 @@ fn status_line(d: &ReportData) -> &'static str {
     }
 }
 
-fn bid_label(b: &BidStrategy) -> &'static str {
-    match b {
-        BidStrategy::ManualCpc => "Manual CPC",
-        BidStrategy::MaximizeClicks { .. } => "Maximize clicks",
-        BidStrategy::MaximizeConversions => "Maximize conversions",
-    }
-}
-
 fn summary(md: &mut String, d: &ReportData) {
     let (comma, cur) = (d.input.export.decimal_comma, &d.input.budget.currency);
-    md.push_str("## Summary\n\n| Campaign | Intent | Daily budget | Bidding | Ad groups | Keywords |\n|---|---|---|---|---|---|\n");
+    md.push_str("## Summary\n\n| Campaign | Format | Intent | Daily budget | Bidding | Groups | Keywords |\n|---|---|---|---|---|---|---|\n");
     for c in &d.account.campaigns {
         let kws: usize = c.ad_groups.iter().map(|g| g.keywords.len()).sum();
         let intent = serde_json::to_value(c.intent)
@@ -89,13 +135,14 @@ fn summary(md: &mut String, d: &ReportData) {
             .unwrap_or_default();
         let _ = writeln!(
             md,
-            "| {} | {} | {} {} | {} | {} | {} |",
+            "| {} | {} | {} | {} {} | {} | {} | {} |",
             c.name,
+            c.kind.label(),
             intent,
             c.daily_budget.format_cpc(comma),
             cur,
-            bid_label(&c.bid_strategy),
-            c.ad_groups.len(),
+            c.bid_strategy.label(),
+            c.ad_groups.len() + c.asset_groups.len(),
             kws
         );
     }
@@ -248,6 +295,8 @@ mod tests {
         Account {
             brand_kit: None,
             campaigns: vec![Campaign {
+                kind: Default::default(),
+                asset_groups: Vec::new(),
                 name: "Vinellu - Catalogo".into(),
                 slug: "vinellu-catalogo".into(),
                 intent: Intent::Catalog,
@@ -302,6 +351,7 @@ mod tests {
             missions,
             totals: Totals::default(),
             status: ReportStatus::Success,
+            images: Default::default(),
         }
     }
 

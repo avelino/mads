@@ -37,10 +37,16 @@ Tools: `get_business`, `query_catalog`, `set_brand_kit`, `set_account_plan`, `fi
 No arguments. Returns the business profile, the budget and the rules every tool enforces.
 
 ```json
-{"business": {}, "budget": {"daily": 50.0, "currency": "BRL", "max_cpc": 3.0}, "catalog_size": 4, "rules": {}}
+{"business": {}, "budget": {"daily": 50.0, "currency": "BRL", "max_cpc": 3.0}, "catalog_size": 4, "catalog_photos": 1, "image_campaigns": {"available": false, "reason": "no image model in this run (set --image-provider and its API key)"}, "rules": {}}
 ```
 
-`rules` has the text limits, the count ranges, the intents (`brand`, `catalog`, `generic`, `competitor`), the match types (`phrase`, `exact`), `bid_strategies` (`["manual_cpc"]`), the snippet headers and `max_ad_groups`.
+`rules` has the text limits, the count ranges, the intents (`brand`, `catalog`, `generic`, `competitor`), the match types (`phrase`, `exact`), `campaign_kinds` with the bid strategies of each kind, the snippet headers and `max_ad_groups`.
+
+When `business.toml` has `[campaigns] formats`, the result also has `required_formats`, and `set_account_plan` refuses a plan without one of them (`E21`).
+
+`focus` is the `[focus]` table of `business.toml`, or null. With a focus, every landing page must be a focus URL (`E22`), and a planned group without entity lands on the first focus URL instead of `business.url`. Both `get_brief` tools return it too.
+
+`catalog_photos` counts the catalog items with an `image`. `image_campaigns.available` is `true` only when the run has an image model and `business.toml` has a logo. Otherwise `reason` says which one is missing, `no image model in this run (set --image-provider and its API key)` or `no logo: set [brand] logo in business.toml`.
 
 When `business.toml` has a `[research]` table, the result also has `research`, the Markdown text of that file. Without notes the key is absent.
 
@@ -81,11 +87,12 @@ Each campaign.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | Campaign name. Its slug is the mission id suffix. |
+| `kind` | string | no | `search` (default), `performance_max` or `demand_gen`. |
 | `intent` | string | yes | `brand`, `catalog`, `generic` or `competitor`. |
 | `daily_budget` | number | yes | In currency units, at most 2 decimals. All campaigns must sum to `budget.daily`. |
-| `bid_strategy` | object | yes | `{"type": "manual_cpc"}`. The schema also lists `maximize_clicks` and `maximize_conversions`, which return `UNSUPPORTED`. |
+| `bid_strategy` | object | yes | `{"type": "..."}`. `search` takes `manual_cpc`, other types return `UNSUPPORTED`. `performance_max` takes `maximize_conversions`. `demand_gen` takes `maximize_clicks` or `maximize_conversions`. A mismatch is `E17`. |
 | `rationale` | string | yes | Why this budget share and bidding. |
-| `ad_groups` | array | yes | The planned ad groups. |
+| `ad_groups` | array | yes | The planned ad groups of a Search campaign, the planned asset groups of an image campaign. |
 
 Each ad group.
 
@@ -96,7 +103,7 @@ Each ad group.
 | `entity_ids` | string array | no | Catalog ids this ad group covers. |
 | `final_url` | string | no | Landing page. Empty resolves to the entity URL (one entity) or `business.url`. |
 
-Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, unknown catalog ids (`E12`) and `UNSUPPORTED`. Result.
+Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, `E17`, `E18`, `E21`, unknown catalog ids (`E12`) and `UNSUPPORTED`. An image campaign in a run without an image model or a logo is `UNSUPPORTED`. Result.
 
 ```json
 {"campaigns": [{"name": "Vinellu - Marca", "slug": "vinellu-marca", "ad_groups": 1}]}
@@ -221,9 +228,56 @@ No arguments. Validates the campaign as it stands and changes nothing. It always
 
 No arguments. Needs every planned ad group, assets and zero errors in the campaign. Otherwise it returns the errors. Result `{"ad_groups": 4}`.
 
+## Image campaign mission
+
+A `performance_max` or `demand_gen` campaign gets these tools instead: `get_brief`, `upsert_asset_group`, `set_image_briefs`, `validate`, `finish`. Its system prompt is `prompts/image-campaign.md`.
+
+### get_brief
+
+No arguments. Like the Search `get_brief`, with `design` (the text of `DESIGN.md`, when there is one), `planned_asset_groups`, `built_asset_groups` (`name`, `headlines`, `images`), `entities` with `has_photo`, and `image_rules` with the limits of each kind and the ratios.
+
+### upsert_asset_group
+
+Creates or replaces the texts of one planned asset group. Its image briefs are kept.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | A planned asset group of this campaign. |
+| `business_name` | string | yes | At most 25 characters. |
+| `headlines` | string array | yes | Performance Max 3 to 15 of 30 characters. Demand Gen 1 to 5 of 40. |
+| `long_headlines` | string array | no | Performance Max only, 1 to 5 of 90 characters. |
+| `descriptions` | string array | yes | Performance Max 2 to 5 of 90, one of them 60 or fewer. Demand Gen 1 to 5 of 90. |
+| `search_themes` | string array | no | Performance Max only, 0 to 25 of 80 characters. |
+
+The final URL comes from the plan. Checks `E01`, `E02`, `E03`, `E04`, `E05`, `E07`, `E12`, `E13`, plus `W01` and `W02`.
+
+### set_image_briefs
+
+Replaces every brief of one asset group. A replaced brief loses its file, so the image step draws it again.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `asset_group` | string | yes | An asset group already created with `upsert_asset_group`, else `E12`. |
+| `images` | array | yes | Up to 20 briefs. |
+
+Each brief.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Slug, unique in the group. It becomes the file name. |
+| `ratio` | string | yes | `landscape` (1.91:1), `square`, `portrait` (4:5) or `vertical` (9:16). |
+| `prompt` | string | yes | 20 to 1500 characters, in English. What the picture shows. |
+| `reference` | string | no | Catalog id whose photo the picture must show. Empty for none. |
+
+Checks `E13`, `E16`, `E19`, plus `W06` and `W07`.
+
+### validate and finish
+
+Same as Search. `E20` is left out: the pictures are made after the mission. `finish` also needs briefs in every asset group (`E16`).
+
 ## Init mission
 
-Used by `mads init`. Tools: `fetch_page`, `fetch_sitemap`, `search_site`, `write_business`, `write_research`, `add_catalog_items`, `finish`. See [Init from a URL](../guides/init-from-url.md).
+Used by `mads init`. Tools: `fetch_page`, `fetch_sitemap`, `search_site`, `write_business`, `write_research`, `write_design`, `add_catalog_items`, `finish`. See [Init from a URL](../guides/init-from-url.md).
 
 With an agent CLI the init agent can also use the CLI's own web search. That tool is not a mads tool and does not go through the MCP server. See [Agent CLIs](../guides/agent-clis.md#web-search-in-init).
 
@@ -238,10 +292,10 @@ The agent only reaches the start host and its `www.` or apex sibling. `robots.tx
 Result.
 
 ```json
-{"url": "https://vinellu.com/", "status": 200, "title": "", "description": "", "text": "", "links": []}
+{"url": "https://vinellu.com/", "status": 200, "title": "", "description": "", "text": "", "links": [], "image": "https://vinellu.com/share.jpg", "theme_color": "#AD1457"}
 ```
 
-`text` is the visible text, at most 8000 characters. `links` are absolute same-site URLs, at most 200. The page and its links join the set of seen URLs. At most 30 pages per mission attempt. Errors `HOST`, `FETCH`, `LIMIT`.
+`text` is the visible text, at most 8000 characters. `links` are absolute same-site URLs, at most 200. `image` is the page's `og:image` and `theme_color` its `<meta name="theme-color">`, each absent when the page has none. The theme color goes into `DESIGN.md`. mads also collects logo candidates from the page, which the agent does not see. The page and its links join the set of seen URLs. At most 30 pages per mission attempt. Errors `HOST`, `FETCH`, `LIMIT`.
 
 ### fetch_sitemap
 
@@ -282,8 +336,9 @@ Saves the business profile. Replaces the previous one.
 | `conversion_tracking` | boolean | no |
 | `brand_terms`, `competitors`, `avoid` | string array | no |
 | `pages` | array of `{"name", "url"}` | no |
+| `focus` | `{"name", "urls"}` | no |
 
-The draft is validated like `business.toml`. Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
+The draft is validated like `business.toml`. With `--focus`, `focus` must have a name and list the start URL (`E22`), and its URLs must have been seen (`E07`). Once a focus is set, `add_catalog_items` refuses items whose URL is not a focus URL (`E22`). Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
 
 ### write_research
 
@@ -313,17 +368,28 @@ Every problem comes back at once, each with its path, such as `opportunities[0].
 
 When the mission has web search, the research must cite at least 3 distinct pages outside the business site across all `sources`. Pages on the site, with or without `www.`, do not count. Fewer fail with the path `opportunities[].sources`. Without web search there is no such rule. A failed call keeps the previous research. Result `{"saved": true}`. mads writes the research as `research.md`.
 
+### write_design
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `style` | string | yes | The visual feel of the brand. 1 to 600 characters. |
+| `imagery` | string | no | What the brand's own photos show. At most 600. |
+| `voice` | string | no | How the brand talks. At most 600. |
+| `avoid` | string array | no | What pictures must never show. At most 10. |
+
+Optional. Errors `E13`. Replaces the previous draft. mads adds the colors itself and writes `DESIGN.md` after finish.
+
 ### add_catalog_items
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `items` | array | yes | Catalog items. |
 
-Each item has `name` and `url` (required) and `category`, `aliases` (string array), `third_party` (boolean) and `notes`. The checks match `catalog.csv`. URLs must have been fetched, listed in the sitemap or returned by `search_site` (`E07`). Duplicates by URL are skipped. More items than `--catalog-limit` fail with `E13`. Result `{"added": 20, "skipped": 0, "total": 20}`.
+Each item has `name` and `url` (required) and `category`, `aliases` (string array), `third_party` (boolean), `notes` and `image`. The checks match `catalog.csv`. URLs must have been fetched, listed in the sitemap or returned by `search_site` (`E07`). An `image` must be the `image` of a fetched page (`E07`, path `items[<i>].image`). Duplicates by URL are skipped. More items than `--catalog-limit` fail with `E13`. Result `{"added": 20, "skipped": 0, "total": 20}`.
 
 ### finish
 
-No arguments. Fails with `E12` when `write_business` or `write_research` was not called. The error path is `business` or `research`. Result `{"catalog_items": 20}`. After it succeeds, mads writes `business.toml`, `research.md` and, when there are items, `catalog.csv`.
+No arguments. Fails with `E12` when `write_business` or `write_research` was not called. The error path is `business` or `research`. Result `{"catalog_items": 20}`. After it succeeds, mads downloads the first logo candidate that passes Google's checks into `brand/logo.png`, then writes `business.toml`, `research.md` and, when there are items, `catalog.csv`.
 
 ## Progress summaries
 

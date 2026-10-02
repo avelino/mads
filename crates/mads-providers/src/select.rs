@@ -174,6 +174,7 @@ fn cli_drivers<A: CliAgent + 'static>(sel: &ProviderSelection, make: impl Fn() -
     Drivers {
         plan: Arc::new(CliDriver::new(make()).with_model(plan_model)),
         campaign: Arc::new(CliDriver::new(make()).with_model(sel.model.clone())),
+        image: None,
     }
 }
 
@@ -218,6 +219,7 @@ fn api_drivers(sel: &ProviderSelection, provider: &str) -> Result<Drivers, Provi
     Ok(Drivers {
         plan: make(plan_model)?,
         campaign: make(model)?,
+        image: None,
     })
 }
 
@@ -234,6 +236,7 @@ fn replay(sel: &ProviderSelection) -> Result<Drivers, ProviderError> {
     Ok(Drivers {
         plan: driver.clone(),
         campaign: driver,
+        image: None,
     })
 }
 

@@ -149,13 +149,23 @@ Sitelink URLs must be in the allowed set. A campaign mission cannot finish until
 
 Assets are collected and validated but not exported yet. Files 6 to 8 are not written until their Google templates are verified.
 
+## Focus
+
+With `[focus]` in `business.toml` the account advertises one offer. The plan keeps every campaign on it, brand and competitor campaigns combine their names with the focus words, and every landing page must be a focus URL (`E22`). A planned group without entity lands on the first focus URL.
+
+## Formats
+
+Each campaign has a `kind`: `search` (the default), `performance_max` or `demand_gen`. The plan agent picks it per campaign. Search catches demand that already exists. Demand Gen creates demand in YouTube, Discover and Gmail feeds. Performance Max needs conversion tracking. The image formats are open only when the run has an image model and `business.toml` has a logo. An image campaign gets a plan only when at least 20 percent of the budget is left after the best Search campaigns. `[campaigns] formats` in `business.toml` makes formats mandatory. [Image campaigns](image-campaigns.md) covers what they build and how they export.
+
 ## Bids
 
-Only `manual_cpc` is accepted today. The plan tool refuses `maximize_clicks` and `maximize_conversions`.
+Search campaigns take only `manual_cpc`. The plan tool refuses `maximize_clicks` and `maximize_conversions` on Search.
 
 ```json
-{"code": "UNSUPPORTED", "path": "campaigns[0].bid_strategy.type", "message": "only manual_cpc is supported until the Google Ads bulk templates are verified"}
+{"code": "UNSUPPORTED", "path": "campaigns[0].bid_strategy.type", "message": "search campaigns take only manual_cpc until the Google Ads bulk templates are verified"}
 ```
+
+Performance Max takes `maximize_conversions`. Demand Gen takes `maximize_clicks` or `maximize_conversions`. Any other pair is `E17`.
 
 Each ad group gets a `default_cpc` and a `cpc_rationale`. These are estimates. mads has no auction data, no Keyword Planner volumes and no history. The prompt asks for conservative numbers, below `budget.max_cpc` when set, with brand terms cheaper than generic terms. `E11` rejects a zero CPC and any CPC above `max_cpc`.
 

@@ -75,6 +75,10 @@ mod tests {
 
     fn input() -> Input {
         Input {
+            logo: None,
+            formats: Vec::new(),
+            design: String::new(),
+            focus: None,
             business: Business {
                 name: "Acme".into(),
                 url: "https://acme.com".into(),

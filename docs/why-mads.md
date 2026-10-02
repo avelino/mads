@@ -41,10 +41,10 @@ The result is that the output can be wrong about marketing, but it cannot break 
 - **It does not enable campaigns.** They are exported paused by default.
 - **It has no auction data.** Bids and budget shares are estimates. Check them against the Keyword Planner.
 - **It does not read your account.** There is no Google Ads API access and no performance data.
-- **It does not cover other campaign types.** No Performance Max, Shopping, Dynamic Search Ads, App, video or image campaigns, and no broad match.
+- **It does not cover other campaign types.** Search, Performance Max and Demand Gen only. No Shopping, Dynamic Search Ads, App or video campaigns, and no broad match.
 - **It does not guarantee results.** It guarantees the files follow the format and the rules. Whether the ads convert depends on your offer, your site and the market.
 
-Two limits to know. Only `manual_cpc` bidding is accepted. Sitelinks, callouts and snippets are collected and validated, but the asset CSVs are not written. See [Limitations in the README](../README.md#limitations).
+Two limits to know. Search campaigns bid with `manual_cpc` only. Sitelinks, callouts and snippets are collected and validated, but the asset CSVs are not written. See [Limitations in the README](../README.md#limitations).
 
 ## Next
 

@@ -36,6 +36,31 @@ impl Web for WebClient {
             Err(e) => Err(e.to_string()),
         }
     }
+
+    /// GET a 2xx body, refusing anything over `limit` bytes before and while reading it.
+    async fn fetch_bytes(&self, url: &str, limit: usize) -> Result<Vec<u8>, String> {
+        let mut resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(format!("{url}: HTTP {}", status.as_u16()));
+        }
+        if resp.content_length().is_some_and(|n| n > limit as u64) {
+            return Err(format!("{url}: larger than {limit} bytes"));
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+            body.extend_from_slice(&chunk);
+            if body.len() > limit {
+                return Err(format!("{url}: larger than {limit} bytes"));
+            }
+        }
+        Ok(body)
+    }
 }
 
 #[cfg(test)]
@@ -103,6 +128,34 @@ mod tests {
             .mount(&server)
             .await;
         assert!(status(&server, "/loop").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn fetch_bytes_reads_a_body_within_the_limit() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/photo.jpg"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![7u8; 100]))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/gone.jpg"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let web = WebClient::new().unwrap();
+        let ok = web
+            .fetch_bytes(&format!("{}/photo.jpg", server.uri()), 1000)
+            .await;
+        assert_eq!(ok, Ok(vec![7u8; 100]));
+        let big = web
+            .fetch_bytes(&format!("{}/photo.jpg", server.uri()), 10)
+            .await;
+        assert!(big.unwrap_err().contains("larger than 10 bytes"));
+        let gone = web
+            .fetch_bytes(&format!("{}/gone.jpg", server.uri()), 1000)
+            .await;
+        assert!(gone.unwrap_err().contains("HTTP 404"));
     }
 
     #[tokio::test]

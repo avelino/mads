@@ -15,6 +15,9 @@ pub struct CatalogItem {
     pub aliases: Vec<String>,
     pub third_party: bool,
     pub notes: String,
+    /// Absolute URL of a real photo of the item, used as a reference for generated images.
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 fn invalid(row: usize, column: &str, message: impl Into<String>) -> InputError {
@@ -45,11 +48,12 @@ pub fn parse_catalog(bytes: &[u8]) -> Result<Vec<CatalogItem>, InputError> {
             message: "required columns: name, url".into(),
         });
     };
-    let (cat_i, alias_i, third_i, notes_i) = (
+    let (cat_i, alias_i, third_i, notes_i, image_i) = (
         col("category"),
         col("aliases"),
         col("third_party"),
         col("notes"),
+        col("image"),
     );
 
     let mut items = Vec::new();
@@ -94,6 +98,16 @@ pub fn parse_catalog(bytes: &[u8]) -> Result<Vec<CatalogItem>, InputError> {
         if notes.chars().count() > 500 {
             return Err(invalid(row, "notes", "at most 500 chars"));
         }
+        let image = Some(get(image_i)).filter(|i| !i.is_empty());
+        if let Some(i) = &image
+            && normalize_url(i).is_none()
+        {
+            return Err(invalid(
+                row,
+                "image",
+                format!("not an absolute http(s) URL: {i}"),
+            ));
+        }
         let aliases = get(alias_i)
             .split('|')
             .map(str::trim)
@@ -118,6 +132,7 @@ pub fn parse_catalog(bytes: &[u8]) -> Result<Vec<CatalogItem>, InputError> {
             aliases,
             third_party,
             notes,
+            image,
         });
     }
     Ok(items)
@@ -160,6 +175,20 @@ mod tests {
         .unwrap();
         let ids: Vec<_> = items.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, ["alamos", "alamos-2", "alamos-3"]);
+    }
+
+    #[test]
+    fn image_column_is_optional_and_must_be_absolute() {
+        let items = parse(
+            "name,url,image\nA,https://x.com/a,https://cdn.x.com/a.jpg\nB,https://x.com/b,\n",
+        )
+        .unwrap();
+        assert_eq!(items[0].image.as_deref(), Some("https://cdn.x.com/a.jpg"));
+        assert_eq!(items[1].image, None);
+        match parse("name,url,image\nA,https://x.com/a,/a.jpg\n") {
+            Err(InputError::Invalid { key, .. }) => assert_eq!(key, "catalog.csv row 2 image"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

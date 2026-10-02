@@ -20,6 +20,7 @@ This page lists every column of `catalog.csv` with its rule.
 | `aliases` | no | Alternative names separated by `\|`. Empty parts are dropped. Used as keyword variants. |
 | `third_party` | no | `true` or `false`, case-insensitive. Empty means `false`. `true` marks someone else's trademark (warning `W01`). |
 | `notes` | no | Free text handed to the agent. At most 500 characters. |
+| `image` | no | Absolute `http` or `https` URL of a real photo of the item. Image campaigns send it to the image model as a reference, so the picture shows the real product. `mads init` fills it from the item page's `og:image`. |
 
 ## Ids
 

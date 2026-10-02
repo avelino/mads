@@ -48,6 +48,7 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
     cfg.catalog_limit = args.catalog_limit;
     cfg.force = args.force;
     cfg.web_search = !args.no_web_search;
+    cfg.focus = args.focus;
     cfg.max_turns = args.agent.max_turns;
     cfg.mission_timeout = args.agent.mission_timeout;
     cfg.max_tokens = args.agent.max_tokens;
@@ -67,6 +68,21 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
             if r.exit_code == 0 && format != Format::Json {
                 if let Some(research) = &r.research {
                     eprintln!("Read what the agent found in {}", research.display());
+                }
+                let design = args.out_dir.join(mads_core::init::DESIGN_FILE);
+                if design.exists() {
+                    eprintln!(
+                        "Check the brand colors and style in {}: image ads follow it",
+                        design.display()
+                    );
+                }
+                match &r.logo {
+                    Some(logo) => {
+                        eprintln!("Check the logo in {}: image ads show it", logo.display())
+                    }
+                    None => eprintln!(
+                        "No logo found on the site: add [brand] logo to business.toml for image campaigns"
+                    ),
                 }
                 eprintln!(
                     "Review {} and the catalog, then run: mads generate {} --provider {}",

@@ -73,6 +73,7 @@ To change an input value such as `export.decimal_comma` or `export.status`, edit
 - `events.ndjson` is appended. The export events follow the original events.
 - A failed export (exit `3`) deletes the CSV files that an earlier export left in `google-ads/`, so the folder never holds files that do not match the report.
 - The run keeps its original provider and model labels in the report. `export` reads them from `run.json`.
+- `export` has no image model. It reuses the pictures in `google-ads/editor/images/`, and a missing one fails with `E20`. A failed export keeps the pictures. `generate --resume` draws only the missing ones, within `--max-images`.
 
 ## Exit codes after resume or export
 

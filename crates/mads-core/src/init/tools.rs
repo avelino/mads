@@ -10,7 +10,8 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use super::{
-    BusinessDraft, CatalogDraft, FetchedPage, InitState, ResearchDraft, SiteFetch, SitemapUrls,
+    BusinessDraft, CatalogDraft, DesignDraft, FetchedPage, InitState, ResearchDraft, SiteFetch,
+    SitemapUrls,
 };
 use crate::{
     google::Issue,
@@ -193,6 +194,8 @@ impl InitTools {
         state.note_seen(&a.url);
         state.note_seen(&page.url);
         page.links.iter().for_each(|l| state.note_seen(l));
+        state.note_page_media(&page.image, &page.logos);
+        state.note_theme_color(&page.url, &page.theme_color);
         let summary = format!("fetch_page {} ({} links)", page.url, page.links.len());
         ToolOutput::ok(
             serde_json::to_value(&page).unwrap_or(Value::Null),
@@ -318,6 +321,17 @@ impl InitTools {
         }
     }
 
+    async fn write_design(&self, draft: DesignDraft) -> ToolOutput {
+        match self.state.lock().await.set_design(draft) {
+            Ok(()) => ToolOutput::ok(json!({"saved": true}), &[], "design saved"),
+            Err(issues) => ToolOutput::fail_issues(
+                &issues,
+                &[],
+                format!("write_design: {} errors", issues.len()),
+            ),
+        }
+    }
+
     async fn write_business(&self, draft: BusinessDraft) -> ToolOutput {
         let name = draft.name.clone();
         match self.state.lock().await.set_business(draft) {
@@ -407,6 +421,11 @@ impl ToolHost for InitTools {
                 schema_for::<ResearchDraft>(),
             ),
             spec(
+                "write_design",
+                "Save how the brand looks and sounds, for generated pictures: style, imagery, voice and what to avoid. Optional. mads adds the colors itself, from the logo and the site's theme color.",
+                schema_for::<DesignDraft>(),
+            ),
+            spec(
                 "add_catalog_items",
                 "Add catalog items (the entities people search for by name). Duplicates by URL are skipped.",
                 schema_for::<AddItemsArgs>(),
@@ -437,6 +456,7 @@ impl ToolHost for InitTools {
             "search_site" => with_args!(SearchSiteArgs, |a| self.search_site(a)),
             "write_research" => with_args!(ResearchDraft, |a| self.write_research(a)),
             "write_business" => with_args!(BusinessDraft, |a| self.write_business(a)),
+            "write_design" => with_args!(DesignDraft, |a| self.write_design(a)),
             "add_catalog_items" => with_args!(AddItemsArgs, |a| self.add_items(a)),
             "finish" => self.finish_tool().await,
             other => ToolOutput::fail(
@@ -477,6 +497,9 @@ mod tests {
             description: "App de vinhos".into(),
             text: "App social de vinhos".into(),
             links: links.iter().map(|l| l.to_string()).collect(),
+            image: String::new(),
+            theme_color: String::new(),
+            logos: vec![],
         }
     }
 
@@ -577,7 +600,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn toolset_is_the_documented_seven() {
+    async fn write_design_validates_and_reaches_design_md() {
+        let t = tools(site());
+        let bad = t.call("write_design", json!({"style": ""})).await;
+        assert!(bad.is_error);
+        let ok = t
+            .call(
+                "write_design",
+                json!({"style": "Young and colorful", "avoid": ["dark night scenes"]}),
+            )
+            .await;
+        assert!(!ok.is_error, "{}", ok.content);
+    }
+
+    #[tokio::test]
+    async fn toolset_is_the_documented_eight() {
         let names: Vec<String> = tools(site()).specs().into_iter().map(|s| s.name).collect();
         assert_eq!(
             names,
@@ -587,6 +624,7 @@ mod tests {
                 "search_site",
                 "write_business",
                 "write_research",
+                "write_design",
                 "add_catalog_items",
                 "finish"
             ]

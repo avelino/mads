@@ -52,6 +52,7 @@ jobs:
             -v "$GITHUB_STEP_SUMMARY:$GITHUB_STEP_SUMMARY" \
             -e GITHUB_ACTIONS -e GITHUB_STEP_SUMMARY -e MADS_FORMAT \
             -e MADS_PROVIDER -e MADS_MODEL -e MADS_PLAN_MODEL -e MADS_BASE_URL -e MADS_API_KEY \
+            -e MADS_IMAGE_PROVIDER -e MADS_IMAGE_MODEL \
             -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GEMINI_API_KEY -e OPENROUTER_API_KEY \
             -e GROQ_API_KEY -e DEEPSEEK_API_KEY -e XAI_API_KEY \
             ghcr.io/avelino/mads:latest "$@"
@@ -153,6 +154,7 @@ Notes.
 
 - Store the key as a repository or environment secret. The workflow reads it through `secrets`. mads reads the provider's standard variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`).
 - mads does not write keys to the run directory. The temporary config files of agent CLIs live outside it.
+- `OPENAI_API_KEY` or `GEMINI_API_KEY` in the job also turns on image campaigns, because `--image-provider` defaults to `auto`. Set `MADS_IMAGE_PROVIDER: none` to keep a run on Search, or cap the pictures with `--max-images`.
 - Pull requests from forks do not receive secrets. Run mads from `workflow_dispatch` or from a trusted branch.
 
 ## Exit codes

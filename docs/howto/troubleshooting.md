@@ -63,6 +63,16 @@ error: invalid value '0' for '--mission-timeout <MISSION_TIMEOUT>': duration mus
 
 Run `mads generate --help`. Durations take `90s`, `15m`, `2h` or bare seconds.
 
+### Image provider
+
+```text
+error: unknown image provider 'dalle': use auto, gemini, openai or none
+error: --image-provider openai needs OPENAI_API_KEY
+error: campaigns.formats asks for Demand Gen and there is no image model: set OPENAI_API_KEY or GEMINI_API_KEY, or pick one with --image-provider
+```
+
+Export the key in the same shell, or pick another provider. `mads providers` shows which image providers are ready. See [Image campaigns](../guides/image-campaigns.md).
+
 ### business.toml
 
 ```text
@@ -72,6 +82,13 @@ error: nope.toml: No such file or directory (os error 2)
 The path is wrong. It is relative to your current directory.
 
 An unknown key shows the TOML location and the allowed keys.
+
+```text
+error: brand.logo: wide.jpg: 1200x630 is not square
+error: campaigns.formats: Demand Gen needs [brand] logo
+```
+
+The logo must be PNG or JPEG, square, at least 144x144 and at most 150 KB. An image format in `[campaigns] formats` needs `[brand] logo`, and `performance_max` needs `conversion_tracking = true`.
 
 ```text
 error: TOML parse error at line 4, column 1
@@ -231,6 +248,7 @@ On GitHub Actions each one is also an annotation.
 | `E06` | Campaign budgets do not sum to `budget.daily`, or a campaign has less than 1.00. | Generate again. |
 | `E07` | A URL is outside `business.url`, `business.pages` and the catalog. | Add the page to `business.pages` or the catalog. Generate again. |
 | `E12` | Structure error. A duplicate name, a missing planned ad group, an ad group with no keywords or no assets. | Resume, or generate again. |
+| `E20` | A picture is missing. More briefs than `--max-images`, an image API error, or a file deleted before `mads export`. The report lists every failed picture under Notes. | `mads generate --resume <run-dir>` with a higher `--max-images`. Pictures already made are reused. |
 | other `E` codes | See [Validation rules](../reference/validation-rules.md). | |
 
 Errors that tools catch during a mission rarely reach exit code 3. Agents read those errors and fix their calls. Exit code 3 mostly comes from the URL check, and from a run that is validated again with different input.
@@ -244,6 +262,12 @@ mads export out/<run-id>
 ```
 
 Run it again after you fix the page. It does not call a model. A failed export removes the CSV files an earlier export wrote to `google-ads/`, so the folder never holds files that do not match the report.
+
+## No pictures were generated
+
+The run exits `0`, and `google-ads/` has no `editor/` folder. The plan agent chose Search only. It plans an image campaign only when at least 20 percent of the budget is left after the best Search campaigns, and its last message in `transcripts/plan.*` says why it did not.
+
+To require a format, add `[campaigns] formats = ["search", "demand_gen"]` to `business.toml` and generate again. Check also that `get_business` in the plan transcript shows `"image_campaigns":{"available":true}`. Otherwise its `reason` says what is missing: the image model or the logo.
 
 ## The run looks right but Google rejects a row
 

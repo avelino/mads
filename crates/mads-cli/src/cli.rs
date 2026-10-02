@@ -65,6 +65,9 @@ pub struct InitArgs {
     /// Keep the agent off the web: it learns from the site only. Agent CLIs search the web by default.
     #[arg(long)]
     pub no_web_search: bool,
+    /// Advertise only the offer of --from-url (a route, a product line), not the whole business.
+    #[arg(long)]
+    pub focus: bool,
     #[command(flatten)]
     pub agent: AgentArgs,
 }
@@ -89,6 +92,16 @@ pub struct GenerateArgs {
     /// Ad groups allowed in the whole account.
     #[arg(long, default_value_t = 50)]
     pub max_ad_groups: usize,
+    /// Image model for Performance Max and Demand Gen: auto, gemini, openai or none.
+    /// auto picks gemini when GEMINI_API_KEY is set, then openai when OPENAI_API_KEY is set.
+    #[arg(long, env = "MADS_IMAGE_PROVIDER", default_value = "auto")]
+    pub image_provider: String,
+    /// Image model name, such as gemini-2.5-flash-image or gpt-image-1.
+    #[arg(long, env = "MADS_IMAGE_MODEL")]
+    pub image_model: Option<String>,
+    /// New images allowed in one run. Every image costs money.
+    #[arg(long, default_value_t = 40)]
+    pub max_images: usize,
     #[command(flatten)]
     pub agent: AgentArgs,
 }

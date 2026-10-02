@@ -28,12 +28,19 @@ Errors block the export. Warnings go to the report, to progress output and, on G
 | `E07` | URL outside the allowed set. | Planned final URLs, ad group final URLs and sitelink URLs. The set is `business.url`, `business.pages` and the catalog. Message `URL not in business.url, business.pages or catalog: <url>`. |
 | `E08` | Bad keyword syntax. | More than 10 words, or any of ``! @ % ^ * ( ) = { } ; ~ ` < > ? \ \| , [ ] "``. Applies to keywords and negatives. |
 | `E09` | A negative blocks a keyword in its scope. | A phrase negative blocks a keyword when its words appear contiguously in the keyword's words. An exact negative blocks a keyword with equal text. Ad group negatives apply to their ad group. Campaign negatives apply to every ad group in the campaign. Message `negative '<n>' blocks keyword '<k>'`. |
-| `E10` | `maximize_conversions` while `business.conversion_tracking` is `false`. | The rule is in place. Today the plan tool accepts only `manual_cpc`, so no run reaches it. |
+| `E10` | `maximize_conversions` while `business.conversion_tracking` is `false`. | Reached by Performance Max and Demand Gen campaigns. Search takes only `manual_cpc`. |
 | `E11` | CPC problems. | A CPC of zero, an ad group CPC that is not greater than 0 with at most 2 decimals, or a CPC above `budget.max_cpc` when set. |
 | `E12` | Structure. | Duplicate campaign name in the account. Duplicate ad group name in a campaign. An ad group not in the plan. A planned ad group missing at finish. An ad group without keywords. A missing brand kit or missing campaign assets at finish. An unknown catalog id in `entity_ids`. A campaign with no planned ad groups. A name with no letters or digits, or two names that give the same slug. |
 | `E13` | Count out of range. | See the table below. |
 | `E14` | `path2` without `path1`, or a sitelink with exactly one description. | |
 | `E15` | URL check failed. | A final or sitelink URL did not answer 2xx after redirects. Message `URL check failed: HTTP <status>` or `URL check failed: unreachable`. The path is the URL. |
+| `E16` | Image briefs of an asset group. | Performance Max needs at least 1 landscape and 1 square picture and takes no vertical one. Demand Gen needs at least 1 landscape or square picture. An image `id` must be a slug and unique in the group. A prompt has 20 to 1500 characters. At finish, every asset group needs briefs. |
+| `E17` | The campaign does not fit its `kind`. | Search takes `manual_cpc`, Performance Max `maximize_conversions`, Demand Gen `maximize_clicks` or `maximize_conversions`. A Search campaign with asset groups, or an image campaign with ad groups, negatives or assets. Message `<strategy> does not fit a <kind> campaign` or `a <kind> campaign has no <part>`. |
+| `E18` | Image campaign without a logo. | Message `image campaigns need a logo: set [brand] logo in business.toml`. |
+| `E19` | `reference` names an unknown catalog item or one without `image`. | Message `unknown catalog id '<id>'` or `catalog item '<id>' has no image to use as reference`. |
+| `E22` | A landing page outside `[focus]`. | Planned group, ad group and asset group final URLs must be one of `focus.urls`. Sitelinks may go elsewhere. In init, a catalog item outside the focus, or `--focus` without a focus that holds the start URL. Message `final URL is not a [focus] page: <url>`. |
+| `E21` | A format from `[campaigns] formats` has no campaign. | Message `business.toml asks for a <kind> campaign and the plan has none`. Path `campaigns`. |
+| `E20` | A brief has no picture at the end. | The image step could not make it: over `--max-images`, a model error, or `mads export` without the file. Message `image '<id>' has no file`. Agents never see it: their tools skip it, because pictures are made after the missions. |
 
 ### E13 limits
 
@@ -54,6 +61,16 @@ Errors block the export. Warnings go to the report, to progress output and, on G
 | Callouts | 2 to 10 |
 | Structured snippets | 0 to 2 |
 | Values per snippet | 3 to 10 |
+| Performance Max headlines (30 chars, no `!`) | 3 to 15 |
+| Performance Max long headlines (90 chars) | 1 to 5 |
+| Performance Max descriptions (90 chars, one of them 60 or fewer) | 2 to 5 |
+| Performance Max search themes (80 chars) | 0 to 25 |
+| Demand Gen headlines (40 chars) | 1 to 5 |
+| Demand Gen descriptions (90 chars) | 1 to 5 |
+| Demand Gen long headlines and search themes | none |
+| Pictures per asset group | 0 to 20 |
+
+The asset group `business_name` has at most 25 characters (`E01`).
 
 ## Warnings
 
@@ -64,6 +81,8 @@ Errors block the export. Warnings go to the report, to progress output and, on G
 | `W03` | The same keyword (text and match type) in two ad groups of the same campaign. | Message `keyword '<k>' is also in ad_groups[<index>]`. |
 | `W04` | Merged RSA with fewer than 15 headlines or fewer than 4 descriptions. | Message `merged ad has <h> headlines and <d> descriptions (15 and 4 recommended)`. |
 | `W05` | Fewer than 4 sitelinks, fewer than 4 callouts or no structured snippet. | Message `recommended: 4+ sitelinks, 4+ callouts and 1 structured snippet`. |
+| `W06` | Fewer pictures than Google recommends for ad strength. | Performance Max 4 landscape, 4 square and 2 portrait. Demand Gen 1 landscape, 1 square and 1 portrait. Message `recommended for ad strength: <missing>`. |
+| `W07` | A prompt asks for text in the picture. | The words `text`, `logo`, `caption`, `headline`, `words`, `lettering`, `typography`, `slogan` or `label that reads`. Google adds the ad text itself. |
 
 ## Tool-only codes
 
@@ -74,13 +93,13 @@ These come from the tool layer, not the rule set. The agent sees them in tool re
 | `ARGS` | The arguments did not parse. Unknown field, missing field or wrong type. The message is the parser error. |
 | `UNKNOWN_TOOL` | The tool does not exist or is not in this mission's toolset. |
 | `LIMIT` | The mission used its tool call budget (`--max-turns` times 4). |
-| `UNSUPPORTED` | A bid strategy other than `manual_cpc`. |
+| `UNSUPPORTED` | A Search campaign with a bid strategy other than `manual_cpc`, or an image campaign in a run without an image model or a logo. |
 | `NOT_FOUND` | The campaign of this mission no longer exists in the plan. |
 | `PERSIST` | The workspace could not be saved to disk. |
 | `HOST`, `FETCH` | Init only. The URL is outside the site, or the request failed. |
 | `INPUT` | Init only. The draft does not parse like `business.toml` or `catalog.csv`. |
-| `EXPORT` | The final export failed. Seen in the end step, for example when the brand kit is missing. |
+| `EXPORT` | The final export failed. Seen in the end step, for example when the brand kit or the logo is missing. |
 
 ## Cross negatives
 
-The end step adds brand and competitor terms as campaign negatives before validation. A term that would trigger `E09` in a campaign is skipped and reported as a note in the Validation section of `report.md`.
+The end step adds brand and competitor terms as campaign negatives before validation. Image campaigns are skipped. A term that would trigger `E09` in a campaign is skipped and reported as a note in the Validation section of `report.md`.

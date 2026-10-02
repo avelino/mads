@@ -88,6 +88,78 @@ fn meta(html: &Html, css: &str) -> Option<String> {
         .filter(|c| !c.is_empty())
 }
 
+/// Formats the image crate can decode. An SVG or ICO logo is skipped.
+fn raster(url: &Url) -> bool {
+    let path = url.path().to_lowercase();
+    !(path.ends_with(".svg") || path.ends_with(".ico") || path.ends_with(".gif"))
+}
+
+fn absolute(base: Option<&Url>, href: &str) -> Option<Url> {
+    let href = href.trim();
+    if href.is_empty() || href.starts_with("data:") {
+        return None;
+    }
+    let url = base?.join(href).ok()?;
+    matches!(url.scheme(), "http" | "https").then_some(url)
+}
+
+/// The largest side declared in `sizes="180x180"`, 0 when absent.
+fn declared_size(sizes: Option<&str>) -> u32 {
+    sizes
+        .unwrap_or("")
+        .split_whitespace()
+        .filter_map(|s| s.split(['x', 'X']).next()?.parse().ok())
+        .max()
+        .unwrap_or(0)
+}
+
+/// Logo candidates, best first: touch icons and declared logos, then big icons, then `<img>` named logo.
+fn logo_candidates(html: &Html, base: Option<&Url>) -> Vec<String> {
+    let mut ranked: Vec<(u32, u32, Url)> = Vec::new();
+    let mut push = |tier: u32, size: u32, href: Option<&str>| {
+        if let Some(u) = href.and_then(|h| absolute(base, h)).filter(raster) {
+            ranked.push((tier, u32::MAX - size, u));
+        }
+    };
+    for l in html.select(&selector(
+        r#"link[rel~="apple-touch-icon"], link[rel~="apple-touch-icon-precomposed"]"#,
+    )) {
+        push(
+            0,
+            declared_size(l.value().attr("sizes")),
+            l.value().attr("href"),
+        );
+    }
+    for m in html.select(&selector(
+        r#"meta[property="og:logo"], meta[itemprop="logo"]"#,
+    )) {
+        push(0, 0, m.value().attr("content"));
+    }
+    for l in html.select(&selector(r#"link[rel~="icon"]"#)) {
+        push(
+            1,
+            declared_size(l.value().attr("sizes")),
+            l.value().attr("href"),
+        );
+    }
+    for img in html.select(&selector("img[src]")) {
+        let v = img.value();
+        let named = ["src", "alt", "class", "id"]
+            .iter()
+            .any(|a| v.attr(a).is_some_and(|t| t.to_lowercase().contains("logo")));
+        if named {
+            push(2, 0, v.attr("src"));
+        }
+    }
+    ranked.sort_by_key(|(tier, size, _)| (*tier, *size));
+    let mut seen = HashSet::new();
+    ranked
+        .into_iter()
+        .map(|(_, _, u)| u.to_string())
+        .filter(|u| seen.insert(u.clone()))
+        .collect()
+}
+
 /// Title, description, visible text and same-site links. Scripts, styles and the head are not text.
 pub(crate) fn extract_page(page_url: &str, body: &str, hosts: &[String]) -> FetchedPage {
     let html = Html::parse_document(body);
@@ -147,6 +219,10 @@ pub(crate) fn extract_page(page_url: &str, body: &str, hosts: &[String]) -> Fetc
             break;
         }
     }
+    let image = meta(&html, r#"meta[property="og:image"]"#)
+        .and_then(|i| absolute(base.as_ref(), &i))
+        .map(|u| u.to_string())
+        .unwrap_or_default();
     FetchedPage {
         url: page_url.to_string(),
         status: 200,
@@ -154,6 +230,9 @@ pub(crate) fn extract_page(page_url: &str, body: &str, hosts: &[String]) -> Fetc
         description,
         text,
         links,
+        image,
+        theme_color: meta(&html, r#"meta[name="theme-color"]"#).unwrap_or_default(),
+        logos: logo_candidates(&html, base.as_ref()),
     }
 }
 
@@ -405,6 +484,17 @@ impl SiteFetch for SiteClient {
         Ok(page)
     }
 
+    /// Images often live on a CDN, so any public host is allowed. robots.txt is not consulted:
+    /// a logo or a product photo is a page asset, not a page.
+    async fn fetch_image(&self, url: &str) -> Result<Vec<u8>, String> {
+        let parsed = Url::parse(url).map_err(|e| format!("{url}: {e}"))?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(format!("{url}: not http(s)"));
+        }
+        self.ensure_public(&parsed).await?;
+        self.get_bytes(&parsed, BODY_LIMIT).await
+    }
+
     async fn fetch_sitemap(&self, url: Option<&str>) -> Result<SitemapUrls, String> {
         let candidates = self.candidate_sitemaps(url).await?;
         let tried = candidates
@@ -592,6 +682,64 @@ mod tests {
             &hosts,
         );
         assert_eq!(p.links.len(), 200);
+    }
+
+    #[test]
+    fn og_image_and_logo_candidates_are_absolute_and_ranked() {
+        let hosts = site_hosts("https://vinellu.com").unwrap();
+        let html = r##"<head>
+            <meta property="og:image" content="/img/share.jpg">
+            <meta name="theme-color" content="#AD1457">
+            <link rel="icon" href="/favicon.ico">
+            <link rel="icon" sizes="32x32" href="/icon-32.png">
+            <link rel="icon" sizes="192x192" href="/icon-192.png">
+            <link rel="apple-touch-icon" sizes="180x180" href="https://cdn.vinellu.com/touch.png">
+            </head><body>
+            <img src="/brand/logo.svg" alt="Vinellu">
+            <img class="site-logo" src="/brand/logo.png">
+            <img src="/photo.jpg" alt="a wine">
+            <img src="data:image/png;base64,AAAA" alt="logo">
+            </body>"##;
+        let p = extract_page("https://vinellu.com/w/a", html, &hosts);
+        assert_eq!(p.image, "https://vinellu.com/img/share.jpg");
+        assert_eq!(p.theme_color, "#AD1457");
+        assert_eq!(
+            p.logos,
+            [
+                "https://cdn.vinellu.com/touch.png",
+                "https://vinellu.com/icon-192.png",
+                "https://vinellu.com/icon-32.png",
+                "https://vinellu.com/brand/logo.png",
+            ]
+        );
+        let json = serde_json::to_value(&p).unwrap();
+        assert!(
+            json.get("logos").is_none(),
+            "the agent does not see the candidates"
+        );
+        assert_eq!(json["image"], "https://vinellu.com/img/share.jpg");
+    }
+
+    #[tokio::test]
+    async fn fetch_image_downloads_from_any_public_host_and_refuses_private_ones() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/logo.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![1u8, 2, 3]))
+            .mount(&server)
+            .await;
+        let open = SiteClient::new("https://vinellu.com", true).unwrap();
+        let url = format!("{}/logo.png", server.uri());
+        assert_eq!(open.fetch_image(&url).await, Ok(vec![1u8, 2, 3]));
+        let strict = SiteClient::new("https://vinellu.com", false).unwrap();
+        assert!(
+            strict
+                .fetch_image(&url)
+                .await
+                .unwrap_err()
+                .contains("IP address")
+        );
+        assert!(strict.fetch_image("ftp://vinellu.com/a.png").await.is_err());
     }
 
     async fn client(server: &MockServer) -> SiteClient {

@@ -14,9 +14,14 @@ const URL_CONCURRENCY: usize = 8;
 /// Adds brand terms as campaign negatives everywhere but the brand campaign, and competitor
 /// names everywhere but the competitor campaign. Returns a note for every term it had to skip
 /// because it would block one of the campaign's own keywords. Safe to run twice.
+/// Image campaigns take no negatives and are left alone.
 pub fn cross_negatives(account: &mut Account, business: &Business) -> Vec<String> {
     let mut notes = Vec::new();
-    for campaign in &mut account.campaigns {
+    for campaign in account
+        .campaigns
+        .iter_mut()
+        .filter(|c| !c.kind.has_images())
+    {
         let mut terms: Vec<&String> = Vec::new();
         if campaign.intent != Intent::Brand {
             terms.extend(&business.brand_terms);
@@ -65,6 +70,7 @@ pub fn collect_urls(account: &Account) -> Vec<String> {
     let mut urls = BTreeSet::new();
     for c in &account.campaigns {
         urls.extend(c.ad_groups.iter().map(|g| g.final_url.clone()));
+        urls.extend(c.asset_groups.iter().map(|g| g.final_url.clone()));
         if let Some(assets) = &c.assets {
             urls.extend(assets.sitelinks.iter().map(|s| s.url.clone()));
         }
@@ -156,6 +162,8 @@ mod tests {
 
     fn campaign(slug: &str, intent: Intent, keywords: &[&str]) -> Campaign {
         Campaign {
+            kind: Default::default(),
+            asset_groups: Vec::new(),
             name: slug.into(),
             slug: slug.into(),
             intent,

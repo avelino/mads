@@ -1,8 +1,10 @@
-use std::collections::BTreeSet;
+mod images;
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    Account, AdGroup, Assets, BidStrategy, BrandKit, Campaign, Cents, Issue, Keyword, MatchType,
-    Rsa, char_len, contains_word_sequence, merge_rsa, normalize,
+    Account, AdGroup, Assets, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Issue, Keyword,
+    MatchType, Rsa, char_len, contains_word_sequence, merge_rsa, normalize,
 };
 use crate::input::{AllowedUrls, Budget, Business, Input};
 
@@ -28,6 +30,13 @@ pub struct Rules<'a> {
     avoid: Vec<String>,
     brand_words: BTreeSet<String>,
     max_ad_groups: usize,
+    /// Catalog id to whether the item has a real photo.
+    catalog_photos: BTreeMap<String, bool>,
+    has_logo: bool,
+    /// Formats `business.toml` requires, at least one campaign each.
+    formats: &'a [CampaignKind],
+    /// With `[focus]`, the only final URLs allowed.
+    focus: Option<AllowedUrls>,
 }
 
 impl<'a> Rules<'a> {
@@ -40,6 +49,12 @@ impl<'a> Rules<'a> {
             .iter()
             .for_each(|p| allowed.insert(&p.url));
         input.catalog.iter().for_each(|c| allowed.insert(&c.url));
+        let focus = input.focus.as_ref().map(|f| AllowedUrls::new(&f.urls));
+        input
+            .focus
+            .iter()
+            .flat_map(|f| &f.urls)
+            .for_each(|u| allowed.insert(u));
 
         let mut third_party_terms: Vec<String> = input
             .business
@@ -72,6 +87,14 @@ impl<'a> Rules<'a> {
             avoid: input.business.avoid.iter().map(|a| normalize(a)).collect(),
             brand_words,
             max_ad_groups,
+            catalog_photos: input
+                .catalog
+                .iter()
+                .map(|c| (c.id.clone(), c.image.is_some()))
+                .collect(),
+            has_logo: input.logo.is_some(),
+            formats: &input.formats,
+            focus,
         }
     }
 
@@ -79,10 +102,24 @@ impl<'a> Rules<'a> {
         self.allowed.contains(url)
     }
 
+    /// True without `[focus]`, or when the URL is one of the focus pages.
+    pub fn in_focus(&self, url: &str) -> bool {
+        self.focus.as_ref().is_none_or(|f| f.contains(url))
+    }
+
+    /// E22: a landing page outside `[focus]`. Sitelinks are not landing pages and may go elsewhere.
+    pub(crate) fn focus_url(&self, out: &mut Vec<Issue>, path: &str, url: &str) {
+        if !self.in_focus(url) {
+            let msg = format!("final URL is not a [focus] page: {url}");
+            out.push(Issue::error("E22", path, msg));
+        }
+    }
+
     /// `complete` is true at `finish` time: every planned ad group must exist.
     pub fn account(&self, a: &Account, complete: bool) -> Vec<Issue> {
         let mut out = Vec::new();
         count(&mut out, "campaigns", a.campaigns.len(), 1, 5, "campaigns");
+        self.required_formats(&mut out, a);
         self.account_budget(&mut out, a);
         dup_names(
             &mut out,
@@ -111,6 +148,18 @@ impl<'a> Rules<'a> {
             ));
         }
         out
+    }
+
+    fn required_formats(&self, out: &mut Vec<Issue>, a: &Account) {
+        for f in self.formats {
+            if !a.campaigns.iter().any(|c| c.kind == *f) {
+                let msg = format!(
+                    "business.toml asks for a {} campaign and the plan has none",
+                    f.label()
+                );
+                out.push(Issue::error("E21", "campaigns", msg));
+            }
+        }
     }
 
     fn account_budget(&self, out: &mut Vec<Issue>, a: &Account) {
@@ -181,6 +230,11 @@ impl<'a> Rules<'a> {
         let mut out = Vec::new();
         length(&mut out, &format!("{path}.name"), &c.name, NAME, "E01");
         self.bid_strategy(&mut out, c, path);
+        self.kind_fit(&mut out, c, path);
+        if c.kind.has_images() {
+            self.image_campaign(&mut out, c, complete, path);
+            return out;
+        }
         self.structure(&mut out, c, complete, path);
         count(
             &mut out,
@@ -209,12 +263,25 @@ impl<'a> Rules<'a> {
             BidStrategy::MaximizeConversions if !self.business.conversion_tracking => {
                 out.push(Issue::error(
                     "E10",
-                    at,
+                    at.clone(),
                     "maximize_conversions needs business.conversion_tracking = true",
                 ));
             }
             BidStrategy::MaximizeClicks { max_cpc: Some(cap) } => self.cpc(out, &at, cap),
             _ => {}
+        }
+        let fits = match c.kind {
+            CampaignKind::Search => c.bid_strategy == BidStrategy::ManualCpc,
+            CampaignKind::PerformanceMax => c.bid_strategy == BidStrategy::MaximizeConversions,
+            CampaignKind::DemandGen => c.bid_strategy != BidStrategy::ManualCpc,
+        };
+        if !fits {
+            let msg = format!(
+                "{:?} does not fit a {} campaign",
+                c.bid_strategy,
+                c.kind.label()
+            );
+            out.push(Issue::error("E17", at, msg));
         }
     }
 
@@ -280,6 +347,7 @@ impl<'a> Rules<'a> {
         length(&mut out, &format!("{path}.name"), &ag.name, NAME, "E01");
         self.cpc(&mut out, &format!("{path}.default_cpc"), ag.default_cpc);
         self.url(&mut out, &format!("{path}.final_url"), &ag.final_url);
+        self.focus_url(&mut out, &format!("{path}.final_url"), &ag.final_url);
         self.ad_group_keywords(&mut out, ag, campaign_negatives, path);
         self.rsa(&mut out, &ag.rsa, &format!("{path}.rsa"));
         if let Some(kit) = kit {
@@ -644,6 +712,10 @@ mod tests {
 
     fn input() -> Input {
         Input {
+            logo: None,
+            formats: Vec::new(),
+            design: String::new(),
+            focus: None,
             business: Business {
                 name: s("Vinellu"),
                 url: s("https://vinellu.com"),
@@ -676,6 +748,7 @@ mod tests {
             },
             research: String::new(),
             catalog: vec![CatalogItem {
+                image: None,
                 id: s("alamos"),
                 name: s("Alamos Malbec"),
                 url: s("https://vinellu.com/w/a"),
@@ -743,6 +816,8 @@ mod tests {
 
     fn campaign(name: &str, budget: u64) -> Campaign {
         Campaign {
+            kind: Default::default(),
+            asset_groups: Vec::new(),
             name: s(name),
             slug: crate::input::slugify(name),
             intent: Intent::Catalog,

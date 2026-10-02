@@ -144,7 +144,11 @@ file = "catalog.csv"
         c.current_dir(self.dir.path())
             .env_remove("GITHUB_ACTIONS")
             .env_remove("MADS_PROVIDER")
-            .env_remove("MADS_FORMAT");
+            .env_remove("MADS_FORMAT")
+            .env_remove("MADS_IMAGE_PROVIDER")
+            .env_remove("MADS_IMAGE_MODEL")
+            .env_remove("GEMINI_API_KEY")
+            .env_remove("OPENAI_API_KEY");
         c
     }
 
@@ -673,4 +677,167 @@ fn init_by_default_blocks_loopback_sites() {
         .assert()
         .code(1);
     assert!(!p.dir.path().join("site/business.toml").exists());
+}
+
+fn image_plan() -> Value {
+    let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});
+    let plan = json!({"campaigns": [
+        {"name": "Vinellu - Marca", "intent": "brand", "daily_budget": 20.0, "bid_strategy": {"type": "manual_cpc"}, "rationale": "protege marca",
+         "ad_groups": [{"name": "marca", "theme": "vinellu", "entity_ids": []}]},
+        {"name": "Vinellu - Feed", "kind": "demand_gen", "intent": "generic", "daily_budget": 30.0, "bid_strategy": {"type": "maximize_clicks"}, "rationale": "criar demanda",
+         "ad_groups": [{"name": "tintos", "theme": "vinhos tintos", "entity_ids": []}]}
+    ]});
+    resp(vec![
+        ("set_brand_kit", kit),
+        ("set_account_plan", plan),
+        ("finish", json!({})),
+    ])
+}
+
+fn feed_campaign() -> Value {
+    let prompt = "Photo of friends sharing red wine at a dinner table, warm evening light";
+    let group = json!({"name": "tintos", "business_name": "Vinellu", "headlines": texts("Titulo", 3), "descriptions": ["Reviews reais de vinhos no app"]});
+    let briefs = json!({"asset_group": "tintos", "images": [
+        {"id": "jantar", "ratio": "landscape", "prompt": prompt},
+        {"id": "taca", "ratio": "square", "prompt": prompt},
+        {"id": "story", "ratio": "vertical", "prompt": prompt}
+    ]});
+    resp(vec![
+        ("upsert_asset_group", group),
+        ("set_image_briefs", briefs),
+        ("finish", json!({})),
+    ])
+}
+
+impl Project {
+    fn with_logo(self) -> Self {
+        let square =
+            mads_core::images::solid_png(mads_core::google::AspectRatio::Square, [1, 2, 3]);
+        let logo = mads_core::images::prepare_logo(&square).unwrap();
+        fs::create_dir_all(self.dir.path().join("brand")).unwrap();
+        fs::write(self.dir.path().join("brand/logo.png"), logo).unwrap();
+        let toml = self.dir.path().join("business.toml");
+        let text = fs::read_to_string(&toml).unwrap();
+        fs::write(
+            &toml,
+            format!("{text}\n[brand]\nlogo = \"brand/logo.png\"\n"),
+        )
+        .unwrap();
+        self
+    }
+
+    fn image_script(&self) -> PathBuf {
+        self.script(
+            "images.json",
+            json!({"plan": [image_plan()], "campaign:vinellu-marca": [brand_campaign(&self.site)], "campaign:vinellu-feed": [feed_campaign()]}),
+        )
+    }
+}
+
+#[test]
+fn generate_with_images_writes_the_editor_csv_and_the_pictures() {
+    let p = Project::new(SITE).with_logo();
+    p.generate(
+        &p.image_script(),
+        &["--skip-url-check", "--image-provider", "solid"],
+    )
+    .code(0);
+    let run = p.run_dir();
+    let editor = run.join("google-ads/editor");
+    for f in [
+        "image-campaigns.csv",
+        "images/logo.png",
+        "images/vinellu-feed/tintos-jantar.jpg",
+        "images/vinellu-feed/tintos-taca.jpg",
+        "images/vinellu-feed/tintos-story.jpg",
+    ] {
+        assert!(editor.join(f).is_file(), "missing {f}");
+    }
+    assert!(
+        run.join("input/logo.png").is_file(),
+        "the logo is part of the run"
+    );
+    assert!(
+        run.join("google-ads/1-campaign.csv").is_file(),
+        "search campaigns keep files 1 to 5"
+    );
+    let campaigns = fs::read_to_string(run.join("google-ads/1-campaign.csv")).unwrap();
+    assert!(
+        !campaigns.contains("Feed"),
+        "image campaigns stay out of the bulk files"
+    );
+    let report = fs::read_to_string(run.join("report.md")).unwrap();
+    assert!(report.contains("Model solid: 3 generated"), "{report}");
+
+    p.mads()
+        .args(["export"])
+        .arg(&run)
+        .arg("--skip-url-check")
+        .assert()
+        .code(0);
+    let report = fs::read_to_string(run.join("report.md")).unwrap();
+    assert!(
+        report.contains("0 generated in this run, 3 reused"),
+        "{report}"
+    );
+}
+
+#[test]
+fn without_an_image_model_the_plan_cannot_pick_an_image_campaign() {
+    let p = Project::new(SITE).with_logo();
+    p.generate(
+        &p.image_script(),
+        &["--skip-url-check", "--image-provider", "none"],
+    )
+    .code(1);
+    let transcript = fs::read_to_string(p.run_dir().join("transcripts/plan.jsonl")).unwrap();
+    assert!(
+        transcript.contains("no image model in this run"),
+        "{transcript}"
+    );
+}
+
+#[test]
+fn an_unknown_image_provider_is_a_usage_error() {
+    let p = Project::new(SITE);
+    p.generate(&p.full_script(), &["--image-provider", "dalle"])
+        .code(2)
+        .stderr(predicates::str::contains("unknown image provider"));
+}
+
+#[test]
+fn providers_lists_the_image_providers() {
+    let out = Command::cargo_bin("mads")
+        .unwrap()
+        .arg("providers")
+        .env_remove("GEMINI_API_KEY")
+        .assert()
+        .success();
+    let text = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    assert!(
+        text.contains("IMAGE PROVIDER") && text.contains("missing GEMINI_API_KEY"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_required_image_format_without_an_image_model_is_a_usage_error() {
+    let p = Project::new(SITE).with_logo();
+    let toml = p.dir.path().join("business.toml");
+    let text = fs::read_to_string(&toml).unwrap();
+    fs::write(
+        &toml,
+        format!("{text}\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n"),
+    )
+    .unwrap();
+    p.generate(&p.image_script(), &["--image-provider", "none"])
+        .code(2)
+        .stderr(predicates::str::contains(
+            "campaigns.formats asks for Demand Gen",
+        ));
+    p.generate(
+        &p.image_script(),
+        &["--skip-url-check", "--image-provider", "solid"],
+    )
+    .code(0);
 }

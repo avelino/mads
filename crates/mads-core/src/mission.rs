@@ -4,6 +4,7 @@ pub const PLAN_ID: &str = "plan";
 
 const PLAN_PROMPT: &str = include_str!("../prompts/plan.md");
 const CAMPAIGN_PROMPT: &str = include_str!("../prompts/campaign.md");
+const IMAGE_CAMPAIGN_PROMPT: &str = include_str!("../prompts/image-campaign.md");
 
 pub fn campaign_id(slug: &str) -> String {
     format!("campaign:{slug}")
@@ -14,7 +15,7 @@ pub fn plan_mission(input: &Input) -> MissionSpec {
         id: PLAN_ID.into(),
         system: PLAN_PROMPT.into(),
         user: format!(
-            "Plan the Google Ads Search account for {}. Write every ad text in {}. Call get_business first.",
+            "Plan the Google Ads account for {}. Write every ad text in {}. Call get_business first.",
             input.business.name, input.business.language
         ),
         web_search: false,
@@ -24,7 +25,11 @@ pub fn plan_mission(input: &Input) -> MissionSpec {
 pub fn campaign_mission(input: &Input, campaign: &Campaign) -> MissionSpec {
     MissionSpec {
         id: campaign_id(&campaign.slug),
-        system: CAMPAIGN_PROMPT.into(),
+        system: if campaign.kind.has_images() {
+            IMAGE_CAMPAIGN_PROMPT.into()
+        } else {
+            CAMPAIGN_PROMPT.into()
+        },
         user: format!(
             "Build the campaign '{}' of {}. Write every ad text in {}. Call get_brief first.",
             campaign.name, input.business.name, input.business.language
@@ -43,6 +48,8 @@ mod tests {
 
     fn campaign() -> Campaign {
         Campaign {
+            kind: Default::default(),
+            asset_groups: Vec::new(),
             name: "Vinellu - Catalogo".into(),
             slug: "vinellu-catalogo".into(),
             intent: Intent::Catalog,
@@ -104,6 +111,7 @@ mod tests {
             "phrase and exact",
             "cpc_rationale",
             "4 sitelinks",
+            "`focus`",
         ] {
             assert!(
                 m.system.contains(rule),
@@ -118,6 +126,45 @@ mod tests {
             "competition",
             "contain a competitor name",
             "Never mix",
+        ] {
+            assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
+        }
+    }
+
+    #[test]
+    fn image_campaigns_get_the_image_prompt_with_their_tools_and_rules() {
+        let mut c = campaign();
+        c.kind = crate::google::CampaignKind::PerformanceMax;
+        let m = campaign_mission(&testutil::input(), &c);
+        for needle in [
+            "get_brief",
+            "upsert_asset_group",
+            "set_image_briefs",
+            "validate",
+            "finish",
+            "No text, no logo",
+            "`reference`",
+            "has_photo",
+            "`design`",
+            "brand color",
+            "Never invent facts",
+            "in English",
+        ] {
+            assert!(m.system.contains(needle), "image prompt misses {needle}");
+        }
+        let p = plan_mission(&testutil::input());
+        for rule in [
+            "`kind`",
+            "performance_max",
+            "demand_gen",
+            "image_campaigns.available",
+            "conversion_tracking",
+            "does not need conversion tracking",
+            "20 percent of the daily budget",
+            "required_formats",
+            "E21",
+            "`focus`",
+            "E22",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }

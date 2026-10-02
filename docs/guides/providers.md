@@ -104,6 +104,10 @@ mads asks for at most 8192 output tokens per response. That is the highest value
 
 A rate limit (429), a timeout (408), a server error (5xx) or a network failure counts as transient. mads tries up to 3 times, waiting 1 second and then 2 seconds. Any other error is final for that attempt and the mission fails. Mission-level retries are separate. See [Cost and limits](cost-and-limits.md).
 
+## Image providers
+
+Performance Max and Demand Gen pictures come from a separate image provider, set with `--image-provider`: `gemini`, `openai`, `none`, or `auto` (the default) that picks the first one with a key. It is independent of `--provider`: a run can plan with `claude-cli` and draw with `openai`. See [Image campaigns](image-campaigns.md).
+
 ## Cost
 
 API providers report input and output tokens. mads does not ship a price table, so the cost shows as `n/a`. Multiply the tokens by your provider's prices.

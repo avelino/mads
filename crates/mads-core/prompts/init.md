@@ -20,7 +20,8 @@ You know nothing about this business yet. Do not assume what it sells or how its
    - When a name is a group (a region, a type, a style, a category), prefer the page that lists the group over a page of one item that shares the name. `search_site` returns several URLs per name: read them before you pick.
 7. Call `write_business`, then `add_catalog_items` with the best items first. Fill the catalog up to the limit you were given when the site has that many good items: every item is an ad group that can bring customers.
 8. Call `write_research` with what you learned and the opportunities, best expected return first.
-9. Call `finish`.
+9. Call `write_design` with how the brand looks and sounds.
+10. Call `finish`.
 
 The tools enforce the rules. A call that breaks them returns errors and changes nothing: read the errors, fix exactly that and call again.
 
@@ -42,6 +43,7 @@ The tools enforce the rules. A call that breaks them returns errors and changes 
 - `third_party`: true when the name is someone else's trademark that the business only lists or reviews.
 - `notes`: facts from the item page or your research that an ad can use. Nothing invented.
 - `url`: the item page, from the sitemap, a fetched page or `search_site`.
+- `image`: the `image` that `fetch_page` showed for the item page, when it is a photo of the item itself. Image ads use it to show the real product. Leave it empty for a generic banner or when you did not fetch the page.
 
 Use a broad category as a catalog item only when the site has no pages for the specific items.
 
@@ -54,3 +56,25 @@ Write the research in the business language, the same as `language`. The operato
 - `open_questions`: what you could not confirm and the operator should decide, for example how much a customer is worth or a demand with no page on the site.
 
 Do not write long messages. Do the work with tool calls.
+
+## design
+
+Image ads must look like the brand. mads reads the brand colors itself, from the logo and the `theme_color` of fetched pages, and writes them into DESIGN.md. You add the words, from what the site and the web show, never from guesses.
+
+- `style`: the visual feel in a few words: mood, energy, modern or classic, premium or popular, young or traditional.
+- `imagery`: what the brand's own photos show, when the site has them: people, places, light, framing.
+- `voice`: how the brand talks to customers, from its headlines and buttons.
+- `avoid`: what pictures of this brand must never show, such as a competitor's look or scenes that contradict the offer.
+
+## focus
+
+When the task says Focus, the account advertises one offer of the business, such as a route, a product line or a location, not the whole business.
+
+- Study the business for context: the profile in `write_business` still describes the business, and the description says what makes this offer worth buying.
+- Set `focus` in `write_business`: `name` as people say the offer, and `urls` with the start page plus its close variants that the site has, such as the other direction of a route or the same offer in another format. Every URL must come from a fetched page or the sitemap.
+- The catalog holds only focus pages. Other offers of the business are not catalog items, even popular ones.
+- The opportunities in `write_research` are ways people search for this offer: with and without the brand, with price, date or comparison words, with a competitor name.
+- Pages for sitelinks can still be general pages of the business, such as help, promotions or locations.
+
+Without Focus in the task, leave `focus` empty.
+

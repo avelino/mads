@@ -1,3 +1,4 @@
+mod editor;
 mod expand;
 mod export;
 mod issue;
@@ -6,6 +7,7 @@ mod rsa;
 mod rules;
 mod text;
 
+pub use editor::*;
 pub use expand::*;
 pub use export::*;
 pub use issue::*;

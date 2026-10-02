@@ -17,6 +17,10 @@ Each one is the environment form of a flag. A flag wins over its variable.
 | `MADS_CLAUDE_BIN` | none | Path of the `claude` executable. Default `claude`. |
 | `MADS_CODEX_BIN` | none | Path of the `codex` executable. Default `codex`. |
 | `MADS_GEMINI_BIN` | none | Path of the `gemini` executable. Default `gemini`. |
+| `MADS_IMAGE_PROVIDER` | `--image-provider` | `auto`, `gemini`, `openai` or `none`. |
+| `MADS_IMAGE_MODEL` | `--image-model` | Image model name. |
+| `MADS_GEMINI_BASE_URL` | none | Endpoint of the Gemini image API. Default `https://generativelanguage.googleapis.com`. |
+| `MADS_OPENAI_BASE_URL` | none | Endpoint of the OpenAI image API. Default `https://api.openai.com`. |
 | `MADS_ALLOW_PRIVATE_HOSTS` | none | Any non-empty value lets `mads init` read loopback and private hosts. Local development only. |
 
 mads has no variable for the turn, timeout, token or retry limits. Use the flags.
@@ -36,6 +40,8 @@ mads reads the key from the provider's standard variable. An empty value counts 
 | `xai` | `XAI_API_KEY` |
 | `ollama` | none |
 | `openai-compat` | `MADS_API_KEY` (optional) |
+
+The image providers read the same keys: `gemini` reads `GEMINI_API_KEY` and `openai` reads `OPENAI_API_KEY`. With `--image-provider auto`, having one of them set is enough to turn image campaigns on.
 
 ## Agent CLIs
 

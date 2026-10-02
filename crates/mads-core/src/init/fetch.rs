@@ -12,6 +12,15 @@ pub struct FetchedPage {
     pub text: String,
     /// Absolute same-site links, at most 200.
     pub links: Vec<String>,
+    /// The page's `og:image`, absolute. Empty when the page has none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub image: String,
+    /// `<meta name="theme-color">`, the color the site asks browsers to use. Empty when absent.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub theme_color: String,
+    /// Logo candidates found in the markup, best first. Not shown to the agent.
+    #[serde(skip)]
+    pub logos: Vec<String>,
 }
 
 /// The URLs of a sitemap and the sitemap files that could not be read.
@@ -30,4 +39,8 @@ pub trait SiteFetch: Send + Sync {
     async fn fetch_page(&self, url: &str) -> Result<FetchedPage, String>;
     /// Every URL of the sitemap, indexes followed. `None` looks in robots.txt, then `/sitemap.xml`.
     async fn fetch_sitemap(&self, url: Option<&str>) -> Result<SitemapUrls, String>;
+    /// Bytes of an image on any public host. Used for the logo.
+    async fn fetch_image(&self, url: &str) -> Result<Vec<u8>, String> {
+        Err(format!("cannot download {url}"))
+    }
 }

@@ -73,6 +73,12 @@ Casa Concha,https://example.com/p/casa-concha,tinto,,false,Vencedor de medalha d
 
 The agent is told to take claims only from your description and notes. Write only what you can back up.
 
+## image
+
+A URL of a real photo of the item. Image campaigns send it to the image model as a reference, so the picture shows the real product and not an invented one. Without it, briefs for that item show people and places, not the product.
+
+Use a photo of the item itself. A site often serves the same share card, with its logo, for every page: that is not a product photo, leave the column empty. See [Image campaigns](image-campaigns.md#real-product-photos).
+
 ## Limits
 
 - At most 5000 rows.

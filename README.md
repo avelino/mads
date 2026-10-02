@@ -9,9 +9,10 @@ LLM agents make the marketing decisions. Deterministic Rust code enforces the ru
 - Studies your business with `mads init --from-url`: reads the site, searches the web for demand, ranks campaign ideas by expected return and drafts `business.toml`, `catalog.csv` and `research.md`. Or you write the files yourself.
 - Reads `business.toml` and an optional `catalog.csv` (the products, labels or pages people search for by name).
 - Runs one plan mission and one mission per campaign. Campaigns run in parallel.
-- Validates 15 error rules and 5 warning rules: text lengths, `!` in headlines, URLs outside your site, negatives that block your own keywords, budgets that do not add up.
+- Picks a format per campaign: Search, Demand Gen or Performance Max. Image campaigns get generated pictures (Gemini or OpenAI), your real logo and real product photos as references. Or you choose the formats in `business.toml`. See [Image campaigns](docs/guides/image-campaigns.md).
+- Validates 21 error rules and 7 warning rules: text lengths, `!` in headlines, URLs outside your site, negatives that block your own keywords, budgets that do not add up, picture counts and sizes.
 - Adds brand and competitor terms as negatives to the campaigns they do not belong to.
-- Exports the Google Ads bulk upload CSVs and a `report.md` with budgets, bids, warnings and token usage.
+- Exports the Google Ads bulk upload CSVs, a Google Ads Editor CSV with the pictures for image campaigns, and a `report.md` with budgets, bids, warnings and token usage.
 - Runs unattended in CI with GitHub annotations and a step summary.
 
 ## Quick start
@@ -179,9 +180,10 @@ On GitHub Actions `--format auto` picks `github`. Validation issues become annot
 
 ## Limitations
 
-- **Google Ads Search text campaigns only.** No images, video, Performance Max, Shopping, Dynamic Search Ads or broad match.
+- **Search, Performance Max and Demand Gen.** No video, Shopping, Display-only, Dynamic Search Ads or broad match. Image campaigns need an image model key and a logo, see [Image campaigns](docs/guides/image-campaigns.md).
+- **Image campaigns go through Google Ads Editor.** Their CSV follows Google's documented Editor headers and is not verified against a real Editor export yet.
 - **One location per account.** `business.locations` takes exactly one entry.
-- **Only `manual_cpc` bidding.** `maximize_clicks` and `maximize_conversions` return an `UNSUPPORTED` error until the Google bulk templates for them are verified.
+- **Search bids with `manual_cpc` only.** `maximize_clicks` and `maximize_conversions` on Search return `UNSUPPORTED` until the Google bulk templates for them are verified. Performance Max uses `maximize_conversions` and Demand Gen `maximize_clicks` or `maximize_conversions`.
 - **Campaign negatives are expanded.** The campaign-level negative list is exported as ad group negatives in every ad group, not as campaign-level rows.
 - **No asset CSVs yet.** Sitelinks, callouts and structured snippets are collected and validated, but files 6 to 8 are not written until their templates are verified.
 - **Bids and budget shares are estimates.** mads has no Keyword Planner or auction data.

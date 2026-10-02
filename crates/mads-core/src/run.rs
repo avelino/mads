@@ -16,6 +16,7 @@ use crate::{
     agent::{Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget},
     events::{Event, EventSink, Totals},
     finalize::{Finalized, finalize},
+    images::{EDITOR_DIR, ImageModel, ImageStepConfig, ImageStepResult, run_image_step},
     input::Input,
     mission::{PLAN_ID, campaign_id, campaign_mission, plan_mission},
     post::cross_negatives,
@@ -48,6 +49,8 @@ pub struct RunConfig {
     pub mission_retries: u32,
     pub max_ad_groups: usize,
     pub skip_url_check: bool,
+    /// New images allowed in one run.
+    pub max_images: usize,
     pub provider: String,
     pub model: Option<String>,
 }
@@ -64,6 +67,7 @@ impl RunConfig {
             mission_retries: 1,
             max_ad_groups: 50,
             skip_url_check: false,
+            max_images: 40,
             provider: String::new(),
             model: None,
         }
@@ -73,6 +77,8 @@ impl RunConfig {
 pub struct Drivers {
     pub plan: Arc<dyn Driver>,
     pub campaign: Arc<dyn Driver>,
+    /// Makes the pictures of image campaigns. None: the plan can only use Search.
+    pub image: Option<Arc<dyn ImageModel>>,
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +171,7 @@ struct Runner {
     mission_timeout: Duration,
     mission_retries: u32,
     max_ad_groups: usize,
+    image_model: bool,
 }
 
 fn is_finished(ws: &Workspace, id: &str) -> bool {
@@ -216,6 +223,7 @@ impl Runner {
             let settings = ToolSettings {
                 max_ad_groups: self.max_ad_groups,
                 max_turns: self.max_turns,
+                image_model: self.image_model,
             };
             let tools = match MissionTools::new(
                 self.ws.clone(),
@@ -401,9 +409,14 @@ pub async fn generate(
         mission_timeout: cfg.mission_timeout,
         mission_retries: cfg.mission_retries,
         max_ad_groups: cfg.max_ad_groups,
+        image_model: drivers.image.is_some(),
     });
     let missions_ok = runner.run_all(&drivers, cfg.parallel).await;
-    conclude(&run, &ws, web.as_ref(), &cfg, &events, missions_ok).await
+    let finish = Conclusion {
+        missions_ok,
+        image: drivers.image.clone(),
+    };
+    conclude(&run, &ws, web.as_ref(), &cfg, &events, finish).await
 }
 
 /// Reruns validation, URL check and export on a finished run. No LLM involved.
@@ -447,11 +460,21 @@ pub async fn export_run(
         model: cfg.model.clone(),
     });
     let ws: SharedWorkspace = Arc::new(Mutex::new(workspace));
-    conclude(&run, &ws, web, &cfg, events, true).await
+    let finish = Conclusion {
+        missions_ok: true,
+        image: None,
+    };
+    conclude(&run, &ws, web, &cfg, events, finish).await
 }
 
 /// A failed export must not leave CSVs from an earlier, different account next to the new report.
+/// Images stay: they cost money and the next export reuses them.
 fn remove_stale_csvs(dir: &Path) {
+    remove_csvs_in(dir);
+    remove_csvs_in(&dir.join(EDITOR_DIR));
+}
+
+fn remove_csvs_in(dir: &Path) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -463,25 +486,56 @@ fn remove_stale_csvs(dir: &Path) {
     }
 }
 
+/// How the missions ended and what can still make images.
+struct Conclusion {
+    missions_ok: bool,
+    image: Option<Arc<dyn ImageModel>>,
+}
+
+/// Makes the missing images. A run without image campaigns returns at once.
+async fn images_step(
+    run: &RunDir,
+    ws: &SharedWorkspace,
+    web: &dyn Web,
+    cfg: &RunConfig,
+    events: &EventSink,
+    image: Option<Arc<dyn ImageModel>>,
+) -> ImageStepResult {
+    let step_cfg = ImageStepConfig {
+        dir: run.platform_dir().join(EDITOR_DIR),
+        workspace_path: Some(run.workspace_path()),
+        model: image,
+        max_new: cfg.max_images,
+        parallel: cfg.parallel,
+    };
+    run_image_step(ws, web, &step_cfg, events).await
+}
+
 async fn conclude(
     run: &RunDir,
     ws: &SharedWorkspace,
     web: &dyn Web,
     cfg: &RunConfig,
     events: &EventSink,
-    missions_ok: bool,
+    finish: Conclusion,
 ) -> Result<RunResult, RunError> {
     let mut notes = Vec::new();
-    let fin = if missions_ok {
+    let mut images = ImageStepResult::default();
+    let fin = if finish.missions_ok {
         events.emit(Event::Step {
             name: "cross-negatives".into(),
             detail: "brand and competitor terms".into(),
         });
-        let (input, account) = {
+        {
             let mut guard = ws.lock().await;
             let w: &mut Workspace = &mut guard;
             notes = cross_negatives(&mut w.account, &w.input.business);
             w.save(&run.workspace_path())?;
+        };
+        images = images_step(run, ws, web, cfg, events, finish.image).await;
+        notes.extend(images.notes.iter().cloned());
+        let (input, account) = {
+            let w = ws.lock().await;
             (w.input.clone(), w.account.clone())
         };
         finalize(
@@ -508,6 +562,9 @@ async fn conclude(
     }
     for file in &fin.csv {
         let path = run.platform_dir().join(file.name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         std::fs::write(&path, &file.bytes)?;
         events.emit(Event::ArtifactWritten {
             path: path.display().to_string(),
@@ -535,6 +592,7 @@ async fn conclude(
         missions: guard.missions.clone(),
         totals: totals.clone(),
         status,
+        images,
     };
     std::fs::write(run.report_path(), render_report(&report))?;
     events.emit(Event::ArtifactWritten {
@@ -682,6 +740,7 @@ mod tests {
         Drivers {
             plan: d.clone(),
             campaign: d,
+            image: None,
         }
     }
 
@@ -1039,5 +1098,185 @@ mod tests {
             cur = s.source();
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::{
+        agent::ScriptedDriver,
+        events::Event,
+        images::{SolidImageModel, solid_png},
+        input::Input,
+        testutil,
+    };
+
+    struct OkWeb;
+
+    #[async_trait]
+    impl Web for OkWeb {
+        async fn check_url(&self, _url: &str) -> Result<u16, String> {
+            Ok(200)
+        }
+
+        async fn fetch_bytes(&self, _url: &str, _limit: usize) -> Result<Vec<u8>, String> {
+            Ok(solid_png(crate::google::AspectRatio::Square, [200, 10, 10]))
+        }
+    }
+
+    fn texts(prefix: &str, n: usize) -> Vec<String> {
+        (1..=n).map(|i| format!("{prefix} numero {i}")).collect()
+    }
+
+    fn resp(calls: Vec<(&str, Value)>) -> Value {
+        let tool_calls: Vec<Value> = calls
+            .into_iter()
+            .enumerate()
+            .map(|(i, (n, a))| json!({"id": format!("c{i}"), "name": n, "arguments": a}))
+            .collect();
+        json!({"text": null, "tool_calls": tool_calls, "usage": {"input_tokens": 100, "output_tokens": 0, "cost_usd": null}})
+    }
+
+    fn script() -> Arc<dyn Driver> {
+        let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});
+        let plan = json!({"campaigns": [
+            {"name": "Vinellu - Feed", "kind": "demand_gen", "intent": "generic", "daily_budget": 50.0,
+             "bid_strategy": {"type": "maximize_clicks"}, "rationale": "criar demanda",
+             "ad_groups": [{"name": "tintos", "theme": "tintos", "entity_ids": ["alamos-malbec"]}]}
+        ]});
+        let prompt = "Photo of friends sharing red wine at a dinner table, warm light";
+        let group = json!({"name": "tintos", "business_name": "Vinellu", "headlines": texts("Titulo", 3), "descriptions": ["Reviews reais de vinhos"]});
+        let briefs = json!({"asset_group": "tintos", "images": [
+            {"id": "jantar", "ratio": "landscape", "prompt": prompt},
+            {"id": "garrafa", "ratio": "square", "prompt": prompt, "reference": "alamos-malbec"},
+            {"id": "story", "ratio": "vertical", "prompt": prompt}
+        ]});
+        let missions = json!({
+            "plan": [resp(vec![("set_brand_kit", kit), ("set_account_plan", plan), ("finish", json!({}))])],
+            "campaign:vinellu-feed": [resp(vec![("upsert_asset_group", group), ("set_image_briefs", briefs), ("finish", json!({}))])],
+        });
+        Arc::new(ScriptedDriver::from_json(&json!({"missions": missions}).to_string()).unwrap())
+    }
+
+    fn input(dir: &std::path::Path) -> Input {
+        let logo = dir.join("logo.png");
+        let png =
+            crate::images::prepare_logo(&solid_png(crate::google::AspectRatio::Square, [1, 2, 3]))
+                .unwrap();
+        std::fs::write(&logo, png).unwrap();
+        let mut i = testutil::input();
+        i.logo = Some(logo.display().to_string());
+        i.catalog[0].image = Some("https://cdn.vinellu.com/alamos.jpg".into());
+        i
+    }
+
+    async fn generate_images(
+        dir: &tempfile::TempDir,
+        max_images: usize,
+    ) -> (RunResult, Vec<Event>) {
+        let mut cfg = RunConfig::new(dir.path().join("out"));
+        cfg.provider = "replay".into();
+        cfg.mission_retries = 0;
+        cfg.max_images = max_images;
+        let d = script();
+        let drivers = Drivers {
+            plan: d.clone(),
+            campaign: d,
+            image: Some(Arc::new(SolidImageModel)),
+        };
+        let (events, mut rx) = EventSink::channel();
+        let r = generate(input(dir.path()), drivers, Arc::new(OkWeb), cfg, events)
+            .await
+            .unwrap();
+        let mut all = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            all.push(e.event);
+        }
+        (r, all)
+    }
+
+    #[tokio::test]
+    async fn an_image_campaign_gets_its_pictures_and_the_editor_csv() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, events) = generate_images(&dir, 40).await;
+        assert_eq!(r.exit_code, 0, "{events:#?}");
+        let editor = r.run_dir.join("google-ads/editor");
+        for f in [
+            "image-campaigns.csv",
+            "images/logo.png",
+            "images/vinellu-feed/tintos-jantar.jpg",
+            "images/vinellu-feed/tintos-garrafa.jpg",
+            "images/vinellu-feed/tintos-story.jpg",
+        ] {
+            assert!(editor.join(f).is_file(), "missing {f}");
+        }
+        assert!(
+            !r.run_dir.join("google-ads/1-campaign.csv").exists(),
+            "no search campaign, no bulk files"
+        );
+        let csv = std::fs::read_to_string(editor.join("image-campaigns.csv")).unwrap();
+        assert!(csv.contains("Demand Gen") && csv.contains("images/vinellu-feed/tintos-story.jpg"));
+        let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
+        assert!(report.contains("## Images") && report.contains("Model solid: 3 generated"));
+        assert!(report.contains("not verified"));
+    }
+
+    #[tokio::test]
+    async fn export_reuses_the_images_and_fails_with_e20_when_one_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, _) = generate_images(&dir, 40).await;
+        let (events, _rx) = EventSink::channel();
+        let again = export_run(&r.run_dir, &OkWeb, true, 50, &events)
+            .await
+            .unwrap();
+        assert_eq!(again.exit_code, 0);
+        let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
+        assert!(
+            report.contains("0 generated in this run, 3 reused"),
+            "{report}"
+        );
+
+        std::fs::remove_file(
+            r.run_dir
+                .join("google-ads/editor/images/vinellu-feed/tintos-jantar.jpg"),
+        )
+        .unwrap();
+        let broken = export_run(&r.run_dir, &OkWeb, true, 50, &events)
+            .await
+            .unwrap();
+        assert_eq!(broken.exit_code, 3);
+        assert!(
+            !r.run_dir
+                .join("google-ads/editor/image-campaigns.csv")
+                .exists(),
+            "stale csv removed"
+        );
+        assert!(
+            r.run_dir
+                .join("google-ads/editor/images/vinellu-feed/tintos-story.jpg")
+                .exists(),
+            "images kept"
+        );
+        let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
+        assert!(report.contains("E20"), "{report}");
+    }
+
+    #[tokio::test]
+    async fn the_image_cap_stops_new_images_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, _) = generate_images(&dir, 2).await;
+        assert_eq!(r.exit_code, 3);
+        let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
+        assert!(
+            report.contains("over the limit of 2 new images"),
+            "{report}"
+        );
+        assert!(report.contains("2 generated"));
     }
 }

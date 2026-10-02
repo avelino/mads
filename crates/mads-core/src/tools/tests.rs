@@ -224,7 +224,11 @@ async fn get_business_reports_profile_budget_and_rules() {
     assert_eq!(r["budget"]["daily"], 50.0);
     assert_eq!(r["budget"]["currency"], "BRL");
     assert_eq!(r["rules"]["headline_max_chars"], 30);
-    assert_eq!(r["rules"]["bid_strategies"], json!(["manual_cpc"]));
+    assert_eq!(
+        r["rules"]["campaign_kinds"]["search"]["bid_strategies"],
+        json!(["manual_cpc"])
+    );
+    assert_eq!(r["image_campaigns"]["available"], false);
     assert!(r.get("research").is_none(), "no notes, no key");
 }
 
@@ -658,4 +662,281 @@ async fn mutations_are_persisted_when_a_path_is_given() {
     );
     let loaded = Workspace::load(&path).unwrap();
     assert_eq!(loaded.account.campaigns[0].ad_groups[0].name, "alamos");
+}
+
+// ---- image campaigns ----
+
+fn image_input() -> crate::input::Input {
+    let mut i = testutil::input();
+    i.logo = Some("/tmp/logo.png".into());
+    i.business.conversion_tracking = true;
+    i.catalog[0].image = Some("https://cdn.vinellu.com/alamos.jpg".into());
+    i
+}
+
+fn image_settings() -> ToolSettings {
+    ToolSettings {
+        image_model: true,
+        ..ToolSettings::default()
+    }
+}
+
+fn image_plan_args() -> Value {
+    json!({"campaigns": [
+        {"name": "Vinellu - Busca", "intent": "catalog", "daily_budget": 30.0,
+         "bid_strategy": {"type": "manual_cpc"}, "rationale": "demanda existente",
+         "ad_groups": [{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}]},
+        {"name": "Vinellu - PMax", "kind": "performance_max", "intent": "generic", "daily_budget": 20.0,
+         "bid_strategy": {"type": "maximize_conversions"}, "rationale": "escala",
+         "ad_groups": [{"name": "tintos", "theme": "vinhos tintos", "entity_ids": ["alamos-malbec"]}]}
+    ]})
+}
+
+async fn image_planned() -> SharedWorkspace {
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(image_input())));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    assert!(!t.call("set_brand_kit", brand_kit_args()).await.is_error);
+    let out = t.call("set_account_plan", image_plan_args()).await;
+    assert!(!out.is_error, "{}", out.content);
+    ws
+}
+
+async fn pmax_tools(ws: &SharedWorkspace) -> MissionTools {
+    let kind = MissionKind::Campaign {
+        slug: "vinellu-pmax".into(),
+    };
+    MissionTools::new(ws.clone(), kind, image_settings(), None)
+        .await
+        .unwrap()
+}
+
+fn asset_group_args() -> Value {
+    json!({"name": "tintos", "business_name": "Vinellu",
+           "headlines": texts("Titulo", 5), "long_headlines": ["Descubra o vinho certo pra cada jantar"],
+           "descriptions": ["Reviews reais de vinhos", "Veja safras, notas e harmonizacoes no app"],
+           "search_themes": ["vinho tinto"]})
+}
+
+fn briefs_args() -> Value {
+    let prompt = "Photo of a glass of red wine on a wooden table at dinner, warm light";
+    json!({"asset_group": "tintos", "images": [
+        {"id": "mesa", "ratio": "landscape", "prompt": prompt, "reference": "alamos-malbec"},
+        {"id": "taca", "ratio": "square", "prompt": prompt},
+        {"id": "pessoa", "ratio": "portrait", "prompt": prompt}
+    ]})
+}
+
+#[tokio::test]
+async fn plan_accepts_image_kinds_with_a_model_and_a_logo() {
+    let ws = image_planned().await;
+    let account = ws.lock().await.account.clone();
+    assert_eq!(
+        account.campaigns[1].kind,
+        crate::google::CampaignKind::PerformanceMax
+    );
+    assert_eq!(
+        account.campaigns[1].bid_strategy,
+        crate::google::BidStrategy::MaximizeConversions
+    );
+}
+
+#[tokio::test]
+async fn plan_refuses_image_kinds_without_model_or_logo_and_says_why() {
+    for (model, logo) in [(false, true), (true, false)] {
+        let mut input = image_input();
+        if !logo {
+            input.logo = None;
+        }
+        let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+        let settings = ToolSettings {
+            image_model: model,
+            ..ToolSettings::default()
+        };
+        let t = MissionTools::new(ws.clone(), MissionKind::Plan, settings, None)
+            .await
+            .unwrap();
+        let business = t.call("get_business", json!({})).await;
+        assert_eq!(
+            business.content["result"]["image_campaigns"]["available"],
+            false
+        );
+        let out = t.call("set_account_plan", image_plan_args()).await;
+        assert!(error_codes(&out).contains(&"UNSUPPORTED".to_string()));
+        assert!(ws.lock().await.account.campaigns.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn plan_refuses_a_bid_that_does_not_fit_the_kind() {
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(image_input())));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    let mut p = image_plan_args();
+    p["campaigns"][1]["bid_strategy"]["type"] = json!("manual_cpc");
+    let out = t.call("set_account_plan", p).await;
+    assert!(
+        error_codes(&out).contains(&"E17".to_string()),
+        "{:?}",
+        error_codes(&out)
+    );
+}
+
+#[tokio::test]
+async fn image_campaign_toolset_is_exactly_the_documented_tools() {
+    let ws = image_planned().await;
+    let names: Vec<String> = pmax_tools(&ws)
+        .await
+        .specs()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "get_brief",
+            "upsert_asset_group",
+            "set_image_briefs",
+            "validate",
+            "finish"
+        ]
+    );
+    for spec in pmax_tools(&ws).await.specs() {
+        let bad = schema::non_portable_keywords(&spec.input_schema);
+        assert!(bad.is_empty(), "{}: {bad:?}", spec.name);
+    }
+}
+
+#[tokio::test]
+async fn image_campaign_flow_builds_texts_and_briefs_then_finishes() {
+    let ws = image_planned().await;
+    let t = pmax_tools(&ws).await;
+    let brief = t.call("get_brief", json!({})).await;
+    assert_eq!(brief.content["result"]["entities"][0]["has_photo"], true);
+    let out = t.call("finish", json!({})).await;
+    assert!(out.is_error, "finish before building");
+    let out = t.call("upsert_asset_group", asset_group_args()).await;
+    assert!(!out.is_error, "{}", out.content);
+    let out = t.call("set_image_briefs", briefs_args()).await;
+    assert!(!out.is_error, "{}", out.content);
+    let out = t.call("finish", json!({})).await;
+    assert!(!out.is_error, "{}", out.content);
+    assert!(t.finished());
+    let c = ws.lock().await.account.campaigns[1].clone();
+    assert_eq!(c.asset_groups[0].images.len(), 3);
+    assert_eq!(
+        c.asset_groups[0].images[0].reference.as_deref(),
+        Some("alamos-malbec")
+    );
+    assert_eq!(c.asset_groups[0].images[1].reference, None);
+}
+
+#[tokio::test]
+async fn upsert_asset_group_keeps_the_briefs() {
+    let ws = image_planned().await;
+    let t = pmax_tools(&ws).await;
+    t.call("upsert_asset_group", asset_group_args()).await;
+    t.call("set_image_briefs", briefs_args()).await;
+    let out = t.call("upsert_asset_group", asset_group_args()).await;
+    assert!(!out.is_error);
+    assert_eq!(
+        ws.lock().await.account.campaigns[1].asset_groups[0]
+            .images
+            .len(),
+        3
+    );
+}
+
+#[tokio::test]
+async fn image_tool_errors_do_not_mutate() {
+    let ws = image_planned().await;
+    let t = pmax_tools(&ws).await;
+    let out = t.call("set_image_briefs", briefs_args()).await;
+    assert_eq!(error_codes(&out), ["E12"], "briefs before the asset group");
+    t.call("upsert_asset_group", asset_group_args()).await;
+    let before = ws.lock().await.account.clone();
+    let cases: Vec<(&str, Value, &str)> = vec![
+        (
+            "not planned",
+            json!({"name": "outro", "business_name": "V", "headlines": texts("T", 3), "descriptions": texts("D", 2)}),
+            "E12",
+        ),
+        (
+            "few headlines",
+            json!({"name": "tintos", "business_name": "V", "headlines": texts("T", 2), "long_headlines": ["L"], "descriptions": texts("D", 2)}),
+            "E13",
+        ),
+    ];
+    for (label, args, code) in cases {
+        let out = t.call("upsert_asset_group", args).await;
+        assert!(
+            error_codes(&out).contains(&code.to_string()),
+            "{label}: {:?}",
+            error_codes(&out)
+        );
+    }
+    let mut bad = briefs_args();
+    bad["images"][0]["reference"] = json!("luigi-bosca");
+    assert!(error_codes(&t.call("set_image_briefs", bad).await).contains(&"E19".to_string()));
+    let mut bad = briefs_args();
+    bad["images"] = json!([bad["images"][0].clone()]);
+    assert!(error_codes(&t.call("set_image_briefs", bad).await).contains(&"E16".to_string()));
+    assert_eq!(ws.lock().await.account, before);
+}
+
+#[tokio::test]
+async fn required_formats_reach_the_agent_and_a_plan_without_them_is_refused() {
+    let mut input = image_input();
+    input.formats = vec![
+        crate::google::CampaignKind::Search,
+        crate::google::CampaignKind::DemandGen,
+    ];
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    let business = t.call("get_business", json!({})).await;
+    assert_eq!(
+        business.content["result"]["required_formats"],
+        json!(["search", "demand_gen"])
+    );
+    let out = t.call("set_account_plan", image_plan_args()).await;
+    assert_eq!(error_codes(&out), ["E21"], "pmax is not demand_gen");
+    assert!(ws.lock().await.account.campaigns.is_empty());
+    let mut p = image_plan_args();
+    p["campaigns"][1]["kind"] = json!("demand_gen");
+    p["campaigns"][1]["bid_strategy"]["type"] = json!("maximize_clicks");
+    let out = t.call("set_account_plan", p).await;
+    assert!(!out.is_error, "{}", out.content);
+}
+
+#[tokio::test]
+async fn with_a_focus_every_landing_page_is_a_focus_page() {
+    let mut input = testutil::input();
+    input.focus = Some(crate::input::Focus {
+        name: "Alamos".into(),
+        urls: vec!["https://vinellu.com/w/alamos".into()],
+    });
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let t = plan_tools(&ws).await;
+    let business = t.call("get_business", json!({})).await;
+    assert_eq!(business.content["result"]["focus"]["name"], "Alamos");
+    assert!(!t.call("set_brand_kit", brand_kit_args()).await.is_error);
+    let out = t.call("set_account_plan", plan_args()).await;
+    let codes = error_codes(&out);
+    assert_eq!(codes, ["E22"], "luigi lands outside the focus: {codes:?}");
+    assert!(ws.lock().await.account.campaigns.is_empty());
+
+    let mut p = plan_args();
+    p["campaigns"][0]["ad_groups"] =
+        json!([{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}]);
+    let out = t.call("set_account_plan", p).await;
+    assert!(!out.is_error, "{}", out.content);
+    let plan = ws.lock().await.account.campaigns.clone();
+    assert_eq!(
+        plan[1].planned_ad_groups[0].final_url, "https://vinellu.com/w/alamos",
+        "a group without entity lands on the focus page, not the home page"
+    );
 }

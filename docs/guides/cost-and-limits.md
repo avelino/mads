@@ -12,6 +12,7 @@ This page shows which flags bound a run, how mads reports usage and how to keep 
 | `--mission-retries` | `1` | per mission | Extra attempts after a failed one. |
 | `--parallel` | `4` | run | Campaign missions that run at the same time. |
 | `--max-ad-groups` | `50` | account | Planned ad groups across all campaigns. |
+| `--max-images` | `40` | run | New pictures for image campaigns. Every picture is a paid call to the image API, apart from the tokens. Pictures already on disk are reused and do not count. |
 
 `mads init` accepts `--max-turns`, `--mission-timeout`, `--max-tokens` and `--mission-retries` too. With an agent CLI, init searches the web by default, and each search adds tokens. `--no-web-search` gives a cheaper run that learns from the site only.
 

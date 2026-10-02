@@ -2,6 +2,8 @@
 
 This page describes the five CSV files mads writes, column by column, so you can check them, edit them or build tooling around them.
 
+These files hold Search campaigns only. Performance Max and Demand Gen campaigns go to a Google Ads Editor file, see [Image campaigns](../guides/image-campaigns.md).
+
 The format comes from a real Google Ads export. The files in `data/` (Vinellu, 1 campaign, 12 ad groups) are the reference. A golden test exports files 1 to 5 from a fixture and requires them to match `data/` byte for byte.
 
 ## File rules

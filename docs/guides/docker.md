@@ -21,6 +21,7 @@ docker run --rm \
 
 - `-v "$PWD:/work"` is how mads sees `business.toml` and where `out/` lands. The working directory in the container is `/work`.
 - `--user "$(id -u):$(id -g)"` makes the files in `out/` yours. Without it they belong to root.
+- For image campaigns forward the image key too, `-e OPENAI_API_KEY` or `-e GEMINI_API_KEY`. The logo path in `business.toml` must be inside the mounted folder.
 - `-e ANTHROPIC_API_KEY` with no value forwards the variable from your shell. The key never appears in the command line or in your shell history. mads reads the standard variable of each provider, see [Environment variables](../reference/environment-variables.md).
 - `<model-id>` is a model name from your provider. mads has no default.
 

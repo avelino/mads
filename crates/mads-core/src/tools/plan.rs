@@ -12,7 +12,8 @@ use super::{
 };
 use crate::{
     google::{
-        Account, BidStrategy, BrandKit, Campaign, Cents, Intent, Issue, PlannedAdGroup, Rules,
+        Account, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Intent, Issue,
+        PlannedAdGroup, Rules,
     },
     input::slugify,
     workspace::Workspace,
@@ -62,24 +63,28 @@ struct SetAccountPlanArgs {
 #[serde(deny_unknown_fields)]
 struct PlanCampaign {
     name: String,
+    /// Ad format: search (text ads), performance_max or demand_gen (image campaigns).
+    #[serde(default)]
+    kind: CampaignKind,
     intent: Intent,
     /// Daily budget in account currency units, at most 2 decimals. All campaigns must sum to the account budget.
     daily_budget: f64,
     bid_strategy: PlanBid,
     /// Why this budget share and this bidding.
     rationale: String,
+    /// Ad groups of a search campaign, asset groups of an image campaign.
     ad_groups: Vec<PlanAdGroup>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct PlanBid {
-    /// Only manual_cpc is accepted for now.
+    /// search: manual_cpc. performance_max: maximize_conversions. demand_gen: maximize_clicks or maximize_conversions.
     #[serde(rename = "type")]
     kind: PlanBidType,
 }
 
-#[derive(Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Deserialize, JsonSchema, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 enum PlanBidType {
     ManualCpc,
@@ -124,7 +129,7 @@ pub fn specs() -> Vec<ToolSpec> {
         ),
         spec(
             "set_account_plan",
-            "Define campaigns by intent, budget split, bidding and the planned ad groups. Replaces the previous plan.",
+            "Define campaigns by format, intent, budget split, bidding and the planned ad or asset groups. Replaces the previous plan.",
             schema_for::<SetAccountPlanArgs>(),
         ),
         spec(
@@ -166,12 +171,36 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
             "max_cpc": b.max_cpc.map(cents_to_f64),
         },
         "catalog_size": ws.input.catalog.len(),
+        "catalog_photos": ws.input.catalog.iter().filter(|c| c.image.is_some()).count(),
+        "image_campaigns": image_availability(t, &ws),
+        "focus": ws.input.focus,
         "rules": rules_summary(&t.settings),
     });
     if !ws.input.research.is_empty() {
         result["research"] = json!(ws.input.research);
     }
+    if !ws.input.formats.is_empty() {
+        result["required_formats"] = json!(ws.input.formats);
+    }
     ToolOutput::ok(result, &[], "get_business")
+}
+
+/// Why image campaigns can or cannot be planned in this run.
+fn image_unavailable(t: &MissionTools, ws: &Workspace) -> Option<&'static str> {
+    if !t.settings.image_model {
+        Some("no image model in this run (set --image-provider and its API key)")
+    } else if ws.input.logo.is_none() {
+        Some("no logo: set [brand] logo in business.toml")
+    } else {
+        None
+    }
+}
+
+fn image_availability(t: &MissionTools, ws: &Workspace) -> Value {
+    match image_unavailable(t, ws) {
+        None => json!({"available": true}),
+        Some(reason) => json!({"available": false, "reason": reason}),
+    }
 }
 
 async fn query_catalog(t: &MissionTools, a: QueryCatalogArgs) -> ToolOutput {
@@ -250,7 +279,7 @@ async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput
         .campaigns
         .into_iter()
         .enumerate()
-        .map(|(i, c)| build_campaign(ws, &rules, c, i, &mut issues))
+        .map(|(i, c)| build_campaign(ws, &rules, c, i, image_unavailable(t, ws), &mut issues))
         .collect();
     check_slugs(&campaigns, &mut issues);
     let candidate = Account {
@@ -292,11 +321,40 @@ async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput
     ToolOutput::ok(json!({"campaigns": overview}), &warnings, summary)
 }
 
+fn bid_of(kind: PlanBidType) -> BidStrategy {
+    match kind {
+        PlanBidType::ManualCpc => BidStrategy::ManualCpc,
+        PlanBidType::MaximizeClicks => BidStrategy::MaximizeClicks { max_cpc: None },
+        PlanBidType::MaximizeConversions => BidStrategy::MaximizeConversions,
+    }
+}
+
+fn check_kind(
+    c: &PlanCampaign,
+    path: &str,
+    images_unavailable: Option<&str>,
+    issues: &mut Vec<Issue>,
+) {
+    if c.kind == CampaignKind::Search && c.bid_strategy.kind != PlanBidType::ManualCpc {
+        let msg = "search campaigns take only manual_cpc until the Google Ads bulk templates are verified";
+        issues.push(Issue::error(
+            "UNSUPPORTED",
+            format!("{path}.bid_strategy.type"),
+            msg,
+        ));
+    }
+    if let (true, Some(reason)) = (c.kind.has_images(), images_unavailable) {
+        let msg = format!("{} campaigns are not available: {reason}", c.kind.label());
+        issues.push(Issue::error("UNSUPPORTED", format!("{path}.kind"), msg));
+    }
+}
+
 fn build_campaign(
     ws: &Workspace,
     rules: &Rules,
     c: PlanCampaign,
     i: usize,
+    images_unavailable: Option<&str>,
     issues: &mut Vec<Issue>,
 ) -> Campaign {
     let path = format!("campaigns[{i}]");
@@ -308,14 +366,7 @@ fn build_campaign(
         issues.push(Issue::error("E06", format!("{path}.daily_budget"), msg));
         Cents(0)
     });
-    if c.bid_strategy.kind != PlanBidType::ManualCpc {
-        let msg = "only manual_cpc is supported until the Google Ads bulk templates are verified";
-        issues.push(Issue::error(
-            "UNSUPPORTED",
-            format!("{path}.bid_strategy.type"),
-            msg,
-        ));
-    }
+    check_kind(&c, &path, images_unavailable, issues);
     let slug = slugify(&c.name);
     if slug.is_empty() {
         issues.push(Issue::error(
@@ -333,11 +384,13 @@ fn build_campaign(
     }
     let planned = plan_ad_groups(ws, rules, &c.ad_groups, &path, issues);
     Campaign {
+        kind: c.kind,
+        asset_groups: Vec::new(),
         name: c.name,
         slug,
         intent: c.intent,
         daily_budget,
-        bid_strategy: BidStrategy::ManualCpc,
+        bid_strategy: bid_of(c.bid_strategy.kind),
         rationale: c.rationale,
         planned_ad_groups: planned,
         ad_groups: Vec::new(),
@@ -395,6 +448,7 @@ fn resolve_url(
     issues: &mut Vec<Issue>,
 ) -> String {
     if !g.final_url.trim().is_empty() {
+        rules.focus_url(issues, &format!("{at}.final_url"), &g.final_url);
         if !rules.url_allowed(&g.final_url) {
             issues.push(Issue::error(
                 "E07",
@@ -413,7 +467,16 @@ fn resolve_url(
             .map(|c| c.url.clone()),
         _ => None,
     };
-    single.unwrap_or_else(|| ws.input.business.url.clone())
+    let url = single
+        .or_else(|| {
+            ws.input
+                .focus
+                .as_ref()
+                .and_then(|f| f.urls.first().cloned())
+        })
+        .unwrap_or_else(|| ws.input.business.url.clone());
+    rules.focus_url(issues, &format!("{at}.final_url"), &url);
+    url
 }
 
 fn check_slugs(campaigns: &[Campaign], issues: &mut Vec<Issue>) {

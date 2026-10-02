@@ -1,9 +1,11 @@
+mod design;
 mod fetch;
 mod research;
 mod run;
 mod state;
 mod tools;
 
+pub use design::*;
 pub use fetch::*;
 pub use research::*;
 pub use run::*;

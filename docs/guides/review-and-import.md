@@ -84,3 +84,5 @@ The last import step in the report follows `export.status`. With `Enabled` it sa
 ## Not in the files yet
 
 Sitelinks, callouts and structured snippets are validated but not exported. Add them in the Google Ads interface until the asset templates are verified.
+
+Performance Max and Demand Gen campaigns are not in files 1 to 5. They are in `google-ads/editor/image-campaigns.csv` with their pictures, and you import them with Google Ads Editor. See [Image campaigns](image-campaigns.md#import).

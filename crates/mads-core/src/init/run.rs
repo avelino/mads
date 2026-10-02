@@ -7,7 +7,10 @@ use std::{
 
 use tokio::sync::Mutex;
 
-use super::{CATALOG_FILE, InitState, InitTools, RESEARCH_FILE, RenderedFiles, SiteFetch};
+use super::{
+    CATALOG_FILE, DESIGN_FILE, InitState, InitTools, LOGO_FILE, RESEARCH_FILE, RenderedFiles,
+    SiteFetch,
+};
 use crate::{
     agent::{
         Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget, transcript_path,
@@ -43,6 +46,8 @@ pub struct InitConfig {
     pub model: Option<String>,
     /// Lets the agent search the web when the driver supports it.
     pub web_search: bool,
+    /// The start URL is the one offer to advertise, not the whole business.
+    pub focus: bool,
 }
 
 impl InitConfig {
@@ -62,6 +67,7 @@ impl InitConfig {
             provider: String::new(),
             model: None,
             web_search: true,
+            focus: false,
         }
     }
 }
@@ -80,6 +86,8 @@ pub struct InitResult {
     pub business: PathBuf,
     pub catalog: Option<PathBuf>,
     pub research: Option<PathBuf>,
+    /// `brand/logo.png` when a logo was found on the site.
+    pub logo: Option<PathBuf>,
     /// What the agent did, kept whether the mission finished or not.
     pub transcripts: PathBuf,
     pub totals: Totals,
@@ -93,11 +101,19 @@ pub fn mission_spec(cfg: &InitConfig, web: bool) -> MissionSpec {
     } else {
         "You cannot search the web in this run: learn from the site only and list what you could not check in open_questions."
     };
+    let focus_note = if cfg.focus {
+        format!(
+            " Focus: the account advertises only the offer of {}, not the whole business. Set `focus` in write_business with that page and its close variants, and keep the catalog and the opportunities inside the focus.",
+            cfg.start_url
+        )
+    } else {
+        String::new()
+    };
     MissionSpec {
         id: INIT_ID.into(),
         system: INIT_PROMPT.into(),
         user: format!(
-            "Research {url} and draft business.toml, catalog.csv and research.md. Start with fetch_page on {url}. The catalog can have at most {limit} items. {web_note}",
+            "Research {url} and draft business.toml, catalog.csv and research.md. Start with fetch_page on {url}. The catalog can have at most {limit} items. {web_note}{focus_note}",
             url = cfg.start_url,
             limit = cfg.catalog_limit
         ),
@@ -115,12 +131,20 @@ pub async fn run_init(
     let business_path = cfg.out_dir.join(BUSINESS_FILE);
     let catalog_path = cfg.out_dir.join(CATALOG_FILE);
     let research_path = cfg.out_dir.join(RESEARCH_FILE);
+    let logo_path = cfg.out_dir.join(LOGO_FILE);
+    let design_path = cfg.out_dir.join(DESIGN_FILE);
     if !cfg.force {
-        let existing: Vec<PathBuf> = [&business_path, &catalog_path, &research_path]
-            .into_iter()
-            .filter(|p| p.exists())
-            .cloned()
-            .collect();
+        let existing: Vec<PathBuf> = [
+            &business_path,
+            &catalog_path,
+            &research_path,
+            &logo_path,
+            &design_path,
+        ]
+        .into_iter()
+        .filter(|p| p.exists())
+        .cloned()
+        .collect();
         if !existing.is_empty() {
             return Err(InitError::Exists(existing));
         }
@@ -135,6 +159,9 @@ pub async fn run_init(
 
     let mission = mission_spec(&cfg, driver.web_search());
     let mut draft = InitState::new(&cfg.start_url, cfg.daily, &cfg.currency, cfg.catalog_limit);
+    if cfg.focus {
+        draft.require_focus();
+    }
     if mission.web_search {
         draft.require_web_sources(WEB_SOURCES_MIN);
     }
@@ -190,10 +217,12 @@ pub async fn run_init(
         }
     }
 
-    let (catalog, research) = if finished {
-        write_files(&cfg, &state, &events).await?
+    let (catalog, research, logo) = if finished {
+        let logo = save_logo(&cfg, &state, site.as_ref(), &events).await?;
+        let (catalog, research) = write_files(&cfg, &state, &events).await?;
+        (catalog, research, logo)
     } else {
-        (None, None)
+        (None, None, None)
     };
     let exit_code = if finished { 0 } else { 1 };
     let totals = Totals {
@@ -213,9 +242,59 @@ pub async fn run_init(
         business: business_path,
         catalog,
         research,
+        logo,
         transcripts,
         totals,
     })
+}
+
+/// Downloads the logo candidates in order and saves the first one Google would accept.
+/// Without one, image campaigns stay off and the user can add `[brand] logo` by hand.
+async fn save_logo(
+    cfg: &InitConfig,
+    state: &Mutex<InitState>,
+    site: &dyn SiteFetch,
+    events: &EventSink,
+) -> Result<Option<PathBuf>, InitError> {
+    let candidates = state.lock().await.logo_candidates().to_vec();
+    let path = cfg.out_dir.join(LOGO_FILE);
+    for url in &candidates {
+        let prepared = site
+            .fetch_image(url)
+            .await
+            .and_then(|b| crate::images::prepare_logo(&b));
+        let Ok(png) = prepared else {
+            continue;
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let colors = crate::images::logo_palette(&png).unwrap_or_default();
+        std::fs::write(&path, png)?;
+        let mut s = state.lock().await;
+        s.set_logo(LOGO_FILE);
+        s.set_logo_colors(&colors);
+        drop(s);
+        events.emit(Event::Step {
+            name: "logo".into(),
+            detail: format!("saved from {url}"),
+        });
+        events.emit(Event::ArtifactWritten {
+            path: path.display().to_string(),
+        });
+        return Ok(Some(path));
+    }
+    if cfg.force && path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    events.emit(Event::Step {
+        name: "logo".into(),
+        detail: format!(
+            "none of {} candidates is a PNG or JPEG of 144 px or more: add [brand] logo for image campaigns",
+            candidates.len()
+        ),
+    });
+    Ok(None)
 }
 
 /// The transcript folder with no file of an older init: a new run must not append to the last one.
@@ -240,6 +319,7 @@ async fn write_files(
         toml,
         csv,
         research,
+        design,
     } = state
         .lock()
         .await
@@ -250,6 +330,7 @@ async fn write_files(
     write_file(&business, &toml, events)?;
     let catalog = write_optional(cfg, CATALOG_FILE, csv, events)?;
     let research = write_optional(cfg, RESEARCH_FILE, research, events)?;
+    write_optional(cfg, DESIGN_FILE, design, events)?;
     Ok((catalog, research))
 }
 
@@ -317,7 +398,21 @@ mod tests {
                 description: "App de vinhos".into(),
                 text: "App social de vinhos".into(),
                 links: vec!["https://vinellu.com/app".into()],
+                image: String::new(),
+                theme_color: "#AD1457".into(),
+                logos: vec![
+                    "https://vinellu.com/tiny.png".into(),
+                    "https://vinellu.com/apple-touch-icon.png".into(),
+                ],
             })
+        }
+        async fn fetch_image(&self, url: &str) -> Result<Vec<u8>, String> {
+            let side = if url.ends_with("tiny.png") { 32 } else { 180 };
+            let img = image::RgbaImage::from_pixel(side, side, image::Rgba([90, 0, 40, 255]));
+            let mut out = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+                .map_err(|e| e.to_string())?;
+            Ok(out)
         }
         async fn fetch_sitemap(&self, _: Option<&str>) -> Result<SitemapUrls, String> {
             Ok(SitemapUrls {
@@ -416,6 +511,40 @@ mod tests {
         );
         assert_eq!(r.business, dir.path().join("business.toml"));
         assert_eq!(r.catalog, Some(dir.path().join("catalog.csv")));
+        let logo = dir.path().join("brand/logo.png");
+        assert_eq!(
+            r.logo,
+            Some(logo.clone()),
+            "the tiny icon is skipped, the touch icon kept"
+        );
+        assert!(input.logo.is_some_and(|l| l.ends_with("brand/logo.png")));
+        crate::images::check_logo(&std::fs::read(logo).unwrap()).unwrap();
+        let design = std::fs::read_to_string(dir.path().join("DESIGN.md")).unwrap();
+        assert!(
+            design.contains(": logo\n")
+                && design.contains("#AD1457: theme color of https://vinellu.com"),
+            "{design}"
+        );
+        assert_eq!(input.design, design, "generate reads it back");
+    }
+
+    #[test]
+    fn focus_reaches_the_task_only_when_asked() {
+        let mut c = InitConfig::new(
+            PathBuf::from("."),
+            "https://x.com/route/a-b".into(),
+            Cents(100),
+            "BRL".into(),
+        );
+        assert!(!mission_spec(&c, false).user.contains("Focus"));
+        c.focus = true;
+        let m = mission_spec(&c, false);
+        assert!(
+            m.user.contains(
+                "Focus: the account advertises only the offer of https://x.com/route/a-b"
+            )
+        );
+        assert!(m.system.contains("## focus"));
     }
 
     #[tokio::test]
@@ -433,7 +562,8 @@ mod tests {
                 .iter()
                 .filter(|e| matches!(e, Event::ArtifactWritten { .. }))
                 .count(),
-            3
+            5,
+            "business.toml, catalog.csv, research.md, the logo and DESIGN.md"
         );
         assert!(matches!(
             events.last(),

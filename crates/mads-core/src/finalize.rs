@@ -1,6 +1,6 @@
 use crate::{
     events::{Event, EventSink},
-    google::{Account, CsvFile, Issue, Rules, export_csvs},
+    google::{Account, CsvFile, ExportError, Issue, Rules, export_csvs, export_editor_csv},
     input::Input,
     post::{UrlResult, check_urls, collect_urls, url_issues},
     web::Web,
@@ -32,6 +32,13 @@ fn invalid(errors: Vec<Issue>, warnings: Vec<Issue>, urls: Option<Vec<UrlResult>
         urls,
         csv: Vec::new(),
     }
+}
+
+/// Bulk upload files 1 to 5 for Search, then the Editor file for image campaigns.
+fn export_all(input: &Input, account: &Account) -> Result<Vec<CsvFile>, ExportError> {
+    let mut files = export_csvs(input, account)?;
+    files.extend(export_editor_csv(input, account)?);
+    Ok(files)
 }
 
 pub async fn finalize(
@@ -73,7 +80,7 @@ pub async fn finalize(
     }
 
     step(events, "export", "writing CSV files");
-    match export_csvs(input, account) {
+    match export_all(input, account) {
         Ok(csv) => Finalized {
             exit_code: 0,
             errors: Vec::new(),
@@ -127,6 +134,10 @@ mod tests {
             })
             .collect();
         Input {
+            logo: None,
+            formats: Vec::new(),
+            design: String::new(),
+            focus: None,
             business: Business {
                 name: "Vinellu".into(),
                 url: "https://vinellu.com".into(),
@@ -233,7 +244,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_failure_is_reported_as_an_error() {
+    async fn a_bid_strategy_that_does_not_fit_the_kind_stops_before_export() {
         let mut account = reference_account();
         account.campaigns[0].bid_strategy = crate::google::BidStrategy::MaximizeConversions;
         let mut input = reference_input(&account);
@@ -249,6 +260,7 @@ mod tests {
         )
         .await;
         assert_eq!(out.exit_code, 3);
-        assert!(out.errors.iter().any(|e| e.code == "EXPORT"));
+        assert!(out.errors.iter().any(|e| e.code == "E17"));
+        assert!(out.csv.is_empty());
     }
 }

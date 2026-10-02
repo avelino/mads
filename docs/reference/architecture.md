@@ -43,8 +43,9 @@ The dependency rule is strict. `mads-cli` depends on `mads-providers` and `mads-
 |---|---|---|
 | `ChatModel` | One LLM turn. System prompt, messages and tool specs in. Text, tool calls and usage out. | `GenaiChatModel` (providers), `ScriptedChatModel` (core, tests) |
 | `Driver` | Runs one whole mission against a `ToolHost`. | `LoopDriver<M: ChatModel>` and `ScriptedDriver` (core), `CliDriver<A: CliAgent>` (providers) |
-| `Web` | Checks a URL's HTTP status. | `WebClient` (providers), fakes in tests |
-| `SiteFetch` | Reads one website for `init`: same-site check, page fetch, sitemap. | `SiteClient` (providers), fakes in tests |
+| `Web` | Checks a URL's HTTP status and downloads reference photos. | `WebClient` (providers), fakes in tests |
+| `SiteFetch` | Reads one website for `init`: same-site check, page fetch, sitemap, logo download. | `SiteClient` (providers), fakes in tests |
+| `ImageModel` | Draws one picture from a prompt, a ratio and an optional reference photo. | `GeminiImageModel` and `OpenAiImageModel` (providers), `SolidImageModel` (core, tests and the hidden `solid` provider) |
 | `ToolHost` | Lists tool specs and executes tool calls for one mission. | `MissionTools` (core) |
 
 `CliDriver` runs a coding agent for a mission. A `CliAgent` implementation (`Claude`, `Codex`, `Gemini`) says how to build the command line and config files, and how to read the CLI's JSON stream. The driver starts a `McpEndpoint` for the mission (HTTP on `127.0.0.1`, random port, bearer token), writes the config files with mode `0600` into a temporary directory, runs the CLI and deletes the directory when the mission ends. See [Agent CLIs](../guides/agent-clis.md).

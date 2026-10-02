@@ -15,16 +15,24 @@ out/20261001-122850-b51417/
   input/
     business.toml                copy of the file you passed
     catalog.csv                  copy of the catalog, under its original file name
+    logo.png                     copy of [brand] logo, when set
   google-ads/                    one folder per ad platform
-    1-campaign.csv
+    1-campaign.csv               files 1 to 5: Search campaigns only
     2-ad-groups.csv
     3-keywords.csv
     4-negative-keywords.csv
     5-responsive-search-ads.csv
+    editor/                      image campaigns, for Google Ads Editor
+      image-campaigns.csv
+      images/
+        logo.png
+        <campaign>/<asset-group>-<image-id>.jpg
   transcripts/                   one file per mission
 ```
 
-- `google-ads/` is empty when the run exits `1` or `3`. Each ad platform gets its own folder, so other platforms will not mix with these files.
+- `google-ads/` has no CSV when the run exits `1` or `3`. Pictures in `editor/images/` stay: they cost money and the next `--resume` or `export` reuses them.
+- Files 1 to 5 hold Search campaigns only, and are not written when the account has none. `editor/` exists only when the account has a Performance Max or Demand Gen campaign. See [Image campaigns](../guides/image-campaigns.md).
+- `workspace.json` points `input.logo` at the copy in `input/`, so the run does not depend on where the logo was. Each ad platform gets its own folder, so other platforms will not mix with these files.
 - `input/` is a record. `export` and `--resume` read `workspace.json`, not `input/`.
 - `transcripts/` has one file per mission: `<mission>.jsonl` for API providers (every message) and `<mission>.cli.jsonl` for agent CLIs (the raw stream). A `:` in a mission id becomes `-`, so `campaign:vinellu-catalogo` is `campaign-vinellu-catalogo.jsonl`.
 - `events.ndjson`, `run.json` and `report.md` are written again by `--resume` and `export`. `events.ndjson` is appended to, the others are replaced.
@@ -57,10 +65,10 @@ One JSON object per line. `--format json` prints the same lines on stdout.
 | `tool_finished` | `mission`, `tool`, `ok`, `summary` | A tool call ends. `ok` is false when the tool refused the call. |
 | `usage` | `mission`, `input_tokens`, `output_tokens`, `cost_usd` | After every model response. `cost_usd` is null unless the provider reports it. |
 | `mission_finished` | `mission`, `ok`, `reason` | A mission attempt ends. `reason` is null on success. |
-| `step` | `name`, `detail` | Post-processing steps: `cross-negatives`, `validate`, `url-check`, `export`. |
+| `step` | `name`, `detail` | Post-processing steps: `cross-negatives`, `images`, `validate`, `url-check`, `export`. `images` reports what will be generated and every failed picture. |
 | `validation` | `errors`, `warnings` | The issues. Each issue has `code`, `severity`, `path` and `message`. |
 | `url_checked` | `url`, `status`, `ok` | One per URL. `status` is null when the request failed. |
-| `artifact_written` | `path` | A CSV or `report.md` was written. |
+| `artifact_written` | `path` | A CSV, a picture or `report.md` was written. |
 | `run_finished` | `ok`, `exit_code`, `totals` | Last event. |
 
 Mission ids are `plan` and `campaign:<slug>`, where the slug is `slugify(campaign name)`.

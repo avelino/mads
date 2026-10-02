@@ -61,6 +61,8 @@ API providers go through the `genai` crate.
 
 An agent CLI provider is a different job. Implement `CliAgent` in `crates/mads-providers/src/cli/<name>.rs` (command line, config files, stream parser, executable override variable). Then add it to `SPECS`, `build_drivers` and `preflight` in `select.rs`, and document it in `docs/guides/agent-clis.md`. Test the stream parser against recorded fixtures.
 
+An image provider implements `ImageModel` from `mads-core` in `crates/mads-providers/src/image.rs`. Add it to `IMAGE_PROVIDERS` and `image_model_with`, test the request and the answer against wiremock, and document it in `docs/guides/image-campaigns.md` and `docs/reference/environment-variables.md`.
+
 ## Add a validation rule
 
 Rules live in `crates/mads-core/src/google/rules.rs` (account, campaign, ad group, text) and `crates/mads-core/src/post.rs` (URL check).

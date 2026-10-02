@@ -15,6 +15,10 @@ pub enum ExportError {
     PendingTemplate(String),
     #[error("csv write failed: {0}")]
     Csv(String),
+    #[error("image campaigns need a logo")]
+    MissingLogo,
+    #[error("image '{0}' has no file")]
+    MissingImage(String),
 }
 
 impl From<csv::Error> for ExportError {
@@ -67,12 +71,12 @@ const NEGATIVE_HEADER: &[&str] = &[
     "Type",
 ];
 
-struct Sheet {
+pub(crate) struct Sheet {
     writer: csv::Writer<Vec<u8>>,
 }
 
 impl Sheet {
-    fn new<S: AsRef<[u8]>>(header: &[S]) -> Result<Self, ExportError> {
+    pub(crate) fn new<S: AsRef<[u8]>>(header: &[S]) -> Result<Self, ExportError> {
         let mut writer = csv::WriterBuilder::new()
             .terminator(csv::Terminator::CRLF)
             .quote_style(csv::QuoteStyle::Necessary)
@@ -81,7 +85,7 @@ impl Sheet {
         Ok(Self { writer })
     }
 
-    fn row<I, S>(&mut self, fields: I) -> Result<(), ExportError>
+    pub(crate) fn row<I, S>(&mut self, fields: I) -> Result<(), ExportError>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<[u8]>,
@@ -89,7 +93,7 @@ impl Sheet {
         Ok(self.writer.write_record(fields)?)
     }
 
-    fn finish(self, name: &'static str) -> Result<CsvFile, ExportError> {
+    pub(crate) fn finish(self, name: &'static str) -> Result<CsvFile, ExportError> {
         let bytes = self
             .writer
             .into_inner()
@@ -98,22 +102,18 @@ impl Sheet {
     }
 }
 
+/// Search campaigns export only Manual CPC until the bulk templates of the others are verified.
+fn bid_label(c: &Campaign) -> Result<&'static str, ExportError> {
+    match c.bid_strategy {
+        BidStrategy::ManualCpc => Ok(c.bid_strategy.label()),
+        other => Err(ExportError::PendingTemplate(other.label().into())),
+    }
+}
+
 fn match_label(m: MatchType) -> &'static str {
     match m {
         MatchType::Phrase => "Phrase match",
         MatchType::Exact => "Exact match",
-    }
-}
-
-fn bid_label(c: &Campaign) -> Result<&'static str, ExportError> {
-    match c.bid_strategy {
-        BidStrategy::ManualCpc => Ok("Manual CPC"),
-        BidStrategy::MaximizeClicks { .. } => {
-            Err(ExportError::PendingTemplate("Maximize clicks".into()))
-        }
-        BidStrategy::MaximizeConversions => {
-            Err(ExportError::PendingTemplate("Maximize conversions".into()))
-        }
     }
 }
 
@@ -128,8 +128,12 @@ fn effective_negatives<'a>(c: &'a Campaign, ag: &'a AdGroup) -> Vec<&'a Keyword>
         .collect()
 }
 
-/// Files 1 to 5 of the Google Ads bulk upload set, in upload order.
+/// Files 1 to 5 of the Google Ads bulk upload set, in upload order. Search campaigns only:
+/// without one there is no file.
 pub fn export_csvs(input: &Input, account: &Account) -> Result<Vec<CsvFile>, ExportError> {
+    if !account.campaigns.iter().any(|c| !c.kind.has_images()) {
+        return Ok(Vec::new());
+    }
     let kit = account
         .brand_kit
         .as_ref()
@@ -152,7 +156,7 @@ pub fn export_csvs(input: &Input, account: &Account) -> Result<Vec<CsvFile>, Exp
     let mut negatives = Sheet::new(NEGATIVE_HEADER)?;
     let mut ads = Sheet::new(&ads_header())?;
 
-    for c in &account.campaigns {
+    for c in account.campaigns.iter().filter(|c| !c.kind.has_images()) {
         let suffix = input.export.url_suffix.replace("{mads_campaign}", &c.slug);
         let budget = c.daily_budget.format_budget(comma);
         campaigns.row([
@@ -259,6 +263,10 @@ mod tests {
 
     fn input() -> Input {
         Input {
+            logo: None,
+            formats: Vec::new(),
+            design: String::new(),
+            focus: None,
             business: Business {
                 name: "Acme".into(),
                 url: "https://acme.com".into(),
@@ -302,6 +310,8 @@ mod tests {
                 descriptions: vec!["Kit, with comma".into()],
             }),
             campaigns: vec![Campaign {
+                kind: Default::default(),
+                asset_groups: Vec::new(),
                 name: "Acme - Brand".into(),
                 slug: "acme-brand".into(),
                 intent: Intent::Brand,

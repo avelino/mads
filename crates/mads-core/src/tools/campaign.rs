@@ -18,7 +18,7 @@ use crate::{
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-struct Empty {}
+pub(super) struct Empty {}
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -179,7 +179,7 @@ pub async fn call(t: &MissionTools, slug: &str, name: &str, args: Value) -> Tool
     }
 }
 
-fn campaign_index(ws: &Workspace, slug: &str) -> Option<usize> {
+pub(super) fn campaign_index(ws: &Workspace, slug: &str) -> Option<usize> {
     ws.account.campaigns.iter().position(|c| c.slug == slug)
 }
 
@@ -192,7 +192,7 @@ fn keywords(args: Vec<KwArg>) -> Vec<Keyword> {
         .collect()
 }
 
-fn not_found(slug: &str) -> ToolOutput {
+pub(super) fn not_found(slug: &str) -> ToolOutput {
     ToolOutput::fail("NOT_FOUND", format!("campaign '{slug}' no longer exists"))
 }
 
@@ -227,6 +227,7 @@ async fn get_brief(t: &MissionTools, slug: &str) -> ToolOutput {
         },
         "brand_kit": ws.account.brand_kit,
         "business": ws.input.business,
+        "focus": ws.input.focus,
         "budget": {"currency": ws.input.budget.currency, "max_cpc": ws.input.budget.max_cpc.map(cents_to_f64)},
         "entities": entities,
         "built_ad_groups": built,

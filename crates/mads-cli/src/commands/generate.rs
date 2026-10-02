@@ -7,7 +7,7 @@ use mads_core::{
     run::{RunConfig, RunDir, generate},
     workspace::Workspace,
 };
-use mads_providers::{WebClient, build_drivers, preflight};
+use mads_providers::{WebClient, build_drivers, build_image_model, preflight};
 
 use crate::{
     cli::{CliError, GenerateArgs, usage},
@@ -29,6 +29,24 @@ fn snapshot(run: &RunDir, business: &Path) -> anyhow::Result<()> {
             .join(&rel);
         let name = Path::new(&rel).file_name().unwrap_or_default();
         std::fs::copy(&src, dest.join(name)).context("could not copy the catalog into the run")?;
+    }
+    Ok(())
+}
+
+/// Copies the logo into `<run>/input/` and points the input at the copy, so the run stays whole
+/// when the original moves. A resumed run already points into its own directory.
+fn snapshot_logo(run_dir: &Path, input: &mut Input) -> anyhow::Result<()> {
+    let Some(src) = input.logo.clone() else {
+        return Ok(());
+    };
+    let dest = run_dir.join("input").join(
+        Path::new(&src)
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("logo.png")),
+    );
+    if Path::new(&src) != dest {
+        std::fs::copy(&src, &dest).context("could not copy the logo into the run")?;
+        input.logo = Some(dest.display().to_string());
     }
     Ok(())
 }
@@ -63,13 +81,26 @@ fn prepare_run_dir(args: &GenerateArgs) -> anyhow::Result<std::path::PathBuf> {
 
 pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
     // Everything that can be wrong with the inputs fails here, before a run directory exists.
-    let input = load_input_for(&args)?;
+    let mut input = load_input_for(&args)?;
     let selection = args.agent.selection();
-    let drivers = build_drivers(&selection).map_err(|e| usage(e.to_string()))?;
+    let mut drivers = build_drivers(&selection).map_err(|e| usage(e.to_string()))?;
+    drivers.image = build_image_model(&args.image_provider, args.image_model.as_deref())
+        .map_err(|e| usage(e.to_string()))?;
+    if drivers.image.is_none()
+        && let Some(f) = input.formats.iter().find(|f| f.has_images())
+    {
+        return Err(usage(format!(
+            "campaigns.formats asks for {} and there is no image model: set OPENAI_API_KEY or GEMINI_API_KEY, or pick one with --image-provider",
+            f.label()
+        )));
+    }
     preflight(&selection)
         .await
         .map_err(|e| usage(e.to_string()))?;
     let run_dir = prepare_run_dir(&args)?;
+    if args.resume.is_none() {
+        snapshot_logo(&run_dir, &mut input)?;
+    }
 
     let mut cfg = RunConfig::new(args.out.clone());
     cfg.run_dir = Some(run_dir);
@@ -80,6 +111,7 @@ pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
     cfg.mission_retries = args.agent.mission_retries;
     cfg.max_ad_groups = args.max_ad_groups;
     cfg.skip_url_check = args.skip_url_check;
+    cfg.max_images = args.max_images;
     cfg.provider = selection.provider.clone();
     cfg.model = selection.model.clone();
 

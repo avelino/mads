@@ -67,6 +67,63 @@ Without `[catalog]` the catalog is empty.
 
 The file is Markdown. `generate` reads it and the plan agent gets it from `get_business` as `research`. At most 20000 characters, because it goes into every plan prompt. A longer file fails with the key `research.file`. A missing file is an error. Without `[research]` the plan runs without notes.
 
+## [brand]
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `logo` | path | no | Square logo, relative to the directory that holds `business.toml`. `mads init` writes `brand/logo.png` and this key when it finds a logo on the site. |
+
+The logo must be PNG or JPEG, square within 1 percent, at least 144x144 pixels and at most 150 KB. Anything else fails with the key `brand.logo` and the reason, for example `brand.logo: logo.png: 400x200 is not square`. A missing file is an error.
+
+Image campaigns (Performance Max and Demand Gen) need it. Without `[brand]` the plan can only use Search. See [Image campaigns](../guides/image-campaigns.md).
+
+## [focus]
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | The offer as people say it, 1 to 80 characters. |
+| `urls` | string array | yes | 1 to 10 absolute URLs: the page of the offer and its close variants. |
+
+With `[focus]` the account advertises that one offer, not the whole business. Every final URL must be one of `urls` (`E22`), and the agents keep keywords and ads about the offer. Sitelinks can still use `business.pages`. `mads init --focus` writes it.
+
+```toml
+[focus]
+name = "Ônibus Belo Horizonte <> São Paulo"
+urls = [
+  "https://www.buser.com.br/onibus/belo-horizonte-mg/sao-paulo-sp",
+  "https://www.buser.com.br/onibus/sao-paulo-sp/belo-horizonte-mg",
+]
+```
+
+## [design]
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `file` | path | no | Path to `DESIGN.md`, relative to the directory that holds `business.toml`. `mads init` writes both. |
+
+`DESIGN.md` is the brand identity of image campaigns. The image campaign agent gets the whole file in `get_brief`, and every prompt sent to the image model gets the colors listed under its `## Colors` heading. At most 8000 characters, a longer file fails with the key `design.file`. See [Image campaigns](../guides/image-campaigns.md#brand-identity).
+
+## [campaigns]
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `formats` | string array | no | Formats the account must have, at least one campaign each: `search`, `performance_max`, `demand_gen`. Without `[campaigns]` the plan agent picks. |
+
+The plan agent still decides budget shares, intents and groups. A plan without one of the formats is refused with `E21`, and the agent fixes it.
+
+Checked when the file loads, with the key `campaigns.formats`:
+
+- an empty list, or a format listed twice
+- an image format without `[brand] logo`: `Demand Gen needs [brand] logo`
+- `performance_max` without `conversion_tracking = true`
+
+`mads generate` also exits `2` when an image format is listed and the run has no image model.
+
+```toml
+[campaigns]
+formats = ["search", "demand_gen"]
+```
+
 ## Complete example
 
 ```toml
@@ -104,6 +161,12 @@ file = "catalog.csv"
 
 [research]
 file = "research.md"
+
+[brand]
+logo = "brand/logo.png"
+
+[design]
+file = "DESIGN.md"
 ```
 
 ## Allowed URLs

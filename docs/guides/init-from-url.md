@@ -8,12 +8,13 @@ This page shows how to let an agent study your business and draft `business.toml
 
 | Tool | What it does |
 |---|---|
-| `fetch_page` | Returns the title, description, visible text and links of one page. |
+| `fetch_page` | Returns the title, description, visible text, links and `og:image` of one page. |
 | `fetch_sitemap` | Lists sitemap URLs, filtered and paginated. |
 | `search_site` | Finds the pages of a name in the sitemap. |
 | `write_business` | Saves the business profile. |
 | `write_research` | Saves what the agent learned and the opportunities it found. |
 | `add_catalog_items` | Adds the entities people search for by name. |
+| `write_design` | Saves how the brand looks and sounds. Optional. |
 | `finish` | Ends the mission. Needs `write_business` and `write_research`. |
 
 The agent reads the home page and the pages that explain the business, then maps the kinds of pages in the sitemap. Next it looks for demand: the names people type, the categories and problems they search, the business name and its competitors. With an agent CLI it also searches the web for rankings, bestseller lists and comparisons. See [Web search](#web-search).
@@ -85,11 +86,42 @@ That run read 4 pages, listed an 8657-URL sitemap in pages and wrote 20 catalog 
 
 ## Where the files go
 
-`--out-dir` sets the folder. The default is the current directory. init writes at most three files, `business.toml`, `catalog.csv` and `research.md`. It creates no run directory and no `events.ndjson`. It keeps the agent's transcript in `.mads/transcripts/` inside the same folder, even when the mission fails. A failed run prints that path. Each run replaces the transcript of the one before.
+`--out-dir` sets the folder. The default is the current directory. init writes at most five files, `business.toml`, `catalog.csv`, `research.md`, `brand/logo.png` and `DESIGN.md`. It creates no run directory and no `events.ndjson`. It keeps the agent's transcript in `.mads/transcripts/` inside the same folder, even when the mission fails. A failed run prints that path. Each run replaces the transcript of the one before.
 
 The catalog file is written only when the agent added items. Without items, `business.toml` has no `[catalog]` table. `research.md` is always written, because `finish` needs `write_research`. `business.toml` points at it with a `[research]` table.
 
-init refuses to overwrite any of the three.
+## One offer, not the whole business
+
+Pass the page of one offer and `--focus` to advertise only it, such as one route, one product line or one city.
+
+```bash
+mads init --from-url https://www.buser.com.br/onibus/belo-horizonte-mg/sao-paulo-sp \
+  --focus --daily-budget 10000 --currency BRL --provider claude-cli
+```
+
+The agent still studies the business for context, but it writes a `[focus]` table with the offer's name and pages (the start page and close variants such as the return direction), keeps the catalog to those pages, and ranks only ways people search for that offer. Without `--focus`, the start page is only where the agent begins: it drafts the whole business.
+
+For several offers, run init once per offer in its own folder. Each one gets its own budget, run and report.
+
+## The logo
+
+Image campaigns need the brand logo, and mads never draws one. While the agent fetches pages, mads collects logo candidates from the markup: `apple-touch-icon` first, then `og:logo`, then the largest `<link rel="icon">`, then `<img>` tags with `logo` in `src`, `alt`, `class` or `id`. SVG, ICO and GIF files are skipped.
+
+After the mission, init downloads the candidates in that order and keeps the first PNG or JPEG of 144 px or more. It pads it to a square with transparency, shrinks it until the PNG fits in 150 KB, saves `brand/logo.png` and adds `[brand] logo` to `business.toml`. Logos often live on a CDN, so this download may go to another public host. Private hosts are refused like any other request.
+
+Without a usable candidate init prints that no logo was found, and the plan can only use Search. Put your logo in `brand/logo.png` and add the table yourself. Check the downloaded logo too: a site icon can be a cropped mark, not the full logo.
+
+The agent also sees the `og:image` of each page and can set it as the `image` of a catalog item when it is a photo of the item. Image ads then show the real product. An `image` the run did not see on a fetched page fails with `E07`.
+
+## The design
+
+init writes `DESIGN.md` and a `[design]` table in `business.toml`. The `## Colors` section comes from code: the dominant colors of the saved logo (white, black, gray and transparent pixels are skipped, close shades merge, at most 3) and the `<meta name="theme-color">` of every fetched page. The agent can add `Style`, `Imagery`, `Voice` and `Avoid` with `write_design`. It is optional, and finish does not need it. The file is not written when there is neither a color nor a design draft.
+
+Read it and fix what is off. Image campaigns follow it. See [Image campaigns](image-campaigns.md#brand-identity).
+
+## Overwriting
+
+init refuses to overwrite any of these files.
 
 ```text
 error: ./business.toml, ./catalog.csv already exist: use --force to overwrite
@@ -162,7 +194,9 @@ Treat the draft as a first pass. Read every line. These are the usual fixes.
 - **max_cpc.** init does not write it. Add `max_cpc` under `[budget]` to cap every CPC.
 - **[export].** init does not write it. Add it if you need `status`, `url_suffix` or `decimal_comma`. See the [business.toml reference](../reference/business-toml.md).
 - **pages.** Keep the pages that make good sitelinks and delete the rest. They all exist, because the agent may only use URLs it fetched or saw in the sitemap.
-- **Catalog.** Delete items you do not sell or do not want ads for. Check `third_party`, `aliases` and `notes`. The `notes` of each item are facts an ad can use.
+- **Catalog.** Delete items you do not sell or do not want ads for. Check `third_party`, `aliases` and `notes`. The `notes` of each item are facts an ad can use. Clear an `image` that is a banner and not a photo of the item.
+- **brand/logo.png.** Open it. Replace it with your real logo when it is wrong.
+- **DESIGN.md.** Check the colors and the style. Add the colors of your brand guide when the site does not show them.
 
 Then run `mads generate` on the reviewed files. See [Getting started](../getting-started.md).
 

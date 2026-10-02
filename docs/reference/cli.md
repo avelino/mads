@@ -54,10 +54,11 @@ An agent studies the business and writes `business.toml`, `catalog.csv` and `res
 | `--catalog-limit <CATALOG_LIMIT>` | `50` | Catalog items the agent may add. |
 | `--force` | off | Overwrite existing files. |
 | `--no-web-search` | off | Keep the agent off the web. Agent CLIs search the web by default. API providers never do. |
+| `--focus` | off | Advertise only the offer of `--from-url` (a route, a product line, a location), not the whole business. init writes a `[focus]` table and keeps the catalog inside it. |
 
 It also takes the agent flags of `generate` (`--provider`, `--model`, `--plan-model`, `--base-url`, `--max-turns`, `--mission-timeout`, `--max-tokens`, `--mission-retries`) with the same defaults. When `--plan-model` is set, init uses it instead of `--model`.
 
-init writes only its own files and keeps the agent's transcript in `<out-dir>/.mads/transcripts/`. It creates no run directory. It refuses to overwrite existing files without `--force` and exits `2`. Exit codes are `0` (files written), `1` (the mission failed) and `2` (bad flags, input or existing files). Set `MADS_ALLOW_PRIVATE_HOSTS=1` to let it read loopback and private hosts, for local development only.
+init writes `business.toml`, `research.md`, `catalog.csv` when it added items, `brand/logo.png` when it found a logo on the site, and `DESIGN.md` when it found brand colors or the agent described the design. It keeps the agent's transcript in `<out-dir>/.mads/transcripts/`. It creates no run directory. It refuses to overwrite existing files without `--force` and exits `2`. Exit codes are `0` (files written), `1` (the mission failed) and `2` (bad flags, input or existing files). Set `MADS_ALLOW_PRIVATE_HOSTS=1` to let it read loopback and private hosts, for local development only.
 
 ## mads generate
 
@@ -75,6 +76,9 @@ Builds the account and writes the run directory.
 | `--parallel <PARALLEL>` | | `4` | Campaign missions that run at the same time. |
 | `--skip-url-check` | | off | Do not request the final and sitelink URLs. |
 | `--max-ad-groups <MAX_AD_GROUPS>` | | `50` | Ad groups allowed in the whole account. |
+| `--image-provider <IMAGE_PROVIDER>` | `MADS_IMAGE_PROVIDER` | `auto` | Image model for Performance Max and Demand Gen: `auto`, `gemini`, `openai` or `none`. `auto` picks gemini when `GEMINI_API_KEY` is set, then openai when `OPENAI_API_KEY` is set, else none. An unknown name exits `2`. |
+| `--image-model <IMAGE_MODEL>` | `MADS_IMAGE_MODEL` | | Image model name. Defaults `gemini-2.5-flash-image` and `gpt-image-1`. |
+| `--max-images <MAX_IMAGES>` | | `40` | New pictures allowed in one run. See [Image campaigns](../guides/image-campaigns.md). |
 
 Agent flags:
 
@@ -108,7 +112,7 @@ Exit codes: `0`, `1`, `2`, `3`. See below.
 mads export [OPTIONS] <RUN_DIR>
 ```
 
-Reruns cross negatives, validation, the URL check and the CSV export on `workspace.json`. No model call.
+Reruns cross negatives, validation, the URL check and the CSV export on `workspace.json`. No model call. It has no image model: it reuses the pictures already in `google-ads/editor/images/`, and a missing one fails with `E20`.
 
 | Argument or flag | Default | Description |
 |---|---|---|
@@ -138,7 +142,14 @@ openai-compat    api   ready
 claude-cli       cli   ready
 codex-cli        cli   `codex` not found in PATH
 gemini-cli       cli   `gemini` not found in PATH
+
+IMAGE PROVIDER         STATUS
+gemini                 missing GEMINI_API_KEY
+openai                 missing OPENAI_API_KEY
+none                   ready
 ```
+
+The second table lists the image providers for `--image-provider`.
 
 Statuses are `ready`, `missing <ENV_VAR>` for an API provider without a key, and a "not found in PATH" message for an agent CLI. The command always exits `0`. It checks the default executable names and ignores the `MADS_*_BIN` overrides.
 

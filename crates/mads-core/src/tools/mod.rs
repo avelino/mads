@@ -1,4 +1,5 @@
 mod campaign;
+mod image_campaign;
 mod output;
 mod plan;
 pub mod schema;
@@ -21,7 +22,10 @@ use tokio::sync::Mutex;
 pub use output::ToolOutput;
 pub(crate) use output::parse_args;
 
-use crate::{google::SnippetHeader, workspace::Workspace};
+use crate::{
+    google::{AspectRatio, CampaignKind, SnippetHeader},
+    workspace::Workspace,
+};
 
 pub type SharedWorkspace = Arc<Mutex<Workspace>>;
 
@@ -43,6 +47,8 @@ pub enum MissionKind {
 pub struct ToolSettings {
     pub max_ad_groups: usize,
     pub max_turns: usize,
+    /// True when the run has an image model, so image campaigns can get their pictures.
+    pub image_model: bool,
 }
 
 impl Default for ToolSettings {
@@ -50,6 +56,7 @@ impl Default for ToolSettings {
         Self {
             max_ad_groups: 50,
             max_turns: 40,
+            image_model: false,
         }
     }
 }
@@ -71,6 +78,8 @@ pub trait ToolHost: Send + Sync {
 pub struct MissionTools {
     ws: SharedWorkspace,
     kind: MissionKind,
+    /// Kind of the campaign a campaign mission builds. Search for the plan mission.
+    campaign_kind: CampaignKind,
     settings: ToolSettings,
     persist: Option<PathBuf>,
     finished: AtomicBool,
@@ -84,21 +93,22 @@ impl MissionTools {
         settings: ToolSettings,
         persist: Option<PathBuf>,
     ) -> Result<Self, ToolError> {
+        let mut campaign_kind = CampaignKind::Search;
         if let MissionKind::Campaign { slug } = &kind {
-            let known = ws
+            let found = ws
                 .lock()
                 .await
                 .account
                 .campaigns
                 .iter()
-                .any(|c| &c.slug == slug);
-            if !known {
-                return Err(ToolError::UnknownCampaign(slug.clone()));
-            }
+                .find(|c| &c.slug == slug)
+                .map(|c| c.kind);
+            campaign_kind = found.ok_or_else(|| ToolError::UnknownCampaign(slug.clone()))?;
         }
         Ok(Self {
             ws,
             kind,
+            campaign_kind,
             settings,
             persist,
             finished: AtomicBool::new(false),
@@ -126,6 +136,9 @@ impl ToolHost for MissionTools {
     fn specs(&self) -> Vec<ToolSpec> {
         match self.kind {
             MissionKind::Plan => plan::specs(),
+            MissionKind::Campaign { .. } if self.campaign_kind.has_images() => {
+                image_campaign::specs()
+            }
             MissionKind::Campaign { .. } => campaign::specs(),
         }
     }
@@ -143,6 +156,9 @@ impl ToolHost for MissionTools {
         }
         match &self.kind {
             MissionKind::Plan => plan::call(self, name, args).await,
+            MissionKind::Campaign { slug } if self.campaign_kind.has_images() => {
+                image_campaign::call(self, slug, name, args).await
+            }
             MissionKind::Campaign { slug } => campaign::call(self, slug, name, args).await,
         }
     }
@@ -179,7 +195,40 @@ fn rules_summary(settings: &ToolSettings) -> Value {
         "snippet_headers": headers,
         "intents": ["brand", "catalog", "generic", "competitor"],
         "match_types": ["phrase", "exact"],
-        "bid_strategies": ["manual_cpc"],
+        "campaign_kinds": {
+            "search": {"bid_strategies": ["manual_cpc"]},
+            "performance_max": {"bid_strategies": ["maximize_conversions"], "needs": "conversion_tracking"},
+            "demand_gen": {"bid_strategies": ["maximize_clicks", "maximize_conversions"]},
+        },
         "max_ad_groups": settings.max_ad_groups,
+    })
+}
+
+/// Limits of image campaigns, for the agents that build them.
+fn image_rules_summary() -> Value {
+    let ratios: Vec<Value> = AspectRatio::ALL
+        .iter()
+        .map(|r| json!({"ratio": r, "size": r.size()}))
+        .collect();
+    json!({
+        "business_name_max_chars": 25,
+        "performance_max": {
+            "headlines": "3 to 15, at most 30 chars, no '!'",
+            "long_headlines": "1 to 5, at most 90 chars",
+            "descriptions": "2 to 5, at most 90 chars, one of them at most 60",
+            "search_themes": "0 to 25, at most 80 chars",
+            "images": "1 to 20: at least 1 landscape and 1 square, no vertical. Recommended 4 landscape, 4 square, 2 portrait",
+        },
+        "demand_gen": {
+            "headlines": "1 to 5, at most 40 chars",
+            "long_headlines": "none",
+            "descriptions": "1 to 5, at most 90 chars",
+            "search_themes": "none",
+            "images": "1 to 20: at least 1 landscape or square. Recommended 1 landscape, 1 square, 1 portrait",
+        },
+        "ratios": ratios,
+        "image_id": "slug, unique in the asset group, such as wine-on-table",
+        "prompt": "20 to 1500 chars, in English, no text, logo or words in the picture",
+        "reference": "catalog id whose item has an image; empty for none",
     })
 }

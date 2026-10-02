@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::{CatalogItem, normalize_url, parse_catalog};
-use crate::money::Cents;
+use crate::{google::CampaignKind, money::Cents};
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum InputError {
@@ -24,6 +24,8 @@ fn invalid(key: &str, message: impl Into<String>) -> InputError {
 
 /// Research notes reach every plan prompt, so they stay short enough to be cheap.
 pub const RESEARCH_MAX_CHARS: usize = 20_000;
+/// DESIGN.md goes into every image brief prompt.
+pub const DESIGN_MAX_CHARS: usize = 8_000;
 
 const DEFAULT_URL_SUFFIX: &str = "utm_source=google&utm_medium=cpc&utm_campaign={mads_campaign}&utm_content={adgroupid}&utm_term={keyword}";
 
@@ -36,6 +38,17 @@ struct RawFile {
     export: RawExport,
     catalog: Option<RawCatalog>,
     research: Option<RawResearch>,
+    brand: Option<RawBrand>,
+    campaigns: Option<RawCampaigns>,
+    design: Option<RawResearch>,
+    focus: Option<RawFocus>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawFocus {
+    name: String,
+    urls: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -94,6 +107,18 @@ struct RawResearch {
     file: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawBrand {
+    logo: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCampaigns {
+    formats: Vec<CampaignKind>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExportStatus {
     Paused,
@@ -107,6 +132,38 @@ impl ExportStatus {
             ExportStatus::Enabled => "Enabled",
         }
     }
+}
+
+/// The one offer an account advertises, such as a route or a product line. Every final URL is one of `urls`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Focus {
+    pub name: String,
+    pub urls: Vec<String>,
+}
+
+const FOCUS_MAX_URLS: usize = 10;
+
+fn check_focus(raw: Option<RawFocus>) -> Result<Option<Focus>, InputError> {
+    let Some(f) = raw else {
+        return Ok(None);
+    };
+    check_len("focus.name", &f.name, 1, 80)?;
+    if f.urls.is_empty() || f.urls.len() > FOCUS_MAX_URLS {
+        return Err(invalid(
+            "focus.urls",
+            format!("1 to {FOCUS_MAX_URLS} URLs, got {}", f.urls.len()),
+        ));
+    }
+    if let Some(bad) = f.urls.iter().find(|u| normalize_url(u).is_none()) {
+        return Err(invalid(
+            "focus.urls",
+            format!("not an absolute http(s) URL: {bad}"),
+        ));
+    }
+    Ok(Some(Focus {
+        name: f.name,
+        urls: f.urls,
+    }))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -161,6 +218,13 @@ pub struct InputFile {
     pub catalog_file: Option<String>,
     /// Markdown notes from `mads init`, relative to the TOML file.
     pub research_file: Option<String>,
+    /// Square logo for image campaigns, relative to the TOML file.
+    pub logo_file: Option<String>,
+    /// Campaign formats the plan must use. Empty: the plan agent picks.
+    pub formats: Vec<CampaignKind>,
+    /// DESIGN.md, relative to the TOML file.
+    pub design_file: Option<String>,
+    pub focus: Option<Focus>,
 }
 
 /// Everything `generate` consumes.
@@ -173,6 +237,18 @@ pub struct Input {
     /// What `mads init` learned about the business and its demand. Empty when there are no notes.
     #[serde(default)]
     pub research: String,
+    /// Absolute path of a logo that passed Google's checks. Image campaigns need it.
+    #[serde(default)]
+    pub logo: Option<String>,
+    /// Formats the account must have, at least one campaign each. Empty: the plan agent picks.
+    #[serde(default)]
+    pub formats: Vec<CampaignKind>,
+    /// Brand identity for image campaigns, from DESIGN.md. Empty without one.
+    #[serde(default)]
+    pub design: String,
+    /// The offer the account advertises. None: the whole business.
+    #[serde(default)]
+    pub focus: Option<Focus>,
 }
 
 fn check_len(key: &str, s: &str, min: usize, max: usize) -> Result<(), InputError> {
@@ -273,6 +349,7 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
         None => None,
     };
 
+    let b_tracking = b.conversion_tracking;
     let primary = b.language.split('-').next().unwrap_or("").to_lowercase();
     let comma_default = matches!(primary.as_str(), "pt" | "es" | "fr" | "de" | "it");
     let e = raw.export;
@@ -307,7 +384,46 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
         export,
         catalog_file: raw.catalog.map(|c| c.file),
         research_file: raw.research.map(|r| r.file),
+        logo_file: raw.brand.as_ref().map(|b| b.logo.clone()),
+        formats: check_formats(raw.campaigns, raw.brand.is_some(), b_tracking)?,
+        design_file: raw.design.map(|d| d.file),
+        focus: check_focus(raw.focus)?,
     })
+}
+
+/// `[campaigns] formats`: known, distinct, and possible with this file.
+fn check_formats(
+    raw: Option<RawCampaigns>,
+    has_logo: bool,
+    conversion_tracking: bool,
+) -> Result<Vec<CampaignKind>, InputError> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    let key = "campaigns.formats";
+    if raw.formats.is_empty() {
+        return Err(invalid(
+            key,
+            "list at least one format, or remove [campaigns]",
+        ));
+    }
+    let mut seen = Vec::new();
+    for f in raw.formats {
+        if seen.contains(&f) {
+            return Err(invalid(key, format!("{} is listed twice", f.label())));
+        }
+        if f.has_images() && !has_logo {
+            return Err(invalid(key, format!("{} needs [brand] logo", f.label())));
+        }
+        if f == CampaignKind::PerformanceMax && !conversion_tracking {
+            return Err(invalid(
+                key,
+                "Performance Max needs business.conversion_tracking = true",
+            ));
+        }
+        seen.push(f);
+    }
+    Ok(seen)
 }
 
 /// Reads `business.toml` and, when configured, the catalog next to it.
@@ -329,26 +445,51 @@ pub fn load_input(path: &Path) -> Result<Input, InputError> {
         Some(rel) => load_research(&dir.join(rel))?,
         None => String::new(),
     };
+    let design = match &file.design_file {
+        Some(rel) => load_text(&dir.join(rel), "design.file", DESIGN_MAX_CHARS)?,
+        None => String::new(),
+    };
+    let logo = match &file.logo_file {
+        Some(rel) => Some(load_logo(&dir.join(rel))?),
+        None => None,
+    };
     Ok(Input {
         business: file.business,
         budget: file.budget,
         export: file.export,
         catalog,
         research,
+        logo,
+        formats: file.formats,
+        design,
+        focus: file.focus,
     })
 }
 
+/// Checks the logo against Google's limits and returns its absolute path.
+fn load_logo(path: &Path) -> Result<String, InputError> {
+    let bytes =
+        std::fs::read(path).map_err(|e| InputError::Io(format!("{}: {e}", path.display())))?;
+    crate::images::check_logo(&bytes)
+        .map_err(|e| invalid("brand.logo", format!("{}: {e}", path.display())))?;
+    let abs = std::path::absolute(path)
+        .map_err(|e| InputError::Io(format!("{}: {e}", path.display())))?;
+    Ok(abs.display().to_string())
+}
+
 fn load_research(path: &Path) -> Result<String, InputError> {
+    load_text(path, "research.file", RESEARCH_MAX_CHARS)
+}
+
+/// A Markdown file that goes into prompts, so it has a size limit.
+fn load_text(path: &Path, key: &str, max: usize) -> Result<String, InputError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| InputError::Io(format!("{}: {e}", path.display())))?;
     let n = text.chars().count();
-    if n > RESEARCH_MAX_CHARS {
+    if n > max {
         return Err(invalid(
-            "research.file",
-            format!(
-                "{} has {n} chars, at most {RESEARCH_MAX_CHARS}",
-                path.display()
-            ),
+            key,
+            format!("{} has {n} chars, at most {max}", path.display()),
         ));
     }
     Ok(text)
@@ -570,6 +711,95 @@ currency = "BRL"
         v.as_object_mut().unwrap().remove("research");
         let input: Input = serde_json::from_value(v).unwrap();
         assert_eq!(input.research, "");
+    }
+
+    fn logo_png(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(w, h, image::Rgba([1, 2, 3, 255]));
+        let mut out = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn load_input_checks_the_logo_and_stores_its_absolute_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = format!("{MINIMAL}\n[brand]\nlogo = \"brand/logo.png\"\n");
+        std::fs::write(dir.path().join("business.toml"), toml).unwrap();
+        std::fs::create_dir(dir.path().join("brand")).unwrap();
+        std::fs::write(dir.path().join("brand/logo.png"), logo_png(300, 300)).unwrap();
+        let input = load_input(&dir.path().join("business.toml")).unwrap();
+        let logo = input.logo.unwrap();
+        assert!(Path::new(&logo).is_absolute());
+        assert!(logo.ends_with("brand/logo.png"));
+    }
+
+    #[test]
+    fn a_logo_that_is_not_square_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = format!("{MINIMAL}\n[brand]\nlogo = \"logo.png\"\n");
+        std::fs::write(dir.path().join("business.toml"), toml).unwrap();
+        std::fs::write(dir.path().join("logo.png"), logo_png(400, 200)).unwrap();
+        match load_input(&dir.path().join("business.toml")) {
+            Err(InputError::Invalid { key, message }) => {
+                assert_eq!(key, "brand.logo");
+                assert!(message.contains("square"), "{message}");
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn without_brand_there_is_no_logo() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("business.toml"), MINIMAL).unwrap();
+        assert_eq!(
+            load_input(&dir.path().join("business.toml")).unwrap().logo,
+            None
+        );
+    }
+
+    #[test]
+    fn focus_is_optional_and_checked() {
+        assert!(parse_input_toml(MINIMAL).unwrap().focus.is_none());
+        let ok = format!(
+            "{MINIMAL}\n[focus]\nname = \"BH <> SP\"\nurls = [\"https://vinellu.com/a\", \"https://vinellu.com/b\"]\n"
+        );
+        let f = parse_input_toml(&ok).unwrap().focus.unwrap();
+        assert_eq!((f.name.as_str(), f.urls.len()), ("BH <> SP", 2));
+        for bad in [
+            "[focus]\nname = \"x\"\nurls = []\n",
+            "[focus]\nname = \"x\"\nurls = [\"/a\"]\n",
+        ] {
+            assert_eq!(err_key(&format!("{MINIMAL}\n{bad}")), "focus.urls");
+        }
+        let no_name = format!("{MINIMAL}\n[focus]\nname = \"\"\nurls = [\"https://x.com\"]\n");
+        assert_eq!(err_key(&no_name), "focus.name");
+    }
+
+    #[test]
+    fn formats_are_optional_and_checked() {
+        assert!(parse_input_toml(MINIMAL).unwrap().formats.is_empty());
+        let brand = "\n[brand]\nlogo = \"logo.png\"\n";
+        let ok = format!("{MINIMAL}{brand}\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n");
+        assert_eq!(
+            parse_input_toml(&ok).unwrap().formats,
+            [CampaignKind::Search, CampaignKind::DemandGen]
+        );
+        let cases = [
+            format!("{MINIMAL}\n[campaigns]\nformats = [\"demand_gen\"]\n"),
+            format!("{MINIMAL}{brand}\n[campaigns]\nformats = [\"performance_max\"]\n"),
+            format!("{MINIMAL}\n[campaigns]\nformats = [\"search\", \"search\"]\n"),
+            format!("{MINIMAL}\n[campaigns]\nformats = []\n"),
+        ];
+        for toml in cases {
+            assert_eq!(err_key(&toml), "campaigns.formats", "{toml}");
+        }
+        let bad_name = format!("{MINIMAL}\n[campaigns]\nformats = [\"video\"]\n");
+        assert!(matches!(
+            parse_input_toml(&bad_name),
+            Err(InputError::Parse(_))
+        ));
     }
 
     #[test]

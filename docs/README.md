@@ -18,6 +18,7 @@ You write `business.toml` and, optionally, `catalog.csv`. LLM agents plan the ac
 * **[Agent CLIs](guides/agent-clis.md)** covers `claude-cli`, `codex-cli` and `gemini-cli`, which use a coding agent you have installed.
 * **[Init from a URL](guides/init-from-url.md)** covers `mads init --from-url`, which studies your business and drafts the input files and research notes.
 * **[How campaigns are built](guides/how-campaigns-are-built.md)** explains intents, ad groups, keyword specs, negatives, ads and what the validator enforces.
+* **[Image campaigns](guides/image-campaigns.md)** explains Performance Max and Demand Gen: formats, logo, generated pictures and the Google Ads Editor import.
 * **[Review and import](guides/review-and-import.md)** explains how to read `report.md` and upload the files.
 * **[Resume and export](guides/resume-and-export.md)** explains how to recover a failed run and re-export without a model.
 * **[Cost and limits](guides/cost-and-limits.md)** covers turns, timeouts, token budgets and retries.
@@ -28,7 +29,7 @@ You write `business.toml` and, optionally, `catalog.csv`. LLM agents plan the ac
 * **[Troubleshooting](howto/troubleshooting.md)** lists every exit code and real error messages.
 * **[Run with Ollama](howto/ollama-local.md)**
 * **[Use an OpenAI-compatible server](howto/openai-compatible.md)**
-* **[Google Ads bulk upload format](howto/google-ads-bulk-upload-format.md)** describes the five CSV files.
+* **[Google Ads bulk upload format](howto/google-ads-bulk-upload-format.md)** describes the five CSV files of Search campaigns.
 
 ## Reference
 

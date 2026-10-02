@@ -4,6 +4,7 @@ use crate::money::Cents;
 
 pub fn input() -> Input {
     let item = |id: &str, name: &str, url: &str, category: &str, alias: &str| CatalogItem {
+        image: None,
         id: id.into(),
         name: name.into(),
         url: url.into(),
@@ -13,6 +14,10 @@ pub fn input() -> Input {
         notes: String::new(),
     };
     Input {
+        logo: None,
+        formats: Vec::new(),
+        design: String::new(),
+        focus: None,
         business: Business {
             name: "Vinellu".into(),
             url: "https://vinellu.com".into(),

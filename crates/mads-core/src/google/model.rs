@@ -32,18 +32,141 @@ pub enum BidStrategy {
     MaximizeConversions,
 }
 
+impl BidStrategy {
+    /// Bid strategy type as Google Ads writes it.
+    pub fn label(self) -> &'static str {
+        match self {
+            BidStrategy::ManualCpc => "Manual CPC",
+            BidStrategy::MaximizeClicks { .. } => "Maximize clicks",
+            BidStrategy::MaximizeConversions => "Maximize conversions",
+        }
+    }
+}
+
+/// Google Ads campaign format. Search shows text ads; the others show images.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CampaignKind {
+    #[default]
+    Search,
+    PerformanceMax,
+    DemandGen,
+}
+
+impl CampaignKind {
+    pub fn has_images(self) -> bool {
+        self != CampaignKind::Search
+    }
+
+    /// Campaign type as Google Ads Editor writes it.
+    pub fn label(self) -> &'static str {
+        match self {
+            CampaignKind::Search => "Search",
+            CampaignKind::PerformanceMax => "Performance Max",
+            CampaignKind::DemandGen => "Demand Gen",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Campaign {
     pub name: String,
     pub slug: String,
+    #[serde(default)]
+    pub kind: CampaignKind,
     pub intent: Intent,
     pub daily_budget: Cents,
     pub bid_strategy: BidStrategy,
     pub rationale: String,
+    /// Planned ad groups of a Search campaign, planned asset groups of an image campaign.
     pub planned_ad_groups: Vec<PlannedAdGroup>,
     pub ad_groups: Vec<AdGroup>,
+    #[serde(default)]
+    pub asset_groups: Vec<AssetGroup>,
     pub negatives: Vec<Keyword>,
     pub assets: Option<Assets>,
+}
+
+/// Texts and images of one Performance Max asset group or Demand Gen ad.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AssetGroup {
+    pub name: String,
+    pub final_url: String,
+    pub business_name: String,
+    pub headlines: Vec<String>,
+    pub long_headlines: Vec<String>,
+    pub descriptions: Vec<String>,
+    pub search_themes: Vec<String>,
+    pub images: Vec<ImageBrief>,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+// Variants carry no doc comments: schemars would turn them into a `oneOf` some providers reject.
+// Landscape is 1.91:1, square 1:1, portrait 4:5, vertical 9:16.
+pub enum AspectRatio {
+    Landscape,
+    Square,
+    Portrait,
+    Vertical,
+}
+
+impl AspectRatio {
+    pub const ALL: [AspectRatio; 4] = [
+        AspectRatio::Landscape,
+        AspectRatio::Square,
+        AspectRatio::Portrait,
+        AspectRatio::Vertical,
+    ];
+
+    /// Width and height of the file mads writes: Google's recommended size.
+    pub fn size(self) -> (u32, u32) {
+        match self {
+            AspectRatio::Landscape => (1200, 628),
+            AspectRatio::Square => (1200, 1200),
+            AspectRatio::Portrait => (960, 1200),
+            AspectRatio::Vertical => (1080, 1920),
+        }
+    }
+
+    /// Smallest width and height Google accepts.
+    pub fn min_size(self) -> (u32, u32) {
+        match self {
+            AspectRatio::Landscape => (600, 314),
+            AspectRatio::Square => (300, 300),
+            AspectRatio::Portrait => (480, 600),
+            AspectRatio::Vertical => (600, 1067),
+        }
+    }
+
+    pub fn value(self) -> f64 {
+        let (w, h) = self.size();
+        f64::from(w) / f64::from(h)
+    }
+
+    /// Column prefix in the Google Ads Editor CSV.
+    pub fn label(self) -> &'static str {
+        match self {
+            AspectRatio::Landscape => "Landscape image",
+            AspectRatio::Square => "Square image",
+            AspectRatio::Portrait => "Portrait image",
+            AspectRatio::Vertical => "Vertical image",
+        }
+    }
+}
+
+/// What one picture should show. The image step turns it into a file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImageBrief {
+    pub id: String,
+    pub ratio: AspectRatio,
+    pub prompt: String,
+    /// Catalog id whose real photo the model must use.
+    pub reference: Option<String>,
+    /// Path relative to `google-ads/editor/`, set once the image exists.
+    pub file: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

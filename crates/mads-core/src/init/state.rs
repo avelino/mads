@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{RESEARCH_FILE, ResearchDraft};
+use super::{ColorNote, DESIGN_FILE, DesignDraft, RESEARCH_FILE, ResearchDraft, render_design};
 use crate::{
     google::Issue,
     input::{AllowedUrls, InputError, normalize_url, parse_catalog, parse_input_toml},
@@ -46,6 +46,27 @@ pub struct BusinessDraft {
     /// Up to 20 key pages that can become sitelinks. URLs must come from fetched pages or the sitemap.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pages: Vec<PageDraft>,
+    /// The one offer the account advertises. Leave empty to advertise the whole business.
+    #[serde(default, skip_serializing)]
+    pub focus: FocusDraft,
+}
+
+/// `[focus]` of business.toml: a name and the pages of one offer.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FocusDraft {
+    /// The offer as people say it, such as a route, a product line or a location.
+    #[serde(default)]
+    pub name: String,
+    /// The page of the offer and its close variants (such as the other direction of a route). Fetched or in the sitemap.
+    #[serde(default)]
+    pub urls: Vec<String>,
+}
+
+impl FocusDraft {
+    pub fn is_empty(&self) -> bool {
+        self.name.trim().is_empty() && self.urls.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -64,6 +85,9 @@ pub struct CatalogDraft {
     pub third_party: bool,
     #[serde(default)]
     pub notes: String,
+    /// The `image` that fetch_page showed for this item's page: a real photo of the item. Empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub image: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +108,11 @@ struct OutFileRef {
 }
 
 #[derive(Serialize)]
+struct OutBrand<'a> {
+    logo: &'a str,
+}
+
+#[derive(Serialize)]
 struct OutFile<'a> {
     business: &'a BusinessDraft,
     budget: OutBudget<'a>,
@@ -91,6 +120,12 @@ struct OutFile<'a> {
     catalog: Option<OutFileRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     research: Option<OutFileRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    brand: Option<OutBrand<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    design: Option<OutFileRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    focus: Option<&'a FocusDraft>,
 }
 
 /// The files `init` writes. `csv` and `research` are absent when there is nothing to put in them.
@@ -99,9 +134,13 @@ pub struct RenderedFiles {
     pub toml: String,
     pub csv: Option<String>,
     pub research: Option<String>,
+    pub design: Option<String>,
 }
 
 pub const CATALOG_FILE: &str = "catalog.csv";
+/// Where `init` saves the logo it downloads, relative to the output folder.
+pub const LOGO_FILE: &str = "brand/logo.png";
+const MAX_LOGO_CANDIDATES: usize = 20;
 
 /// What the `init` agent has built so far. Everything it stores passes the same parsers
 /// `generate` uses, so a draft that is accepted here always loads.
@@ -117,6 +156,17 @@ pub struct InitState {
     site_host: String,
     /// Distinct sources outside the site the research must cite. 0 when the agent cannot search.
     web_sources: usize,
+    /// `og:image` URLs of fetched pages: the only photos a catalog item may point at.
+    images: AllowedUrls,
+    logo_candidates: Vec<String>,
+    /// Set once `init` saved a logo, relative to the output folder.
+    logo: Option<String>,
+    design: Option<DesignDraft>,
+    /// Logo colors first, then the theme colors of fetched pages.
+    colors: Vec<ColorNote>,
+    /// `--focus`: the business must name a focus that holds the start URL.
+    focus_required: bool,
+    start_url: String,
 }
 
 fn bare_host(url: &str) -> Option<String> {
@@ -151,7 +201,106 @@ impl InitState {
             research: None,
             site_host: bare_host(start_url).unwrap_or_default(),
             web_sources: 0,
+            images: AllowedUrls::default(),
+            logo_candidates: Vec::new(),
+            logo: None,
+            design: None,
+            colors: Vec::new(),
+            focus_required: false,
+            start_url: start_url.to_string(),
         }
+    }
+
+    pub fn require_focus(&mut self) {
+        self.focus_required = true;
+    }
+
+    fn focus(&self) -> Option<&FocusDraft> {
+        self.business
+            .as_ref()
+            .map(|b| &b.focus)
+            .filter(|f| !f.is_empty())
+    }
+
+    fn focus_issues(&self, f: &FocusDraft) -> Vec<Issue> {
+        let mut out = Vec::new();
+        let unseen = f.urls.iter().filter(|u| !self.is_seen(u));
+        out.extend(unseen.map(|u| {
+            Issue::error(
+                "E07",
+                "business.focus.urls",
+                format!("URL was not fetched or listed in the sitemap: {u}"),
+            )
+        }));
+        let start = page_key(&self.start_url);
+        let has_start = f.urls.iter().any(|u| page_key(u) == start);
+        if self.focus_required && (f.name.trim().is_empty() || !has_start) {
+            let msg = format!(
+                "--focus needs business.focus with a name and {} in urls",
+                self.start_url
+            );
+            out.push(Issue::error("E22", "business.focus", msg));
+        }
+        out
+    }
+
+    /// Keeps a `theme-color` the site declares, once per color.
+    pub fn note_theme_color(&mut self, page: &str, color: &str) {
+        let Some(rgb) = crate::images::parse_hex(color) else {
+            return;
+        };
+        let hex = crate::images::hex(rgb);
+        if !self.colors.iter().any(|c| c.hex == hex) {
+            let source = format!("theme color of {page}");
+            self.colors.push(ColorNote { hex, source });
+        }
+    }
+
+    /// Puts the logo colors ahead of the theme colors.
+    pub fn set_logo_colors(&mut self, hexes: &[String]) {
+        let mut notes: Vec<ColorNote> = hexes
+            .iter()
+            .map(|h| ColorNote {
+                hex: h.clone(),
+                source: "logo".into(),
+            })
+            .collect();
+        notes.extend(self.colors.drain(..).filter(|c| !hexes.contains(&c.hex)));
+        self.colors = notes;
+    }
+
+    pub fn set_design(&mut self, draft: DesignDraft) -> Result<(), Vec<Issue>> {
+        let issues = draft.validate();
+        if !issues.is_empty() {
+            return Err(issues);
+        }
+        self.design = Some(draft);
+        Ok(())
+    }
+
+    fn design_markdown(&self, business: &str) -> Option<String> {
+        render_design(business, &self.colors, self.design.as_ref())
+    }
+
+    /// Records what a fetched page showed: its photo and its logo candidates.
+    pub fn note_page_media(&mut self, image: &str, logos: &[String]) {
+        if !image.is_empty() {
+            self.images.insert(image);
+        }
+        for l in logos {
+            if self.logo_candidates.len() < MAX_LOGO_CANDIDATES && !self.logo_candidates.contains(l)
+            {
+                self.logo_candidates.push(l.clone());
+            }
+        }
+    }
+
+    pub fn logo_candidates(&self) -> &[String] {
+        &self.logo_candidates
+    }
+
+    pub fn set_logo(&mut self, rel: &str) {
+        self.logo = Some(rel.to_string());
     }
 
     /// Makes `set_research` refuse notes that cite fewer than `n` distinct pages outside the site.
@@ -230,6 +379,14 @@ impl InitState {
             research: (complete && self.research.is_some()).then_some(OutFileRef {
                 file: RESEARCH_FILE,
             }),
+            brand: self
+                .logo
+                .as_deref()
+                .filter(|_| complete)
+                .map(|logo| OutBrand { logo }),
+            design: (complete && self.design_markdown(&business.name).is_some())
+                .then_some(OutFileRef { file: DESIGN_FILE }),
+            focus: Some(&business.focus).filter(|f| !f.is_empty()),
         };
         toml::to_string(&file).map_err(|e| e.to_string())
     }
@@ -248,6 +405,7 @@ impl InitState {
                 )
             })
             .collect();
+        issues.extend(self.focus_issues(&draft.focus));
         let text = self
             .render_toml(&draft, false)
             .map_err(|m| vec![Issue::error("INPUT", "business", m)])?;
@@ -275,6 +433,24 @@ impl InitState {
                     "E07",
                     format!("items[{i}].url"),
                     format!("URL was not fetched or listed in the sitemap: {}", item.url),
+                ));
+                continue;
+            }
+            if let Some(f) = self.focus()
+                && !f.urls.iter().any(|u| page_key(u) == page_key(&item.url))
+            {
+                issues.push(Issue::error(
+                    "E22",
+                    format!("items[{i}].url"),
+                    format!("not a page of the focus '{}': {}", f.name, item.url),
+                ));
+                continue;
+            }
+            if !item.image.is_empty() && !self.images.contains(&item.image) {
+                issues.push(Issue::error(
+                    "E07",
+                    format!("items[{i}].image"),
+                    format!("image was not shown by a fetched page: {}", item.image),
                 ));
                 continue;
             }
@@ -335,6 +511,7 @@ impl InitState {
             toml,
             csv,
             research,
+            design: self.design_markdown(&business.name),
         })
     }
 }
@@ -342,8 +519,12 @@ impl InitState {
 fn catalog_csv(items: &[CatalogDraft]) -> Result<String, Vec<Issue>> {
     let fail = |e: String| vec![Issue::error("INPUT", "catalog", e)];
     let mut w = csv::Writer::from_writer(Vec::new());
-    w.write_record(["name", "url", "category", "aliases", "third_party", "notes"])
-        .map_err(|e| fail(e.to_string()))?;
+    let photos = items.iter().any(|i| !i.image.is_empty());
+    let mut header = vec!["name", "url", "category", "aliases", "third_party", "notes"];
+    if photos {
+        header.push("image");
+    }
+    w.write_record(&header).map_err(|e| fail(e.to_string()))?;
     for i in items {
         let aliases = i.aliases.join("|");
         let third = if i.third_party { "true" } else { "false" };
@@ -354,8 +535,10 @@ fn catalog_csv(items: &[CatalogDraft]) -> Result<String, Vec<Issue>> {
             aliases.as_str(),
             third,
             i.notes.as_str(),
+            i.image.as_str(),
         ];
-        w.write_record(row).map_err(|e| fail(e.to_string()))?;
+        w.write_record(&row[..header.len()])
+            .map_err(|e| fail(e.to_string()))?;
     }
     let bytes = w.into_inner().map_err(|e| fail(e.to_string()))?;
     String::from_utf8(bytes).map_err(|e| fail(e.to_string()))
@@ -394,7 +577,37 @@ mod tests {
                 name: "Baixe o app".into(),
                 url: "https://vinellu.com/app".into(),
             }],
+            focus: FocusDraft::default(),
         }
+    }
+
+    #[test]
+    fn with_focus_required_the_business_names_it_and_the_catalog_stays_inside() {
+        let mut s = state();
+        s.require_focus();
+        let errs = s.set_business(business()).unwrap_err();
+        assert!(errs.iter().any(|i| i.code == "E22"), "{errs:?}");
+        let mut b = business();
+        b.focus = FocusDraft {
+            name: "Alamos".into(),
+            urls: vec!["https://vinellu.com/w/alamos".into()],
+        };
+        let errs = s.set_business(b.clone()).unwrap_err();
+        assert!(
+            errs.iter().any(|i| i.code == "E22"),
+            "the start URL must be in the focus"
+        );
+        b.focus.urls.push("https://vinellu.com".into());
+        s.set_business(b).unwrap();
+        let errs = s
+            .add_catalog(vec![item("Luigi", "https://vinellu.com/w/luigi")])
+            .unwrap_err();
+        assert_eq!(errs[0].code, "E22");
+        s.add_catalog(vec![item("Alamos", "https://vinellu.com/w/alamos")])
+            .unwrap();
+        let toml = s.render_files().unwrap().toml;
+        let parsed = parse_input_toml(&toml).unwrap();
+        assert_eq!(parsed.focus.unwrap().name, "Alamos");
     }
 
     fn item(name: &str, url: &str) -> CatalogDraft {
@@ -405,7 +618,53 @@ mod tests {
             aliases: vec!["alamos".into(), "alamos malbec".into()],
             third_party: true,
             notes: String::new(),
+            image: String::new(),
         }
+    }
+
+    #[test]
+    fn an_item_photo_must_come_from_a_fetched_page_and_reaches_the_csv() {
+        let mut s = state();
+        let mut a = item("Alamos", "https://vinellu.com/w/alamos");
+        a.image = "https://cdn.vinellu.com/alamos.jpg".into();
+        let errs = s.add_catalog(vec![a.clone()]).unwrap_err();
+        assert_eq!(errs[0].path, "items[0].image");
+        s.note_page_media("https://cdn.vinellu.com/alamos.jpg", &[]);
+        s.add_catalog(vec![a, item("Luigi", "https://vinellu.com/w/luigi")])
+            .unwrap();
+        s.set_business(business()).unwrap();
+        let csv = s.render_files().unwrap().csv.unwrap();
+        let parsed = parse_catalog(csv.as_bytes()).unwrap();
+        assert_eq!(
+            parsed[0].image.as_deref(),
+            Some("https://cdn.vinellu.com/alamos.jpg")
+        );
+        assert_eq!(parsed[1].image, None);
+    }
+
+    #[test]
+    fn a_saved_logo_becomes_the_brand_table() {
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        assert!(!s.render_files().unwrap().toml.contains("[brand]"));
+        s.note_page_media(
+            "",
+            &[
+                "https://vinellu.com/a.png".into(),
+                "https://vinellu.com/a.png".into(),
+            ],
+        );
+        assert_eq!(s.logo_candidates().len(), 1);
+        s.set_logo(LOGO_FILE);
+        let toml = s.render_files().unwrap().toml;
+        assert!(
+            toml.contains("[brand]\nlogo = \"brand/logo.png\""),
+            "{toml}"
+        );
+        assert_eq!(
+            parse_input_toml(&toml).unwrap().logo_file.as_deref(),
+            Some(LOGO_FILE)
+        );
     }
 
     #[test]
@@ -636,6 +895,31 @@ mod tests {
         } = s.render_files().unwrap();
         assert_eq!(parse_input_toml(&toml).unwrap().research_file, None);
         assert!(md.is_none());
+    }
+
+    #[test]
+    fn colors_and_the_design_draft_become_design_md() {
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        assert!(s.render_files().unwrap().design.is_none());
+        s.note_theme_color("https://vinellu.com", "#ad1457");
+        s.note_theme_color("https://vinellu.com/app", "#AD1457");
+        s.note_theme_color("https://vinellu.com", "not a color");
+        s.set_logo_colors(&["#F0476A".into(), "#AD1457".into()]);
+        let RenderedFiles { toml, design, .. } = s.render_files().unwrap();
+        let md = design.unwrap();
+        assert!(
+            md.contains("- Pink #F0476A: logo\n- Dark pink #AD1457: logo\n"),
+            "{md}"
+        );
+        assert!(toml.contains("[design]\nfile = \"DESIGN.md\""), "{toml}");
+        let bad = DesignDraft {
+            style: String::new(),
+            imagery: String::new(),
+            voice: String::new(),
+            avoid: vec![],
+        };
+        assert!(s.set_design(bad).is_err());
     }
 
     #[test]

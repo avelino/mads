@@ -112,6 +112,7 @@ mod tests {
             "cpc_rationale",
             "4 sitelinks",
             "`focus`",
+            "E23",
         ] {
             assert!(
                 m.system.contains(rule),
@@ -161,10 +162,13 @@ mod tests {
             "conversion_tracking",
             "does not need conversion tracking",
             "20 percent of the daily budget",
+            "No image campaign:",
+            "NO_IMAGE_REASON",
             "required_formats",
             "E21",
             "`focus`",
             "E22",
+            "E23",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }

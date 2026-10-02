@@ -54,7 +54,7 @@ An agent studies the business and writes `business.toml`, `catalog.csv` and `res
 | `--catalog-limit <CATALOG_LIMIT>` | `50` | Catalog items the agent may add. |
 | `--force` | off | Overwrite existing files. |
 | `--no-web-search` | off | Keep the agent off the web. Agent CLIs search the web by default. API providers never do. |
-| `--focus` | off | Advertise only the offer of `--from-url` (a route, a product line, a location), not the whole business. init writes a `[focus]` table and keeps the catalog inside it. |
+| `--focus` | off | Advertise only the offer of `--from-url` (a route, a product line, a location), not the whole business. init writes a `[focus]` table with `terms` and keeps the catalog inside it. |
 
 It also takes the agent flags of `generate` (`--provider`, `--model`, `--plan-model`, `--base-url`, `--max-turns`, `--mission-timeout`, `--max-tokens`, `--mission-retries`) with the same defaults. When `--plan-model` is set, init uses it instead of `--model`.
 

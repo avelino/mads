@@ -39,8 +39,9 @@ Errors block the export. Warnings go to the report, to progress output and, on G
 | `E18` | Image campaign without a logo. | Message `image campaigns need a logo: set [brand] logo in business.toml`. |
 | `E19` | `reference` names an unknown catalog item or one without `image`. | Message `unknown catalog id '<id>'` or `catalog item '<id>' has no image to use as reference`. |
 | `E22` | A landing page outside `[focus]`. | Planned group, ad group and asset group final URLs must be one of `focus.urls`. Sitelinks may go elsewhere. In init, a catalog item outside the focus, or `--focus` without a focus that holds the start URL. Message `final URL is not a [focus] page: <url>`. |
+| `E23` | A keyword or search theme without the focus words. | With `focus.terms`, every keyword and Performance Max search theme needs one term of each group. Compared without accents or punctuation, so `sao paulo` matches `São Paulo`. Message `'<text>' is not about the focus: add a word like <terms>`. In init, `--focus` without `focus.terms`. |
 | `E21` | A format from `[campaigns] formats` has no campaign. | Message `business.toml asks for a <kind> campaign and the plan has none`. Path `campaigns`. |
-| `E20` | A brief has no picture at the end. | The image step could not make it: over `--max-images`, a model error, or `mads export` without the file. Message `image '<id>' has no file`. Agents never see it: their tools skip it, because pictures are made after the missions. |
+| `E20` | A brief has no picture at the end. | The image step could not make it: a model error, `mads export` without the file, or a brief over `--max-images` that its asset group cannot do without. A brief over the cap that the group can do without is removed instead, with a note in the report. Message `image '<id>' has no file`. Agents never see it: their tools skip it, because pictures are made after the missions. |
 
 ### E13 limits
 
@@ -94,6 +95,7 @@ These come from the tool layer, not the rule set. The agent sees them in tool re
 | `UNKNOWN_TOOL` | The tool does not exist or is not in this mission's toolset. |
 | `LIMIT` | The mission used its tool call budget (`--max-turns` times 4). |
 | `UNSUPPORTED` | A Search campaign with a bid strategy other than `manual_cpc`, or an image campaign in a run without an image model or a logo. |
+| `NO_IMAGE_REASON` | Image campaigns are available, the plan has none, and no campaign `rationale` contains `No image campaign: <reason>`. |
 | `NOT_FOUND` | The campaign of this mission no longer exists in the plan. |
 | `PERSIST` | The workspace could not be saved to disk. |
 | `HOST`, `FETCH` | Init only. The URL is outside the site, or the request failed. |

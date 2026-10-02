@@ -1268,15 +1268,34 @@ mod image_tests {
     }
 
     #[tokio::test]
-    async fn the_image_cap_stops_new_images_and_says_so() {
+    async fn a_brief_over_the_cap_is_dropped_when_the_group_can_do_without_it() {
         let dir = tempfile::tempdir().unwrap();
         let (r, _) = generate_images(&dir, 2).await;
-        assert_eq!(r.exit_code, 3);
+        assert_eq!(
+            r.exit_code, 0,
+            "landscape and square are enough for Demand Gen"
+        );
         let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
         assert!(
-            report.contains("over the limit of 2 new images"),
+            report.contains("story: dropped, over the limit of 2 new images"),
             "{report}"
         );
         assert!(report.contains("2 generated"));
+        let csv = std::fs::read_to_string(r.run_dir.join("google-ads/editor/image-campaigns.csv"))
+            .unwrap();
+        assert!(!csv.contains("tintos-story.jpg"));
+    }
+
+    #[tokio::test]
+    async fn the_cap_stops_the_export_when_a_group_would_be_left_without_pictures() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, _) = generate_images(&dir, 0).await;
+        assert_eq!(r.exit_code, 3);
+        let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
+        assert!(
+            report.contains("jantar: over the limit of 0 new images"),
+            "{report}"
+        );
+        assert!(report.contains("E20"));
     }
 }

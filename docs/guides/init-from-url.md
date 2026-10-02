@@ -99,7 +99,7 @@ mads init --from-url https://www.buser.com.br/onibus/belo-horizonte-mg/sao-paulo
   --focus --daily-budget 10000 --currency BRL --provider claude-cli
 ```
 
-The agent still studies the business for context, but it writes a `[focus]` table with the offer's name and pages (the start page and close variants such as the return direction), keeps the catalog to those pages, and ranks only ways people search for that offer. Without `--focus`, the start page is only where the agent begins: it drafts the whole business.
+The agent still studies the business for context, but it writes a `[focus]` table with the offer's name, pages (the start page and close variants such as the return direction) and `terms` (the words every search about the offer has, such as the origin and the destination), keeps the catalog to those pages, and ranks only ways people search for that offer. Without `--focus`, the start page is only where the agent begins: it drafts the whole business.
 
 For several offers, run init once per offer in its own folder. Each one gets its own budget, run and report.
 
@@ -127,7 +127,7 @@ init refuses to overwrite any of these files.
 error: ./business.toml, ./catalog.csv already exist: use --force to overwrite
 ```
 
-Exit code `2`. Pass `--force` to replace them. With `--force` and no catalog items, mads also deletes an old `catalog.csv` in that folder, because it would not match the new `business.toml`.
+Exit code `2`. Pass `--force` to replace them. `--force` keeps what you wrote by hand in `business.toml`: `budget.max_cpc`, `[export]` and `[campaigns]`. A kept part that no longer fits the new draft, such as a Performance Max format without conversion tracking, is left out. When the site has no usable logo, an existing `brand/logo.png` that passes the checks is kept too. With `--force` and no catalog items, mads also deletes an old `catalog.csv` in that folder, because it would not match the new `business.toml`.
 
 ## Read the draft
 

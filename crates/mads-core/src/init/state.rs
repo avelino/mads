@@ -61,6 +61,10 @@ pub struct FocusDraft {
     /// The page of the offer and its close variants (such as the other direction of a route). Fetched or in the sitemap.
     #[serde(default)]
     pub urls: Vec<String>,
+    /// Groups of words every search about the offer has, one group per part of it, each with the ways
+    /// people write that part. For a route: the origin's names, then the destination's names.
+    #[serde(default)]
+    pub terms: Vec<Vec<String>>,
 }
 
 impl FocusDraft {
@@ -100,6 +104,42 @@ pub struct Added {
 struct OutBudget<'a> {
     daily: f64,
     currency: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_cpc: Option<&'a toml::Value>,
+}
+
+/// What a person wrote in an earlier business.toml that init does not draft. `--force` keeps it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct KeptByHand {
+    max_cpc: Option<toml::Value>,
+    export: Option<toml::Value>,
+    campaigns: Option<toml::Value>,
+}
+
+impl KeptByHand {
+    /// Reads `[export]`, `[campaigns]` and `budget.max_cpc` from an earlier file. Unparsable text keeps nothing.
+    pub fn from_toml(text: &str) -> Self {
+        let Ok(old) = text.parse::<toml::Table>() else {
+            return Self::default();
+        };
+        Self {
+            max_cpc: old.get("budget").and_then(|b| b.get("max_cpc")).cloned(),
+            export: old.get("export").cloned(),
+            campaigns: old.get("campaigns").cloned(),
+        }
+    }
+
+    /// The names of what is kept, for the progress output.
+    pub fn names(&self) -> Vec<&'static str> {
+        [
+            ("budget.max_cpc", self.max_cpc.is_some()),
+            ("[export]", self.export.is_some()),
+            ("[campaigns]", self.campaigns.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(n, kept)| kept.then_some(n))
+        .collect()
+    }
 }
 
 #[derive(Serialize)]
@@ -126,6 +166,10 @@ struct OutFile<'a> {
     design: Option<OutFileRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     focus: Option<&'a FocusDraft>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    export: Option<&'a toml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    campaigns: Option<&'a toml::Value>,
 }
 
 /// The files `init` writes. `csv` and `research` are absent when there is nothing to put in them.
@@ -167,6 +211,7 @@ pub struct InitState {
     /// `--focus`: the business must name a focus that holds the start URL.
     focus_required: bool,
     start_url: String,
+    kept: KeptByHand,
 }
 
 fn bare_host(url: &str) -> Option<String> {
@@ -208,7 +253,13 @@ impl InitState {
             colors: Vec::new(),
             focus_required: false,
             start_url: start_url.to_string(),
+            kept: KeptByHand::default(),
         }
+    }
+
+    /// Carries hand-written parts of an earlier business.toml into the new one.
+    pub fn keep(&mut self, kept: KeptByHand) {
+        self.kept = kept;
     }
 
     pub fn require_focus(&mut self) {
@@ -240,6 +291,11 @@ impl InitState {
                 self.start_url
             );
             out.push(Issue::error("E22", "business.focus", msg));
+        }
+        if self.focus_required && f.terms.is_empty() {
+            let msg =
+                "--focus needs business.focus.terms: the words every search about the offer has";
+            out.push(Issue::error("E23", "business.focus.terms", msg));
         }
         out
     }
@@ -367,12 +423,18 @@ impl InitState {
         Ok(())
     }
 
-    fn render_toml(&self, business: &BusinessDraft, complete: bool) -> Result<String, String> {
+    fn render_toml(
+        &self,
+        business: &BusinessDraft,
+        complete: bool,
+        kept: &KeptByHand,
+    ) -> Result<String, String> {
         let file = OutFile {
             business,
             budget: OutBudget {
                 daily: self.daily.0 as f64 / 100.0,
                 currency: &self.currency,
+                max_cpc: kept.max_cpc.as_ref().filter(|_| complete),
             },
             catalog: (complete && !self.catalog.is_empty())
                 .then_some(OutFileRef { file: CATALOG_FILE }),
@@ -387,6 +449,8 @@ impl InitState {
             design: (complete && self.design_markdown(&business.name).is_some())
                 .then_some(OutFileRef { file: DESIGN_FILE }),
             focus: Some(&business.focus).filter(|f| !f.is_empty()),
+            export: kept.export.as_ref().filter(|_| complete),
+            campaigns: kept.campaigns.as_ref().filter(|_| complete),
         };
         toml::to_string(&file).map_err(|e| e.to_string())
     }
@@ -407,7 +471,7 @@ impl InitState {
             .collect();
         issues.extend(self.focus_issues(&draft.focus));
         let text = self
-            .render_toml(&draft, false)
+            .render_toml(&draft, false, &KeptByHand::default())
             .map_err(|m| vec![Issue::error("INPUT", "business", m)])?;
         if let Err(e) = parse_input_toml(&text) {
             issues.push(issue_of(e));
@@ -494,7 +558,12 @@ impl InitState {
             .business
             .as_ref()
             .ok_or("write_business was not called")?;
-        let toml = self.render_toml(business, true)?;
+        let mut toml = self.render_toml(business, true, &self.kept)?;
+        // A kept part can stop fitting the new draft (a format that needs a logo the site no
+        // longer has): the draft wins and the kept parts are left out.
+        if parse_input_toml(&toml).is_err() {
+            toml = self.render_toml(business, true, &KeptByHand::default())?;
+        }
         let csv = if self.catalog.is_empty() {
             None
         } else {
@@ -591,12 +660,15 @@ mod tests {
         b.focus = FocusDraft {
             name: "Alamos".into(),
             urls: vec!["https://vinellu.com/w/alamos".into()],
+            terms: vec![],
         };
         let errs = s.set_business(b.clone()).unwrap_err();
         assert!(
             errs.iter().any(|i| i.code == "E22"),
             "the start URL must be in the focus"
         );
+        assert!(errs.iter().any(|i| i.code == "E23"), "terms are required");
+        b.focus.terms = vec![vec!["alamos".into()]];
         b.focus.urls.push("https://vinellu.com".into());
         s.set_business(b).unwrap();
         let errs = s

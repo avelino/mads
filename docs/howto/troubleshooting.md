@@ -265,7 +265,7 @@ Run it again after you fix the page. It does not call a model. A failed export r
 
 ## No pictures were generated
 
-The run exits `0`, and `google-ads/` has no `editor/` folder. The plan agent chose Search only. It plans an image campaign only when at least 20 percent of the budget is left after the best Search campaigns, and its last message in `transcripts/plan.*` says why it did not.
+The run exits `0`, and `google-ads/` has no `editor/` folder. The plan agent chose Search only. With images available it must say why: look for `No image campaign:` in the campaign rationales of `report.md`.
 
 To require a format, add `[campaigns] formats = ["search", "demand_gen"]` to `business.toml` and generate again. Check also that `get_business` in the plan transcript shows `"image_campaigns":{"available":true}`. Otherwise its `reason` says what is missing: the image model or the logo.
 

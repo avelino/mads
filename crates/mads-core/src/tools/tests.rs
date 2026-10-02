@@ -918,6 +918,7 @@ async fn with_a_focus_every_landing_page_is_a_focus_page() {
     input.focus = Some(crate::input::Focus {
         name: "Alamos".into(),
         urls: vec!["https://vinellu.com/w/alamos".into()],
+        terms: vec![],
     });
     let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
     let t = plan_tools(&ws).await;
@@ -938,5 +939,71 @@ async fn with_a_focus_every_landing_page_is_a_focus_page() {
     assert_eq!(
         plan[1].planned_ad_groups[0].final_url, "https://vinellu.com/w/alamos",
         "a group without entity lands on the focus page, not the home page"
+    );
+}
+
+#[tokio::test]
+async fn with_focus_terms_every_keyword_is_about_the_focus() {
+    let mut input = testutil::input();
+    input.focus = Some(crate::input::Focus {
+        name: "Alamos".into(),
+        urls: vec!["https://vinellu.com/w/alamos".into()],
+        terms: vec![vec!["alamos".into(), "álamos".into()]],
+    });
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let t = plan_tools(&ws).await;
+    assert!(!t.call("set_brand_kit", brand_kit_args()).await.is_error);
+    let mut p = plan_args();
+    p["campaigns"][0]["ad_groups"] =
+        json!([{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}]);
+    assert!(!t.call("set_account_plan", p).await.is_error);
+    let c = campaign_tools(&ws, "vinellu-catalogo").await;
+
+    let mut bare = ad_group_args("alamos");
+    bare["keywords"]["variants"] = json!(["alamos malbec", "malbec"]);
+    let out = c.call("upsert_ad_group", bare).await;
+    assert!(
+        error_codes(&out).contains(&"E23".to_string()),
+        "{:?}",
+        error_codes(&out)
+    );
+    let msg = out.content["errors"][0]["message"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(msg.contains("'malbec' is not about the focus"), "{msg}");
+
+    let mut ok = ad_group_args("alamos");
+    ok["keywords"]["variants"] = json!(["alamos malbec", "Álamos"]);
+    let out = c.call("upsert_ad_group", ok).await;
+    assert!(!out.is_error, "accents fold: {}", out.content);
+}
+
+#[tokio::test]
+async fn with_images_available_a_search_only_plan_must_say_why() {
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(image_input())));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    assert!(!t.call("set_brand_kit", brand_kit_args()).await.is_error);
+    let out = t.call("set_account_plan", plan_args()).await;
+    assert_eq!(error_codes(&out), ["NO_IMAGE_REASON"]);
+    assert!(ws.lock().await.account.campaigns.is_empty());
+
+    let mut p = plan_args();
+    p["campaigns"][0]["rationale"] =
+        json!("No image campaign: people search label names, pictures add nothing.");
+    let out = t.call("set_account_plan", p).await;
+    assert!(!out.is_error, "{}", out.content);
+
+    let no_model = ToolSettings::default();
+    let ws2: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(image_input())));
+    let t2 = MissionTools::new(ws2, MissionKind::Plan, no_model, None)
+        .await
+        .unwrap();
+    t2.call("set_brand_kit", brand_kit_args()).await;
+    assert!(
+        !t2.call("set_account_plan", plan_args()).await.is_error,
+        "no images, no reason needed"
     );
 }

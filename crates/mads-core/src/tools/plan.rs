@@ -282,6 +282,9 @@ async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput
         .map(|(i, c)| build_campaign(ws, &rules, c, i, image_unavailable(t, ws), &mut issues))
         .collect();
     check_slugs(&campaigns, &mut issues);
+    if image_unavailable(t, ws).is_none() {
+        check_image_choice(&campaigns, &mut issues);
+    }
     let candidate = Account {
         brand_kit: ws.account.brand_kit.clone(),
         campaigns,
@@ -477,6 +480,21 @@ fn resolve_url(
         .unwrap_or_else(|| ws.input.business.url.clone());
     rules.focus_url(issues, &format!("{at}.final_url"), &url);
     url
+}
+
+/// The marker a rationale carries when the plan skips image campaigns that were available.
+const NO_IMAGE: &str = "No image campaign:";
+
+/// With images available, the plan has an image campaign or says why not, so the choice is visible.
+fn check_image_choice(campaigns: &[Campaign], issues: &mut Vec<Issue>) {
+    let has_image = campaigns.iter().any(|c| c.kind.has_images());
+    let explained = campaigns.iter().any(|c| c.rationale.contains(NO_IMAGE));
+    if !has_image && !explained && !campaigns.is_empty() {
+        let msg = format!(
+            "image campaigns are available: plan one, or start a rationale with '{NO_IMAGE} <reason>'"
+        );
+        issues.push(Issue::error("NO_IMAGE_REASON", "campaigns", msg));
+    }
 }
 
 fn check_slugs(campaigns: &[Campaign], issues: &mut Vec<Issue>) {

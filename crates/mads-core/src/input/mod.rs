@@ -5,5 +5,5 @@ mod urls;
 
 pub use business::*;
 pub use catalog::*;
-pub use slug::slugify;
+pub use slug::{fold, slugify};
 pub use urls::{AllowedUrls, normalize_url};

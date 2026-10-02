@@ -83,6 +83,7 @@ Image campaigns (Performance Max and Demand Gen) need it. Without `[brand]` the 
 |---|---|---|---|
 | `name` | string | yes | The offer as people say it, 1 to 80 characters. |
 | `urls` | string array | yes | 1 to 10 absolute URLs: the page of the offer and its close variants. |
+| `terms` | array of string arrays | no | Up to 5 groups of words, 1 to 10 each. Every keyword must contain one word of each group (`E23`), so a search for another offer is never bought. |
 
 With `[focus]` the account advertises that one offer, not the whole business. Every final URL must be one of `urls` (`E22`), and the agents keep keywords and ads about the offer. Sitelinks can still use `business.pages`. `mads init --focus` writes it.
 
@@ -93,7 +94,10 @@ urls = [
   "https://www.buser.com.br/onibus/belo-horizonte-mg/sao-paulo-sp",
   "https://www.buser.com.br/onibus/sao-paulo-sp/belo-horizonte-mg",
 ]
+terms = [["bh", "belo horizonte"], ["sp", "sao paulo"]]
 ```
+
+With these terms `clickbus bh sp` is accepted and a bare `clickbus` is refused, because it also matches searches for every other route.
 
 ## [design]
 

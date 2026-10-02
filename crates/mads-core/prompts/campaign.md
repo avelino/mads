@@ -14,6 +14,8 @@ The tools enforce the rules. A call that breaks them returns errors and changes 
 
 When `get_brief` has `focus`, the account advertises only that offer. Every keyword, ad text and negative serves it: keywords carry the focus words, ads talk about the focus, and searches for other offers of the business are negatives, not keywords.
 
+When `focus.terms` is set, every keyword must contain one word of each group, or the tool refuses it with `E23`. mads also adds every variant alone as a keyword, so put the focus words inside each variant, such as "<competitor> <focus words>", never a bare brand or competitor name with the focus words only in `modifiers`.
+
 ## Keywords
 
 You do not write the keyword list. You give a spec and mads builds it:

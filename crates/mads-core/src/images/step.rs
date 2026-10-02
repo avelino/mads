@@ -293,16 +293,65 @@ pub async fn run_image_step(
     result
 }
 
-/// Drops the jobs over the run's cap and notes each one for the report.
-fn over_the_cap(jobs: &mut Vec<Job>, max_new: usize, result: &mut ImageStepResult) {
-    if jobs.len() > max_new {
-        for skipped in jobs.split_off(max_new) {
-            let msg = format!(
-                "{}: over the limit of {} new images",
-                skipped.label, max_new
-            );
-            result.notes.push(msg);
+/// True when the asset group still meets Google's minimum pictures without brief `bi`.
+fn can_drop(input: &Input, c: &Campaign, gi: usize, bi: usize) -> bool {
+    let mut candidate = c.clone();
+    let Some(group) = candidate.asset_groups.get_mut(gi) else {
+        return false;
+    };
+    if bi >= group.images.len() || group.images.len() < 2 {
+        return false;
+    }
+    group.images.remove(bi);
+    let prefix = format!("c.asset_groups[{gi}].images");
+    !crate::google::Rules::new(input, usize::MAX)
+        .campaign(&candidate, None, false, "c")
+        .iter()
+        .any(|i| i.code == "E16" && i.path.starts_with(&prefix))
+}
+
+/// Jobs over the run's cap: a brief the asset group can do without is removed, so the export
+/// still runs. One it cannot do without stays and stops the export with E20.
+async fn over_the_cap(
+    jobs: &mut Vec<Job>,
+    ws: &SharedWorkspace,
+    cfg: &ImageStepConfig,
+    result: &mut ImageStepResult,
+) {
+    if jobs.len() <= cfg.max_new {
+        return;
+    }
+    let skipped = jobs.split_off(cfg.max_new);
+    let mut guard = ws.lock().await;
+    let input = guard.input.clone();
+    // Later briefs first, so removing one never shifts the index of another.
+    for job in skipped.iter().rev() {
+        let (ci, gi, bi) = job.at;
+        let droppable = guard
+            .account
+            .campaigns
+            .get(ci)
+            .is_some_and(|c| can_drop(&input, c, gi, bi));
+        let limit = cfg.max_new;
+        if droppable {
+            guard.account.campaigns[ci].asset_groups[gi]
+                .images
+                .remove(bi);
+            result.notes.push(format!(
+                "{}: dropped, over the limit of {limit} new images, the asset group has enough without it",
+                job.label
+            ));
+        } else {
+            result.notes.push(format!(
+                "{}: over the limit of {limit} new images",
+                job.label
+            ));
         }
+    }
+    if let Some(p) = &cfg.workspace_path
+        && let Err(e) = guard.save(p)
+    {
+        result.notes.push(format!("cannot save the workspace: {e}"));
     }
 }
 
@@ -315,7 +364,7 @@ async fn generate_all(
     events: &EventSink,
     result: &mut ImageStepResult,
 ) {
-    over_the_cap(&mut jobs, cfg.max_new, result);
+    over_the_cap(&mut jobs, ws, cfg, result).await;
     step(
         events,
         format!("{} to generate with {}", jobs.len(), model.id()),

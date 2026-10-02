@@ -171,6 +171,7 @@ impl Rules<'_> {
         );
         for (i, t) in themes.iter().enumerate() {
             length(out, &format!("{at}[{i}]"), t, SEARCH_THEME, "E01");
+            self.focus_terms(out, &format!("{at}[{i}]"), t);
         }
         dups(out, &at, themes);
         dups(out, &format!("{path}.descriptions"), &g.descriptions);
@@ -585,11 +586,13 @@ mod tests {
         inp.focus = Some(crate::input::Focus {
             name: "Alamos".into(),
             urls: vec!["https://vinellu.com/w/alamos".into()],
+            terms: vec![],
         });
         assert!(!codes(&inp, &c).contains(&"E22".to_string()));
         inp.focus = Some(crate::input::Focus {
             name: "Luigi".into(),
             urls: vec!["https://vinellu.com/w/luigi".into()],
+            terms: vec![],
         });
         assert!(codes(&inp, &c).contains(&"E22".to_string()));
         assert!(

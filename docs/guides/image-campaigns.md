@@ -18,9 +18,7 @@ The agent never sees a picture. It writes briefs, and code turns them into files
 
 ## When the agent picks images
 
-The plan funds the Search campaigns with the best expected return first. An image campaign needs at least 20 percent of the daily budget, so the agent plans one only when that much is left. Performance Max also needs `conversion_tracking = true`. Demand Gen does not.
-
-So a run with an image model and a logo can still end with Search only. The plan agent says why in its last message, in `transcripts/plan.*`.
+With an image model and a logo, the default is one image campaign with at least 20 percent of the daily budget, reserved before the Search campaigns get the rest. The agent may leave it out only with a reason: then a campaign rationale starts with `No image campaign:`, and the report shows it under Budget and bids. A plan without an image campaign and without that reason is refused (`NO_IMAGE_REASON`). Performance Max also needs `conversion_tracking = true`. Demand Gen does not.
 
 To decide yourself, list the formats in `business.toml`:
 
@@ -96,7 +94,7 @@ A brief without `reference` shows people, places and results, not the product. A
 
 ## Cost and limits
 
-Every picture is a paid API call. `--max-images` (default 40) caps the new pictures of one run. Briefs over the cap get no file, the report lists them, and the export stops with `E20`.
+Every picture is a paid API call. `--max-images` (default 40) caps the new pictures of one run. A brief over the cap is removed when its asset group still has Google's minimum pictures without it, and the report notes it. One the group cannot do without gets no file and stops the export with `E20`. `mads generate --resume <run-dir>` with a higher cap draws it.
 
 Pictures are kept. `mads generate --resume` and `mads export` reuse every file that still passes the checks and only draw what is missing. `mads export` has no image model, so a missing picture there is an `E20` error.
 

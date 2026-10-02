@@ -103,7 +103,7 @@ Each ad group.
 | `entity_ids` | string array | no | Catalog ids this ad group covers. |
 | `final_url` | string | no | Landing page. Empty resolves to the entity URL (one entity) or `business.url`. |
 
-Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, `E17`, `E18`, `E21`, unknown catalog ids (`E12`) and `UNSUPPORTED`. An image campaign in a run without an image model or a logo is `UNSUPPORTED`. Result.
+Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, `E17`, `E18`, `E21`, unknown catalog ids (`E12`) and `UNSUPPORTED`. An image campaign in a run without an image model or a logo is `UNSUPPORTED`. With image campaigns available, a plan without one needs a rationale with `No image campaign: <reason>` (`NO_IMAGE_REASON`). Result.
 
 ```json
 {"campaigns": [{"name": "Vinellu - Marca", "slug": "vinellu-marca", "ad_groups": 1}]}
@@ -336,9 +336,9 @@ Saves the business profile. Replaces the previous one.
 | `conversion_tracking` | boolean | no |
 | `brand_terms`, `competitors`, `avoid` | string array | no |
 | `pages` | array of `{"name", "url"}` | no |
-| `focus` | `{"name", "urls"}` | no |
+| `focus` | `{"name", "urls", "terms"}` | no |
 
-The draft is validated like `business.toml`. With `--focus`, `focus` must have a name and list the start URL (`E22`), and its URLs must have been seen (`E07`). Once a focus is set, `add_catalog_items` refuses items whose URL is not a focus URL (`E22`). Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
+The draft is validated like `business.toml`. With `--focus`, `focus` must have a name and list the start URL (`E22`) and have `terms` (`E23`), and its URLs must have been seen (`E07`). Once a focus is set, `add_catalog_items` refuses items whose URL is not a focus URL (`E22`). Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
 
 ### write_research
 

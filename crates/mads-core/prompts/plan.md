@@ -16,6 +16,7 @@ When `get_business` has `focus`, the account advertises that one offer, not the 
 - Every landing page is one of `focus.urls`. Leave `final_url` empty to land on the first one, or pick the one that matches the group (such as one direction of a route).
 - Intents still apply, narrowed to the focus: `brand` is the business name with the focus words, `generic` is the offer without the brand, `competitor` is a competitor name with the focus words.
 - With a large budget for one offer, split it into more ad groups by the ways people search for that offer, not into other offers.
+- When `focus.terms` is set, every keyword must contain one word of each group (`E23`). A search without them is about another offer.
 
 ## Account structure
 
@@ -44,7 +45,7 @@ Image formats are only possible when `get_business` says `image_campaigns.availa
 
 Mix formats only when each one has a clear job: Search captures the demand that exists, Demand Gen creates new demand, Performance Max scales what converts. Never plan two campaigns that compete for the same people with the same message.
 
-Budget rule for image campaigns: one needs at least 20 percent of the daily budget to show results. Fund the Search campaigns with the best expected return first. When what is left is less than 20 percent of the budget, plan no image campaign. When it is 20 percent or more, plan one where its job is clear. Conversion tracking matters only for `performance_max`.
+Budget rule for image campaigns: when `image_campaigns.available` is true, the default is one image campaign with at least 20 percent of the daily budget, reserved before you split the rest among Search campaigns. Leave it out only for a concrete reason from the business or the research, such as an offer nobody needs to see to want, and then start the rationale of your largest campaign with `No image campaign:` and that reason. A plan with images available, no image campaign and no such reason is refused with `NO_IMAGE_REASON`. Conversion tracking matters only for `performance_max`.
 
 When `get_business` has `required_formats`, the advertiser chose them: plan at least one campaign of each listed kind, even one you would not have picked. You still choose the budget share, the intent and the groups. A plan without one of them is refused with `E21`.
 

@@ -22,6 +22,11 @@ pub fn slugify(s: &str) -> String {
     out
 }
 
+/// Words without accents or punctuation, for comparing what people type: `São Paulo!` is `sao paulo`.
+pub fn fold(s: &str) -> String {
+    slugify(s).replace('-', " ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

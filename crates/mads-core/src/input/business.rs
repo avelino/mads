@@ -49,6 +49,8 @@ struct RawFile {
 struct RawFocus {
     name: String,
     urls: Vec<String>,
+    #[serde(default)]
+    terms: Vec<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -139,9 +141,29 @@ impl ExportStatus {
 pub struct Focus {
     pub name: String,
     pub urls: Vec<String>,
+    /// Groups of words that make a search about the focus. Every keyword has one word of each group.
+    #[serde(default)]
+    pub terms: Vec<Vec<String>>,
 }
 
 const FOCUS_MAX_URLS: usize = 10;
+const FOCUS_MAX_GROUPS: usize = 5;
+const FOCUS_MAX_TERMS: usize = 10;
+
+fn check_focus_terms(groups: &[Vec<String>]) -> Result<(), InputError> {
+    let key = "focus.terms";
+    if groups.len() > FOCUS_MAX_GROUPS {
+        return Err(invalid(key, format!("at most {FOCUS_MAX_GROUPS} groups")));
+    }
+    for (i, g) in groups.iter().enumerate() {
+        if g.is_empty() || g.len() > FOCUS_MAX_TERMS {
+            let msg = format!("group {i} needs 1 to {FOCUS_MAX_TERMS} terms");
+            return Err(invalid(key, msg));
+        }
+        check_list(&format!("{key}[{i}]"), g)?;
+    }
+    Ok(())
+}
 
 fn check_focus(raw: Option<RawFocus>) -> Result<Option<Focus>, InputError> {
     let Some(f) = raw else {
@@ -160,9 +182,11 @@ fn check_focus(raw: Option<RawFocus>) -> Result<Option<Focus>, InputError> {
             format!("not an absolute http(s) URL: {bad}"),
         ));
     }
+    check_focus_terms(&f.terms)?;
     Ok(Some(Focus {
         name: f.name,
         urls: f.urls,
+        terms: f.terms,
     }))
 }
 
@@ -773,6 +797,16 @@ currency = "BRL"
         ] {
             assert_eq!(err_key(&format!("{MINIMAL}\n{bad}")), "focus.urls");
         }
+        let terms = format!(
+            "{MINIMAL}\n[focus]\nname = \"x\"\nurls = [\"https://x.com\"]\nterms = [[\"bh\", \"belo horizonte\"], [\"sp\"]]\n"
+        );
+        assert_eq!(
+            parse_input_toml(&terms).unwrap().focus.unwrap().terms.len(),
+            2
+        );
+        let empty_group =
+            format!("{MINIMAL}\n[focus]\nname = \"x\"\nurls = [\"https://x.com\"]\nterms = [[]]\n");
+        assert_eq!(err_key(&empty_group), "focus.terms");
         let no_name = format!("{MINIMAL}\n[focus]\nname = \"\"\nurls = [\"https://x.com\"]\n");
         assert_eq!(err_key(&no_name), "focus.name");
     }

@@ -6,7 +6,7 @@ use super::{
     Account, AdGroup, Assets, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Issue, Keyword,
     MatchType, Rsa, char_len, contains_word_sequence, merge_rsa, normalize,
 };
-use crate::input::{AllowedUrls, Budget, Business, Input};
+use crate::input::{AllowedUrls, Budget, Business, Input, fold};
 
 const HEADLINE: usize = 30;
 const DESCRIPTION: usize = 90;
@@ -37,6 +37,8 @@ pub struct Rules<'a> {
     formats: &'a [CampaignKind],
     /// With `[focus]`, the only final URLs allowed.
     focus: Option<AllowedUrls>,
+    /// `focus.terms`, folded: every keyword needs one term of each group.
+    focus_terms: Vec<Vec<String>>,
 }
 
 impl<'a> Rules<'a> {
@@ -95,6 +97,17 @@ impl<'a> Rules<'a> {
             has_logo: input.logo.is_some(),
             formats: &input.formats,
             focus,
+            focus_terms: input
+                .focus
+                .iter()
+                .flat_map(|f| &f.terms)
+                .map(|g| {
+                    g.iter()
+                        .map(|t| fold(t))
+                        .filter(|t| !t.is_empty())
+                        .collect()
+                })
+                .collect(),
         }
     }
 
@@ -105,6 +118,24 @@ impl<'a> Rules<'a> {
     /// True without `[focus]`, or when the URL is one of the focus pages.
     pub fn in_focus(&self, url: &str) -> bool {
         self.focus.as_ref().is_none_or(|f| f.contains(url))
+    }
+
+    /// E23: a search that is not about the focus, such as a competitor name without the route.
+    pub(crate) fn focus_terms(&self, out: &mut Vec<Issue>, path: &str, text: &str) {
+        let words = fold(text);
+        let missing: Vec<&str> = self
+            .focus_terms
+            .iter()
+            .filter(|g| !g.iter().any(|t| contains_word_sequence(&words, t)))
+            .filter_map(|g| g.first().map(String::as_str))
+            .collect();
+        if !missing.is_empty() {
+            let msg = format!(
+                "'{text}' is not about the focus: add a word like {}",
+                missing.join(" and ")
+            );
+            out.push(Issue::error("E23", path, msg));
+        }
     }
 
     /// E22: a landing page outside `[focus]`. Sitelinks are not landing pages and may go elsewhere.
@@ -398,6 +429,7 @@ impl<'a> Rules<'a> {
         for (i, k) in ag.keywords.iter().enumerate() {
             let at = format!("{path}.keywords[{i}]");
             keyword_text(out, &at, &k.text);
+            self.focus_terms(out, &at, &k.text);
             let blocker = campaign_negatives
                 .iter()
                 .chain(&ag.negatives)

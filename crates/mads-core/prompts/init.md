@@ -72,6 +72,7 @@ When the task says Focus, the account advertises one offer of the business, such
 
 - Study the business for context: the profile in `write_business` still describes the business, and the description says what makes this offer worth buying.
 - Set `focus` in `write_business`: `name` as people say the offer, and `urls` with the start page plus its close variants that the site has, such as the other direction of a route or the same offer in another format. Every URL must come from a fetched page or the sitemap.
+- Set `focus.terms`: the words that make a search about this offer and not another, one group per part of the offer, each group with every way people write that part (abbreviation, full name, with and without accents). Every keyword of the account must contain one word of each group, so a search for another offer is never bought. For a route that is two groups, the origin and the destination.
 - The catalog holds only focus pages. Other offers of the business are not catalog items, even popular ones.
 - The opportunities in `write_research` are ways people search for this offer: with and without the brand, with price, date or comparison words, with a competitor name.
 - Pages for sitelinks can still be general pages of the business, such as help, promotions or locations.

@@ -8,8 +8,8 @@ use std::{
 use tokio::sync::Mutex;
 
 use super::{
-    CATALOG_FILE, DESIGN_FILE, InitState, InitTools, LOGO_FILE, RESEARCH_FILE, RenderedFiles,
-    SiteFetch,
+    CATALOG_FILE, DESIGN_FILE, InitState, InitTools, KeptByHand, LOGO_FILE, RESEARCH_FILE,
+    RenderedFiles, SiteFetch,
 };
 use crate::{
     agent::{
@@ -162,6 +162,7 @@ pub async fn run_init(
     if cfg.focus {
         draft.require_focus();
     }
+    keep_hand_written(&business_path, &mut draft, &events);
     if mission.web_search {
         draft.require_web_sources(WEB_SOURCES_MIN);
     }
@@ -284,8 +285,12 @@ async fn save_logo(
         });
         return Ok(Some(path));
     }
-    if cfg.force && path.exists() {
-        std::fs::remove_file(&path)?;
+    if let Some(kept) = keep_existing_logo(&path, state).await {
+        events.emit(Event::Step {
+            name: "logo".into(),
+            detail: format!("no logo on the site, kept {}", path.display()),
+        });
+        return Ok(Some(kept));
     }
     events.emit(Event::Step {
         name: "logo".into(),
@@ -295,6 +300,33 @@ async fn save_logo(
         ),
     });
     Ok(None)
+}
+
+/// A logo already in the folder, put there by an earlier init or by hand, when it still passes the checks.
+async fn keep_existing_logo(path: &Path, state: &Mutex<InitState>) -> Option<PathBuf> {
+    let bytes = std::fs::read(path).ok()?;
+    crate::images::check_logo(&bytes).ok()?;
+    let colors = crate::images::logo_palette(&bytes).unwrap_or_default();
+    let mut s = state.lock().await;
+    s.set_logo(LOGO_FILE);
+    s.set_logo_colors(&colors);
+    Some(path.to_path_buf())
+}
+
+/// `--force` replaces business.toml, but what a person added by hand survives.
+fn keep_hand_written(business: &Path, draft: &mut InitState, events: &EventSink) {
+    let Ok(text) = std::fs::read_to_string(business) else {
+        return;
+    };
+    let kept = KeptByHand::from_toml(&text);
+    let names = kept.names();
+    if !names.is_empty() {
+        events.emit(Event::Step {
+            name: "keep".into(),
+            detail: format!("from the old business.toml: {}", names.join(", ")),
+        });
+    }
+    draft.keep(kept);
 }
 
 /// The transcript folder with no file of an older init: a new run must not append to the last one.
@@ -526,6 +558,90 @@ mod tests {
             "{design}"
         );
         assert_eq!(input.design, design, "generate reads it back");
+    }
+
+    struct NoLogoSite;
+
+    #[async_trait]
+    impl SiteFetch for NoLogoSite {
+        fn is_same_site(&self, url: &str) -> bool {
+            FakeSite.is_same_site(url)
+        }
+        async fn fetch_page(&self, url: &str) -> Result<FetchedPage, String> {
+            let mut p = FakeSite.fetch_page(url).await?;
+            p.logos.clear();
+            Ok(p)
+        }
+        async fn fetch_sitemap(&self, url: Option<&str>) -> Result<SitemapUrls, String> {
+            FakeSite.fetch_sitemap(url).await
+        }
+    }
+
+    #[tokio::test]
+    async fn without_a_logo_on_the_site_an_existing_one_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let brand = dir.path().join("brand");
+        std::fs::create_dir(&brand).unwrap();
+        let square = crate::images::solid_png(crate::google::AspectRatio::Square, [200, 30, 90]);
+        std::fs::write(
+            brand.join("logo.png"),
+            crate::images::prepare_logo(&square).unwrap(),
+        )
+        .unwrap();
+        let mut c = cfg(&dir);
+        c.force = true;
+        let (events, _rx) = EventSink::channel();
+        let r = run_init(
+            c,
+            driver(json!({"init": [good_script()]})),
+            Arc::new(NoLogoSite),
+            events,
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.logo, Some(brand.join("logo.png")));
+        let input = load_input(&dir.path().join("business.toml")).unwrap();
+        assert!(input.logo.is_some(), "[brand] points at the kept logo");
+        assert!(
+            input.design.contains("Pink"),
+            "its colors reach DESIGN.md: {}",
+            input.design
+        );
+    }
+
+    const OLD_TOML: &str = "[business]\nname = \"Old\"\n\n[budget]\ndaily = 1.0\ncurrency = \"USD\"\nmax_cpc = 2.5\n\n[export]\nstatus = \"Enabled\"\n\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n";
+
+    #[tokio::test]
+    async fn force_keeps_what_a_person_wrote_by_hand() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("business.toml"), OLD_TOML).unwrap();
+        let mut c = cfg(&dir);
+        c.force = true;
+        let (r, events) = run(c, driver(json!({"init": [good_script()]}))).await;
+        assert_eq!(r.unwrap().exit_code, 0);
+        let input = load_input(&dir.path().join("business.toml")).unwrap();
+        assert_eq!(
+            input.business.name, "Vinellu",
+            "the draft replaces [business]"
+        );
+        assert_eq!(input.budget.max_cpc, Some(Cents(250)));
+        assert_eq!(input.export.status, crate::input::ExportStatus::Enabled);
+        assert_eq!(input.formats.len(), 2);
+        assert!(events.iter().any(|e| matches!(e, Event::Step { name, detail } if name == "keep" && detail.contains("[campaigns]"))));
+    }
+
+    #[tokio::test]
+    async fn a_kept_part_that_no_longer_fits_is_left_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = OLD_TOML.replace("\"demand_gen\"", "\"performance_max\"");
+        std::fs::write(dir.path().join("business.toml"), old).unwrap();
+        let mut c = cfg(&dir);
+        c.force = true;
+        let (r, _) = run(c, driver(json!({"init": [good_script()]}))).await;
+        assert_eq!(r.unwrap().exit_code, 0);
+        let input = load_input(&dir.path().join("business.toml"))
+            .expect("Performance Max without conversion tracking is dropped, the file loads");
+        assert!(input.formats.is_empty());
     }
 
     #[test]

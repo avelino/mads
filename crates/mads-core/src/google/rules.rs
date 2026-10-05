@@ -735,8 +735,9 @@ fn one_word_phrases(out: &mut Vec<Issue>, c: &Campaign, path: &str) {
     }
 }
 
-/// W08: keyword variants are ways to write one search. Variants that share no word, prefix or
-/// initials are different searches: one ad and one landing page cannot fit them all.
+/// E26: keyword variants are ways to write one search. Variants that share no word, prefix or
+/// initials are different searches: one ad and one landing page cannot fit them all, and Google
+/// rates such a group low quality. As a warning, agents ignored it on a live account.
 pub fn variant_themes(out: &mut Vec<Issue>, path: &str, variants: &[String]) {
     let folded: Vec<String> = variants
         .iter()
@@ -746,9 +747,9 @@ pub fn variant_themes(out: &mut Vec<Issue>, path: &str, variants: &[String]) {
     let themes = theme_count(&folded);
     if themes > 1 {
         let msg = format!(
-            "variants look like {themes} different searches: keep one theme per ad group and plan the others as their own groups"
+            "variants look like {themes} different searches: keep the spellings of one search in variants, put a synonym in extra, and give another search its own ad group"
         );
-        out.push(Issue::warning("W08", path, msg));
+        out.push(Issue::error("E26", path, msg));
     }
 }
 
@@ -1292,7 +1293,7 @@ mod tests {
     }
 
     #[test]
-    fn w08_variants_of_different_searches() {
+    fn e26_variants_of_different_searches() {
         let cases: &[(&[&str], bool)] = &[
             (&["malbec", "cabernet sauvignon", "merlot"], true),
             (&["vinho para peixe", "harmonizacao churrasco"], true),
@@ -1309,6 +1310,7 @@ mod tests {
             let mut out = Vec::new();
             variant_themes(&mut out, "keywords.variants", &v);
             assert_eq!(!out.is_empty(), *warns, "{variants:?}");
+            assert!(out.iter().all(|i| i.code == "E26" && i.is_error()));
         }
     }
 

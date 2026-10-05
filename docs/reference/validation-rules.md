@@ -43,6 +43,8 @@ Errors block the export. Warnings go to the report, to progress output and, on G
 | `E24` | App campaign without the app. | Message `app campaigns need the app: set [app] store and id in business.toml`. An App campaign needs no logo and its ads link to the store page, so `E07`, `E18` and `E22` do not apply to it. |
 | `E21` | A format from `[campaigns] formats` has no campaign. | Message `business.toml asks for a <kind> campaign and the plan has none`. Path `campaigns`. |
 | `E20` | A brief has no picture at the end. | The image step could not make it: a model error, `mads export` without the file, or a brief over `--max-images` that its asset group cannot do without. A brief over the cap that the group can do without is removed instead, with a note in the report. Message `image '<id>' has no file`. Agents never see it: their tools skip it, because pictures are made after the missions. |
+| `E25` | A group that had impressions is missing from the plan of a campaign that continues. | Only in `mads optimize`. Editor matches by name, so a renamed group comes in as a new one, and Google measures [Quality Score per keyword from its past impressions](https://support.google.com/google-ads/answer/6167118?hl=en). A line `Drop <group>: <reason>` in the campaign `rationale` lets it go. Message `'<group>' had impressions in Google Ads and is not in the plan: keep its name, or add a line `Drop <group>: <reason>` to the rationale (a renamed group comes in as a new one, its keywords without Quality Score data)`. Path `campaigns[<i>].ad_groups`. |
+| `E26` | Keyword spec `variants` look like different searches. | Checked by `upsert_ad_group`, not stored. Two variants belong together when, without accents or punctuation, they share a word of 3 or more letters, one holds the other (4 or more letters), they start with the same 4 letters, or one is the initials of the other. A synonym goes in `extra`. Message `variants look like <n> different searches: keep the spellings of one search in variants, put a synonym in extra, and give another search its own ad group`. |
 
 ### E13 limits
 
@@ -85,7 +87,6 @@ The asset group `business_name` has at most 25 characters (`E01`).
 | `W05` | Fewer than 4 sitelinks, fewer than 4 callouts or no structured snippet. | Message `recommended: 4+ sitelinks, 4+ callouts and 1 structured snippet`. |
 | `W06` | Fewer pictures than Google recommends for ad strength. | Performance Max 4 landscape, 4 square and 2 portrait. Demand Gen 1 landscape, 1 square and 1 portrait. Message `recommended for ad strength: <missing>`. |
 | `W07` | A prompt asks for text in the picture, or shows an object that carries writing. | The words `text`, `logo`, `caption`, `headline`, `words`, `lettering`, `typography`, `slogan` or `label that reads`: Google adds the ad text itself. Or `menu`, `wine list`, `sign`, `signboard`, `billboard`, `poster`, `book`, `newspaper`, `magazine`, `screen`, `monitor`, `packaging`, `price tag`, `ticket`: the model fills them with invented text, so show them from the side, closed or out of focus. |
-| `W08` | Keyword spec `variants` look like different searches. | Returned by `upsert_ad_group`, not stored. Two variants belong together when, without accents or punctuation, they share a word of 3 or more letters, one holds the other (4 or more letters), they start with the same 4 letters, or one is the initials of the other. Message `variants look like <n> different searches: keep one theme per ad group and plan the others as their own groups`. |
 | `W09` | A one-word phrase keyword outside a brand campaign. | It matches any search with that word. mads no longer builds one from `variants`, so it comes from `extra`. Message `'<keyword>' as phrase matches any search with that word: make it exact or add words`. |
 
 ## Tool-only codes
@@ -100,6 +101,7 @@ These come from the tool layer, not the rule set. The agent sees them in tool re
 | `UNSUPPORTED` | A Search campaign with a bid strategy other than `manual_cpc`, or an image campaign in a run without an image model or a logo. |
 | `NO_IMAGE_REASON` | Image campaigns are available, the plan has none, and no campaign `rationale` contains `No image campaign: <reason>`. Not asked when `[campaigns] formats` is set. |
 | `NO_APP_REASON` | `[app]` and an image model are there, the plan has no `app_installs` campaign, and no `rationale` contains `No app campaign: <reason>`. Not asked when `[campaigns] formats` is set. |
+| `LIVE_DETAIL` | In `mads optimize`, `upsert_ad_group` or `upsert_asset_group` for a group that ran, before this mission called `get_ad_group_performance` with it. |
 | `NOT_FOUND` | The campaign of this mission no longer exists in the plan. |
 | `PERSIST` | The workspace could not be saved to disk. |
 | `HOST`, `FETCH` | Init only. The URL is outside the site, or the request failed. |

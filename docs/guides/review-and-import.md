@@ -54,7 +54,7 @@ A short list of the upload steps. The next section expands it.
 
 What to check once the campaigns serve, and what to export for the next run.
 
-- After 2 days, look at the keyword status in Google Ads. `Below first page bid` and `Rarely shown` mean the CPC is too low to enter the auction: the ad group spends nothing. Add the First page bid estimate column and raise the CPC to it, or pause the keyword.
+- After 2 days, look at the [keyword status](https://support.google.com/google-ads/answer/2453978?hl=en) in Google Ads. `Below first page bid` means the ad is not reaching the first page of results, usually because of Ad Rank. `Rarely shown` means a low Quality Score. Add the [First page bid estimate](https://support.google.com/google-ads/answer/105665?hl=en) column and raise the CPC to it, or pause the keyword.
 - When Search campaigns run without `conversion_tracking`, the section says so. Google Ads then shows clicks and cost but not which searches bring customers.
 - After 14 days, export search terms, keywords with Quality Score and bid estimates, campaigns by day and asset performance as CSV into one folder, and run [`mads optimize`](optimize.md). Keep the campaign and ad group names: they tie the reports to the run.
 

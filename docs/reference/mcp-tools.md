@@ -52,7 +52,7 @@ When `business.toml` has `[campaigns] formats`, the result also has `required_fo
 
 When `business.toml` has a `[research]` table, the result also has `research`, the Markdown text of that file. Without notes the key is absent.
 
-In a `mads optimize` run the result also has `live_account` and `performance`. `live_account.campaigns` lists every campaign as it ran: name, kind, intent, daily budget, bid strategy and ad group names. `performance` has the report `window`, a `thin_rule` sentence, `ignored_campaigns` and one entry per campaign with its totals, live status, status reasons, impression share lost to budget and rank, `thin` and `hidden_terms_cost`, without ad group detail. See [Optimize a live account](../guides/optimize.md).
+In a `mads optimize` run the result also has `live_account` and `performance`. `live_account.campaigns` lists every campaign as it ran: name, kind, intent, daily budget, bid strategy and ad group names. `performance` has the report `window`, a `thin_rule` sentence, `ignored_campaigns` and one entry per campaign with its totals, live status, status reasons, impression share lost to budget and rank, `thin` and `hidden_terms_cost`, without ad group detail. In that run `set_account_plan` refuses, with `E25`, a plan that leaves out a group that had impressions, unless the campaign `rationale` has a line `Drop <group>: <reason>`. See [Optimize a live account](../guides/optimize.md).
 
 ### query_catalog
 
@@ -159,7 +159,7 @@ Only in a `mads optimize` run, for campaign and image campaign missions. Read on
 
 `live` is the group as it ran. For an asset group it is the asset group itself. `performance.keywords` lists only the keywords that had impressions, with their numbers, signals, max CPC and, when the report has them, Quality Score and bid estimates. The others are counted in `keywords_without_traffic`. `search_terms` has the 20 most expensive terms with their state, and `assets` the labels Google gave the texts when an assets report was read. Numbers that are zero or missing are left out.
 
-A name that neither the run nor the reports know fails with `NOT_FOUND`, and the message lists the groups that ran.
+A name that neither the run nor the reports know fails with `NOT_FOUND`, and the message lists the groups that ran. `upsert_ad_group` and `upsert_asset_group` refuse a group that ran with `LIVE_DETAIL` until the mission called this tool with it.
 
 ### upsert_ad_group
 
@@ -178,7 +178,7 @@ Creates or replaces one planned ad group.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `variants` | string array | yes | 1 to 6 ways people write one name. Variants of different things warn `W08`. Outside brand campaigns a one-word variant becomes exact only. |
+| `variants` | string array | yes | 1 to 6 ways people write one name. Variants of different searches fail `E26`. Outside brand campaigns a one-word variant becomes exact only. |
 | `modifiers` | string array | no | 0 to 10 intent words. |
 | `exact_heads` | boolean | no, default `true` | Add every variant as exact match. |
 | `extra` | array | no | 0 to 20 explicit `{"text", "match"}` keywords. |

@@ -10,7 +10,7 @@ LLM agents make the marketing decisions. Deterministic Rust code enforces the ru
 - Reads `business.toml` and an optional `catalog.csv` (the products, labels or pages people search for by name).
 - Runs one plan mission and one mission per campaign. Campaigns run in parallel.
 - Picks a format per campaign: Search, Demand Gen, Performance Max or App installs. Image campaigns get generated pictures (Gemini or OpenAI), your real logo and real product photos as references. Or you choose the formats in `business.toml`. See [Image campaigns](docs/guides/image-campaigns.md).
-- Validates 24 error rules and 9 warning rules: text lengths, `!` in headlines, URLs outside your site, negatives that block your own keywords, budgets that do not add up, picture counts and sizes.
+- Validates 26 error rules and 8 warning rules: text lengths, `!` in headlines, URLs outside your site, negatives that block your own keywords, budgets that do not add up, picture counts and sizes.
 - Adds brand and competitor terms as negatives to the campaigns they do not belong to.
 - Detects Google Ads restricted categories (alcohol, gambling, healthcare, financial services, political, sexual content) during `init`, keeps sales language out of keywords and ads, and writes the exception request into the report. See [Restricted categories](docs/guides/restricted-categories.md).
 - Learns from a live account with `mads optimize`: reads the search terms, keywords and campaigns reports you export from Google Ads and rebuilds the account from the numbers, with an Editor file that pauses what it drops. See [Optimize a live account](docs/guides/optimize.md).

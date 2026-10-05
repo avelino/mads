@@ -13,9 +13,10 @@ use super::{
 use crate::{
     google::{
         Account, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Intent, Issue,
-        PlannedAdGroup, Rules,
+        PlannedAdGroup, Rules, normalize,
     },
     input::slugify,
+    perf::{AdGroupPerf, Live},
     workspace::Workspace,
 };
 
@@ -314,6 +315,9 @@ async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput
         })
         .collect();
     check_slugs(&campaigns, &mut issues);
+    if let Some(live) = &ws.live {
+        check_live_groups(&campaigns, live, &mut issues);
+    }
     // `[campaigns] formats` is the advertiser's choice: E21 checks it, nothing else asks why.
     if ws.input.formats.is_empty() {
         if any_image_kind_available(t, ws) {
@@ -556,6 +560,48 @@ fn check_app_choice(campaigns: &[Campaign], issues: &mut Vec<Issue>) {
         );
         issues.push(Issue::error("NO_APP_REASON", "campaigns", msg));
     }
+}
+
+/// E25: a group that had impressions keeps its name in a campaign that continues. Editor matches
+/// by name, so a new name is a new group, and Google measures Quality Score per keyword from its
+/// past impressions: the keywords of a new group start without that data. On a live account the
+/// plan renamed every group of the catalog campaign after 3 days of data.
+fn check_live_groups(campaigns: &[Campaign], live: &Live, issues: &mut Vec<Issue>) {
+    for (i, c) in campaigns.iter().enumerate() {
+        let Some(perf) = live.performance.campaign(&c.name) else {
+            continue;
+        };
+        let rationale = normalize(&c.rationale);
+        let dropped = perf
+            .ad_groups
+            .iter()
+            .filter(|g| had_impressions(g))
+            .filter(|g| {
+                !c.planned_ad_groups
+                    .iter()
+                    .any(|p| normalize(&p.name) == normalize(&g.name))
+            });
+        for g in dropped {
+            if rationale.contains(&normalize(&format!("drop {}:", g.name))) {
+                continue;
+            }
+            let msg = format!(
+                "'{0}' had impressions in Google Ads and is not in the plan: keep its name, or add a line `Drop {0}: <reason>` to the rationale (a renamed group comes in as a new one, its keywords without Quality Score data)",
+                g.name
+            );
+            issues.push(Issue::error(
+                "E25",
+                format!("campaigns[{i}].ad_groups"),
+                msg,
+            ));
+        }
+    }
+}
+
+fn had_impressions(g: &AdGroupPerf) -> bool {
+    g.keywords.iter().any(|k| k.metrics.impressions > 0)
+        || g.search_terms.iter().any(|t| t.metrics.impressions > 0)
+        || g.assets.iter().any(|a| a.impressions > 0)
 }
 
 fn check_slugs(campaigns: &[Campaign], issues: &mut Vec<Issue>) {

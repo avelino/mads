@@ -115,7 +115,8 @@ mod tests {
             "business.restricted",
             "E23",
             "first-page bid",
-            "W08",
+            "E26",
+            "LIVE_DETAIL",
             "W09",
             "do not sell",
             "`live`",
@@ -142,6 +143,8 @@ mod tests {
             "live_account",
             "Keep the name",
             "ignored_campaigns",
+            "E25",
+            "Drop <group>:",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }
@@ -169,6 +172,7 @@ mod tests {
             "`live`",
             "Best or Good",
             "get_ad_group_performance",
+            "LIVE_DETAIL",
         ] {
             assert!(m.system.contains(needle), "image prompt misses {needle}");
         }

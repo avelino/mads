@@ -83,7 +83,7 @@ The CPC per Search ad group is chosen later.
 
 When `get_business` has `live_account` and `performance`, this account already runs in Google Ads. Plan its next version, not a new account.
 
-- Keep the name of every campaign that continues and of its ad groups. Google Ads Editor matches by name: a new name creates a new campaign and leaves the old one serving.
+- Keep the name of every campaign that continues and of its ad groups. Google Ads Editor matches by name, so a new name is a new group, and its keywords start without the Quality Score data the old ones had. To drop or rename a group that had impressions, add a line `Drop <group>: <reason>` to the campaign `rationale`. Without it the tool refuses the plan with `E25`.
 - A campaign you leave out is paused at import. Leave one out only for a reason in `performance`.
 - Read `thin_rule`. A thin campaign keeps its budget unless it is broken: no impressions because of bids under the first page, no ads, or a policy limit.
 - Move budget toward campaigns that bring customers at a lower cost and away from campaigns that spend without results. A campaign that loses impressions to budget and converts deserves more. One that loses them to rank needs better bids or quality, not more budget.

@@ -910,11 +910,13 @@ fn optimize_writes_a_new_run_that_pauses_what_it_dropped() {
             "plan": [optimize_plan()],
             "campaign:vinellu-catalogo": [resp(vec![
                 ("get_brief", json!({})),
+                ("get_ad_group_performance", json!({"ad_group": "alamos"})),
                 ("upsert_ad_group", ad_group("alamos", &["alamos malbec"])),
                 ("set_assets", assets(&p.site)),
                 ("finish", json!({})),
             ])],
             "campaign:vinellu-marca": [resp(vec![
+                ("get_ad_group_performance", json!({"ad_group": "marca"})),
                 ("upsert_ad_group", marca),
                 ("set_assets", assets(&p.site)),
                 ("finish", json!({})),

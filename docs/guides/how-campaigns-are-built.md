@@ -51,7 +51,7 @@ The agent does not write the keyword list. It sends a spec.
 
 | Field | Limit | Meaning |
 |---|---|---|
-| `variants` | 1 to 6 | Ways people write one name. Different things go in different ad groups (`W08`). |
+| `variants` | 1 to 6 | Ways people write one name. Different searches go in different ad groups (`E26`). |
 | `modifiers` | 0 to 10 | Intent words appended to each variant. |
 | `exact_heads` | default `true` | Also add each variant as an exact match keyword. |
 | `extra` | 0 to 20 | Explicit keywords for cases the spec cannot express. |
@@ -59,7 +59,7 @@ The agent does not write the keyword list. It sends a spec.
 mads expands it.
 
 1. Normalize every variant and modifier: lowercase, trim, collapse spaces. Drop empties and duplicates.
-2. Phrase keywords are every variant plus every `variant modifier` pair. Sort them by byte order and remove duplicates. Outside brand campaigns, a one-word variant gets no phrase keyword when `exact_heads` is true. Alone in phrase match it catches any search with that word: in a live account, `"malbec"` took 43% of the Search spend on people looking for a bottle to buy.
+2. Phrase keywords are every variant plus every `variant modifier` pair. Sort them by byte order and remove duplicates. Outside brand campaigns, a one-word variant gets no phrase keyword when `exact_heads` is true. Google shows a phrase keyword on searches that [include its meaning](https://support.google.com/google-ads/answer/7478529?hl=en), with any words around it. With one word that meaning is wide: in a live account, `"malbec"` took 43% of the Search spend on people looking for a bottle to buy.
 3. If `exact_heads` is true, add each variant again as an exact match keyword, in the order the agent gave them.
 4. Add `extra` keywords that are not already present with the same text and match type.
 
@@ -167,7 +167,7 @@ Search campaigns take only `manual_cpc`. The plan tool refuses `maximize_clicks`
 
 Performance Max takes `maximize_conversions`. Demand Gen takes `maximize_clicks` or `maximize_conversions`. Any other pair is `E17`.
 
-Each ad group gets a `default_cpc` and a `cpc_rationale`. These are estimates. mads has no auction data, no Keyword Planner volumes and no history. A CPC under the first-page bid gets no impressions, so the prompt asks for what searches of that kind cost, below `budget.max_cpc` when set. Brand and competitor groups of a little-known brand get a CPC close to the generic ones: in a live account, brand groups at 0.60 BRL showed zero times while generic groups at 1.00 to 1.20 BRL served. `E11` rejects a zero CPC and any CPC above `max_cpc`.
+Each ad group gets a `default_cpc` and a `cpc_rationale`. These are estimates. mads has no auction data, no Keyword Planner volumes and no history. A keyword whose CPC is under the [first page bid estimate](https://support.google.com/google-ads/answer/105665?hl=en) stays active but [does not reach the first page](https://support.google.com/google-ads/answer/2453978?hl=en), so the prompt asks for what searches of that kind cost, below `budget.max_cpc` when set. Brand and competitor groups of a little-known brand get a CPC close to the generic ones: in a live account, brand groups at 0.60 BRL showed zero times while generic groups at 1.00 to 1.20 BRL served. `E11` rejects a zero CPC and any CPC above `max_cpc`.
 
 The report labels budget shares and CPCs as estimates. Check them before you enable anything.
 

@@ -39,7 +39,7 @@ Ratios: Performance Max needs at least 1 `landscape` and 1 `square`, and Google 
 
 ## Optimizing a live campaign
 
-When `get_brief` has `live` and `performance`, this campaign already runs. `live` names its asset groups as they ran, `performance` sums up what they got. Call `get_ad_group_performance` with an asset group name for its texts, pictures and the labels Google gave them.
+When `get_brief` has `live` and `performance`, this campaign already runs. `live` names its asset groups as they ran, `performance` sums up what they got. Call `get_ad_group_performance` with an asset group name for its texts, pictures and the labels Google gave them. `upsert_asset_group` refuses an asset group that ran until you did, with `LIVE_DETAIL`.
 
 - Keep the asset group names and the image ids of pictures that stay: a kept id reuses its picture and costs nothing.
 - Keep texts Google labels Best or Good, rewrite the ones labeled Low.

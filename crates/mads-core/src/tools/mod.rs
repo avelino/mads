@@ -85,6 +85,9 @@ pub struct MissionTools {
     persist: Option<PathBuf>,
     /// The workspace holds a live account (`mads optimize`): campaign missions get its detail tool.
     has_live: bool,
+    /// Live groups whose detail this mission read, normalized. A group that ran is rebuilt only
+    /// after its detail: on a live account agents rebuilt every group from the summary alone.
+    detailed: std::sync::Mutex<std::collections::BTreeSet<String>>,
     finished: AtomicBool,
     calls: AtomicUsize,
 }
@@ -116,6 +119,7 @@ impl MissionTools {
             settings,
             persist,
             has_live,
+            detailed: Default::default(),
             finished: AtomicBool::new(false),
             calls: AtomicUsize::new(0),
         })

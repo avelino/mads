@@ -213,6 +213,11 @@ async fn upsert_asset_group(t: &MissionTools, slug: &str, a: UpsertAssetGroupArg
             "upsert_asset_group: not planned",
         );
     };
+    if let Some(live) = &ws.live
+        && let Some(refused) = super::live::detail_first(t, live, &candidate.name, &planned.name)
+    {
+        return refused;
+    }
     let gi = place_group(&mut candidate, &planned, a);
     let issues = group_issues(ws, t, &candidate, gi);
     commit(

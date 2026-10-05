@@ -484,26 +484,22 @@ async fn one_word_heads_stay_phrase_only_in_brand_campaigns() {
     );
 }
 
-fn warning_codes(out: &ToolOutput) -> Vec<String> {
-    out.content["warnings"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(|w| w["code"].as_str().unwrap().to_string())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 #[tokio::test]
-async fn variants_about_different_things_warn_w08() {
+async fn variants_about_different_things_are_refused_e26() {
     let ws = planned().await;
     let t = campaign_tools(&ws, "vinellu-catalogo").await;
     let mut mixed = ad_group_args("alamos");
     mixed["keywords"]["variants"] = json!(["malbec", "cabernet sauvignon", "merlot"]);
     let out = t.call("upsert_ad_group", mixed).await;
-    assert!(!out.is_error, "{}", out.content);
-    assert!(warning_codes(&out).contains(&"W08".to_string()));
+    assert_eq!(error_codes(&out), ["E26"], "{}", out.content);
+    assert!(
+        out.content.to_string().contains("extra"),
+        "says where synonyms go"
+    );
+    assert!(
+        ws.lock().await.account.campaigns[0].ad_groups.is_empty(),
+        "a refused call changes nothing"
+    );
 
     let mut spellings = ad_group_args("alamos");
     spellings["keywords"]["variants"] = json!([
@@ -514,11 +510,7 @@ async fn variants_about_different_things_warn_w08() {
         "cabernetsauvignon"
     ]);
     let out = t.call("upsert_ad_group", spellings).await;
-    assert!(
-        !warning_codes(&out).contains(&"W08".to_string()),
-        "{}",
-        out.content
-    );
+    assert!(!out.is_error, "{}", out.content);
 }
 
 #[tokio::test]
@@ -1370,4 +1362,89 @@ async fn ad_group_performance_returns_one_group_in_detail() {
         .await;
     assert_eq!(error_codes(&bad), ["ARGS"]);
     assert_eq!(ws.lock().await.account, before, "read only");
+}
+
+#[tokio::test]
+async fn a_group_that_ran_is_rebuilt_only_after_its_detail() {
+    let ws = live_planned().await;
+    let t = campaign_tools(&ws, "vinellu-catalogo").await;
+    let before = ws.lock().await.account.clone();
+    let out = t.call("upsert_ad_group", ad_group_args("alamos")).await;
+    assert_eq!(error_codes(&out), ["LIVE_DETAIL"], "{}", out.content);
+    assert!(out.content.to_string().contains("get_ad_group_performance"));
+    assert_eq!(
+        ws.lock().await.account,
+        before,
+        "a refused call changes nothing"
+    );
+
+    let fresh = t.call("upsert_ad_group", ad_group_args("luigi")).await;
+    assert!(
+        !fresh.is_error,
+        "a group that did not run needs no detail: {}",
+        fresh.content
+    );
+
+    let detail = t
+        .call("get_ad_group_performance", json!({"ad_group": "Alamos"}))
+        .await;
+    assert!(!detail.is_error);
+    let out = t.call("upsert_ad_group", ad_group_args("alamos")).await;
+    assert!(!out.is_error, "{}", out.content);
+}
+
+#[tokio::test]
+async fn an_asset_group_that_ran_is_rebuilt_only_after_its_detail() {
+    let ws = image_planned().await;
+    assert!(
+        !pmax_tools(&ws)
+            .await
+            .call("upsert_asset_group", asset_group_args())
+            .await
+            .is_error
+    );
+    {
+        let mut guard = ws.lock().await;
+        let baseline = guard.account.clone();
+        guard.live = Some(crate::perf::Live {
+            baseline,
+            performance: Default::default(),
+        });
+    }
+    let t = pmax_tools(&ws).await;
+    let out = t.call("upsert_asset_group", asset_group_args()).await;
+    assert_eq!(error_codes(&out), ["LIVE_DETAIL"], "{}", out.content);
+    t.call("get_ad_group_performance", json!({"ad_group": "tintos"}))
+        .await;
+    let out = t.call("upsert_asset_group", asset_group_args()).await;
+    assert!(!out.is_error, "{}", out.content);
+}
+
+#[tokio::test]
+async fn a_group_with_impressions_is_not_dropped_without_a_reason_e25() {
+    let ws = live_planned().await;
+    let t = plan_tools(&ws).await;
+    let mut renamed = plan_args();
+    renamed["campaigns"][0]["ad_groups"][0]["name"] = json!("alamos novo");
+    let before = ws.lock().await.account.clone();
+    let out = t.call("set_account_plan", renamed.clone()).await;
+    assert_eq!(error_codes(&out), ["E25"], "{}", out.content);
+    assert!(out.content.to_string().contains("Drop alamos:"));
+    assert_eq!(
+        ws.lock().await.account,
+        before,
+        "a refused call changes nothing"
+    );
+
+    renamed["campaigns"][0]["rationale"] =
+        json!("intencao alta\nDrop alamos: misturava dois temas, virou alamos novo");
+    let out = t.call("set_account_plan", renamed).await;
+    assert!(!out.is_error, "{}", out.content);
+
+    let out = t.call("set_account_plan", plan_args()).await;
+    assert!(
+        !out.is_error,
+        "keeping the name needs no reason: {}",
+        out.content
+    );
 }

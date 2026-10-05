@@ -53,7 +53,12 @@ pub(super) async fn call(t: &MissionTools, slug: &str, args: Value) -> ToolOutpu
         return ToolOutput::fail("NOT_FOUND", format!("campaign '{slug}' has no live data"));
     };
     match ad_group_view(live, &c.name, &a.ad_group) {
-        Some(v) => ToolOutput::ok(v, &[], format!("get_ad_group_performance {}", a.ad_group)),
+        Some(v) => {
+            if let Ok(mut seen) = t.detailed.lock() {
+                seen.insert(normalize(&a.ad_group));
+            }
+            ToolOutput::ok(v, &[], format!("get_ad_group_performance {}", a.ad_group))
+        }
         None => {
             let known = known_groups(live, &c.name).join(", ");
             let msg = format!(
@@ -95,6 +100,27 @@ pub fn business_view(live: &Live) -> (Value, Value) {
         "ignored_campaigns": p.ignored_campaigns, "campaigns": campaigns,
     });
     (account, perf)
+}
+
+/// LIVE_DETAIL: a group that ran, rebuilt before this mission read its detail. None: go ahead.
+pub(super) fn detail_first(
+    t: &MissionTools,
+    live: &Live,
+    campaign: &str,
+    group: &str,
+) -> Option<ToolOutput> {
+    ad_group_view(live, campaign, group)?;
+    let seen = t
+        .detailed
+        .lock()
+        .map(|s| s.contains(&normalize(group)))
+        .unwrap_or(false);
+    (!seen).then(|| {
+        let msg = format!(
+            "'{group}' ran in Google Ads: call get_ad_group_performance with it first, then rebuild it from what ran and its numbers"
+        );
+        ToolOutput::fail("LIVE_DETAIL", msg)
+    })
 }
 
 fn ran_campaign<'a>(live: &'a Live, campaign: &str) -> Option<&'a Campaign> {

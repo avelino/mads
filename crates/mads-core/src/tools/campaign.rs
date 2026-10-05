@@ -323,6 +323,11 @@ async fn upsert_ad_group(t: &MissionTools, slug: &str, a: UpsertAdGroupArgs) -> 
             "upsert_ad_group: not planned",
         );
     };
+    if let Some(live) = &ws.live
+        && let Some(refused) = super::live::detail_first(t, live, &campaign.name, &planned.name)
+    {
+        return refused;
+    }
     let mut issues = Vec::new();
     let (name, url) = (planned.name.clone(), planned.final_url.clone());
     let ad_group = build_ad_group(a, &name, &url, campaign.intent, &mut issues);

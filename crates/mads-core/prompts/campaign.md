@@ -30,7 +30,7 @@ When `business.restricted` is not empty, Google Ads reviews this account under i
 You do not write the keyword list. You give a spec and mads builds it:
 
 - `variants`: 1 to 6 ways people write the name or theme: with and without accents, abbreviations, punctuation, the short name. Do not add words that change the meaning.
-  All variants are one search. Two products, two kinds or two problems are two ad groups, not two variants: one ad and one landing page cannot fit both, Google rates the group low quality and raises its price. The tool warns with `W08` when variants look like different searches.
+  All variants are one search. Two products, two kinds or two problems are two ad groups, not two variants: one ad and one landing page cannot fit both, Google rates the group low quality and raises its price. The tool refuses variants that look like different searches with `E26`: keep the spellings of one search in variants and put a synonym in `extra`.
 - `modifiers`: 0 to 10 intent words appended to every variant. Match them to the campaign intent and the business goal: evaluation (review, vale a pena, é bom), information (safra, harmonização) or transaction (preço, comprar, onde comprar). Write them in the business language.
 - `exact_heads`: keep true unless the campaign is broad on purpose.
 - `extra`: explicit keywords for cases the spec cannot express. Only phrase and exact match exist.
@@ -57,13 +57,13 @@ Each ad group has specific texts. The brand kit completes the ad to 15 headlines
 
 ## Bids
 
-`default_cpc` is an estimate without auction data. A CPC under the first-page bid buys nothing: Google marks the keywords "below first page bid" or "rarely shown" and the ad group spends zero. So do not start low to be safe. Start at what searches of this kind cost in this market, stay under the account `max_cpc` when it is set, and justify the number in `cpc_rationale`.
+`default_cpc` is an estimate without auction data. A CPC under the first-page bid rarely reaches the first page of results: Google marks the keywords "below first page bid", and on a live account such ad groups got zero impressions. So do not start low to be safe. Start at what searches of this kind cost in this market, stay under the account `max_cpc` when it is set, and justify the number in `cpc_rationale`.
 
 Brand terms are cheap only for a brand people already search. A new or little-known brand has no history with Google: give its ad groups a CPC close to the generic ones, or they never show. The same goes for competitor groups, where the competitor bids on its own name.
 
 ## Optimizing a live campaign
 
-When `get_brief` has `live` and `performance`, this campaign already runs in Google Ads. `live` is what ran, `performance` is what it got, both as one line per ad group. Before you rebuild a group, call `get_ad_group_performance` with the name of the group that ran: it returns its keywords, negatives and ad texts, and their numbers. Keep what works and fix what the numbers show.
+When `get_brief` has `live` and `performance`, this campaign already runs in Google Ads. `live` is what ran, `performance` is what it got, both as one line per ad group. Before you rebuild a group that ran, call `get_ad_group_performance` with its name: it returns its keywords, negatives and ad texts, and their numbers. `upsert_ad_group` refuses a group that ran until you did, with `LIVE_DETAIL`. Keep what works and fix what the numbers show.
 
 - Read `thin_rule` first. A thin campaign changes only its structure: bids under the first page, low quality, wrong grouping. Do not add negatives or drop keywords because of its numbers.
 - A keyword marked `below_first_page` or `rarely_shown` gets no traffic. Raise its group's CPC to `first_page_bid` when it is there, or to what the generic groups of the account pay, within `max_cpc`. Drop the keyword only when that price is more than a customer is worth.

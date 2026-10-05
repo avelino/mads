@@ -18,7 +18,7 @@ pub enum ReportKind {
 }
 
 /// The period a report covers, both days included.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Window {
     pub start: String,
     pub end: String,
@@ -49,24 +49,26 @@ pub struct Row<'a> {
     cells: &'a [String],
 }
 
-const SEARCH_TERM: &[&str] = &["termo de pesquisa", "search term"];
-const KEYWORD: &[&str] = &["palavra chave", "keyword", "search keyword"];
-const MATCH: &[&str] = &["tipo de corresp", "match type"];
-const CAMPAIGN: &[&str] = &["campanha", "campaign"];
-const AD_GROUP: &[&str] = &["grupo de anuncios", "ad group"];
-const ASSET: &[&str] = &["recurso", "asset"];
-const DAY: &[&str] = &["dia", "day"];
+pub(super) const SEARCH_TERM: &[&str] = &["termo de pesquisa", "search term"];
+pub(super) const KEYWORD: &[&str] = &["palavra chave", "keyword", "search keyword"];
+pub(super) const MATCH: &[&str] = &["tipo de corresp", "match type"];
+pub(super) const CAMPAIGN: &[&str] = &["campanha", "campaign"];
+pub(super) const AD_GROUP: &[&str] = &["grupo de anuncios", "ad group"];
+pub(super) const ASSET: &[&str] = &["recurso", "asset"];
+pub(super) const DAY: &[&str] = &["dia", "day"];
 
 /// Reads one exported report. Err says why the file is not a report mads understands.
 pub fn read_table(bytes: &[u8]) -> Result<Table, String> {
     let text = decode(bytes)?;
-    let records = records(&text, b',')
-        .filter(|r| header_at(r).is_some())
-        .or_else(|| records(&text, b'\t').filter(|r| header_at(r).is_some()))
+    let (records, at, kind) = b",\t"
+        .iter()
+        .find_map(|&d| {
+            let r = records(&text, d)?;
+            let (at, kind) = header_at(&r)?;
+            Some((r, at, kind))
+        })
         .ok_or("no known report header (search terms, keywords, campaigns or assets)")?;
-    let at = header_at(&records).ok_or("no known report header")?;
     let header: Vec<String> = records[at].iter().map(|h| fold(h)).collect();
-    let kind = kind_of(&header).ok_or("no known report header")?;
     let window = records[..at]
         .iter()
         // `Oct 3, 2026 - Oct 5, 2026` is split by the comma: read the line whole.
@@ -74,7 +76,7 @@ pub fn read_table(bytes: &[u8]) -> Result<Table, String> {
     let rows = records[at + 1..]
         .iter()
         .filter(|r| r.iter().any(|c| !c.trim().is_empty()))
-        .filter(|r| !r.iter().any(|c| fold(c).starts_with("total")))
+        .filter(|r| !is_total(r))
         .cloned()
         .collect();
     // Every report has the campaign column, named in the interface language.
@@ -90,6 +92,13 @@ pub fn read_table(bytes: &[u8]) -> Result<Table, String> {
         rows,
         locale,
     })
+}
+
+/// Google closes a report with `Total: Account`, `Total: Campanhas` and the like in the first
+/// cell. A search term or campaign that merely starts with "total" is a real row.
+fn is_total(row: &[String]) -> bool {
+    row.first()
+        .is_some_and(|c| c.trim_start().to_lowercase().starts_with("total:"))
 }
 
 /// UTF-16 LE with a BOM (the "Excel" download) or UTF-8 with or without a BOM.
@@ -120,10 +129,11 @@ fn records(text: &str, delimiter: u8) -> Option<Vec<Vec<String>>> {
         .ok()
 }
 
-fn header_at(records: &[Vec<String>]) -> Option<usize> {
-    records.iter().position(|r| {
+/// The first record that is a known report header, and the report kind it names.
+fn header_at(records: &[Vec<String>]) -> Option<(usize, ReportKind)> {
+    records.iter().enumerate().find_map(|(i, r)| {
         let folded: Vec<String> = r.iter().map(|h| fold(h)).collect();
-        kind_of(&folded).is_some()
+        kind_of(&folded).map(|k| (i, k))
     })
 }
 
@@ -231,10 +241,7 @@ impl Row<'_> {
 
     /// The text of the first column named one of `names`, trimmed. Empty when absent.
     pub fn text(&self, names: &[&str]) -> String {
-        self.at(self.table.col(names))
-            .map(|s| s.trim().to_string())
-            .filter(|s| s != "--")
-            .unwrap_or_default()
+        cell_text(self.at(self.table.col(names)))
     }
 
     pub fn number(&self, names: &[&str]) -> Option<f64> {
@@ -243,16 +250,21 @@ impl Row<'_> {
     }
 
     pub fn text_words(&self, groups: &[&[&str]]) -> String {
-        self.at(self.table.col_words(groups))
-            .map(|s| s.trim().to_string())
-            .filter(|s| s != "--")
-            .unwrap_or_default()
+        cell_text(self.at(self.table.col_words(groups)))
     }
 
     pub fn number_words(&self, groups: &[&[&str]]) -> Option<f64> {
         self.at(self.table.col_words(groups))
             .and_then(|c| self.table.number(c))
     }
+}
+
+/// Trimmed text, with Google's `--` for "no value" read as empty.
+fn cell_text(cell: Option<&str>) -> String {
+    cell.map(str::trim)
+        .filter(|s| *s != "--")
+        .unwrap_or_default()
+        .to_string()
 }
 
 #[cfg(test)]
@@ -279,6 +291,16 @@ mod tests {
         assert_eq!(rows[0].text(AD_GROUP), "Uvas tintas");
         assert_eq!(rows[0].number(&["custo", "cost"]), Some(5.85));
         assert_eq!(rows[0].number(&["impr"]), Some(106.0));
+    }
+
+    #[test]
+    fn only_total_rows_are_dropped_not_names_that_start_with_total() {
+        let csv = "Campanha,Termo de pesquisa,Custo\nTotal Wine,totalpass academia,\"1,00\"\nTotal: Conta,,\"1,00\"\nTotal: Account,,\"1,00\"\n";
+        let t = read_table(csv.as_bytes()).unwrap();
+        let rows: Vec<Row> = t.rows().collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text(CAMPAIGN), "Total Wine");
+        assert_eq!(rows[0].text(SEARCH_TERM), "totalpass academia");
     }
 
     #[test]

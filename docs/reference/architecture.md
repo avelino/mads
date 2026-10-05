@@ -21,6 +21,8 @@ business.toml, catalog.csv
   | finalize   validate, URL check, export                 |
   | events     Event, EventSink                            |
   | report     report.md                                   |
+  | perf       Google Ads report CSVs, performance digest  |
+  | optimize   new run from a finished one and its reports |
   +--------^------------------------------^----------------+
            |                              |
     mads-providers                    mads-cli
@@ -55,6 +57,8 @@ The dependency rule is strict. `mads-cli` depends on `mads-providers` and `mads-
 `ScriptedDriver` plays a recorded JSON script, `{"missions": {"plan": [...], "campaign:<slug>": [...]}}`, through the same loop. The hidden `replay` provider uses it. Tests use it so no test calls a real model. It is not a user feature.
 
 ## Mission flow
+
+`mads optimize` runs `optimize::prepare` and then the same `run::generate`. `prepare` reads the report CSVs with `perf::read_table`, joins them to the finished run's account with `perf::digest`, and writes a new run directory whose `workspace.json` has `live`: the old account as `baseline` and the digest as `performance`. Its missions start empty, so plan and campaigns run again. The tools add `live` and `performance` to `get_business` and `get_brief`, `finalize` passes `live` to the Editor export so dropped entities arrive paused, and the report adds Performance data and Changes. See [Optimize a live account](../guides/optimize.md).
 
 `mads init` runs `init::run_init`. It starts one `init` mission with `InitTools`, retries it like any mission, and writes `business.toml`, `catalog.csv` and `research.md` only when the mission finishes. The mission asks for web search only when the driver says it can give it (`Driver::web_search`), and the agent is told which case it is in. It creates no run directory. The transcript goes to `<out-dir>/.mads/transcripts/`.
 

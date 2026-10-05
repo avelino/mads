@@ -107,6 +107,17 @@ struct Ctx<'a> {
     live: Option<&'a Live>,
 }
 
+/// The reports show the campaign in the account and not removed. A campaign of the baseline that
+/// was never imported, or that the advertiser removed, gets no row: Editor would create it.
+fn is_live(live: &Live, name: &str) -> bool {
+    live.performance
+        .campaign(name)
+        .is_some_and(|p| match p.live_status {
+            Some(s) => s != LiveStatus::Removed,
+            None => !p.ad_groups.is_empty() || p.metrics.impressions > 0 || p.metrics.clicks > 0,
+        })
+}
+
 fn same_name(a: &str, b: &str) -> bool {
     normalize(a) == normalize(b)
 }
@@ -136,7 +147,12 @@ impl Ctx<'_> {
             return Vec::new();
         };
         let mut out = Vec::new();
-        for old in &live.baseline.campaigns {
+        for old in live
+            .baseline
+            .campaigns
+            .iter()
+            .filter(|c| is_live(live, &c.name))
+        {
             match new.campaigns.iter().find(|c| same_name(&c.name, &old.name)) {
                 None => out.push(
                     Row::default()
@@ -572,7 +588,14 @@ mod tests {
             brand_kit: None,
             campaigns: vec![search("Catalogo", &[("tintos", &["malbec"])]), feed],
         };
-        let base = live(old, &[]);
+        let base = live(
+            old,
+            &[
+                ("Catalogo", LiveStatus::Enabled),
+                ("Antiga", LiveStatus::Enabled),
+                ("Feed", LiveStatus::Paused),
+            ],
+        );
         let file = export_editor_live(&crate::testutil::input(), &new, Some(&base)).unwrap();
         let rows = read_editor(&file.bytes).unwrap();
         let get = |r: &BTreeMap<String, String>, k: &str| r.get(k).cloned().unwrap_or_default();
@@ -600,6 +623,29 @@ mod tests {
         })
         .expect("asset group row");
         assert_eq!(get(tintos, "Ad Group Status"), "Paused");
+    }
+
+    #[test]
+    fn only_campaigns_the_reports_show_live_get_paused_rows() {
+        let old = vec![
+            search("Nunca importada", &[("g", &["x"])]),
+            search("Removida", &[("g", &["x"])]),
+        ];
+        let new = Account {
+            brand_kit: None,
+            campaigns: vec![search("Catalogo", &[("tintos", &["malbec"])])],
+        };
+        let base = live(old, &[("Removida", LiveStatus::Removed)]);
+        let file = export_editor_live(&crate::testutil::input(), &new, Some(&base)).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        for name in ["Nunca importada", "Removida"] {
+            assert!(
+                !rows
+                    .iter()
+                    .any(|r| r.get("Campaign").map(String::as_str) == Some(name)),
+                "{name} must not be written: Editor would create it"
+            );
+        }
     }
 
     #[test]

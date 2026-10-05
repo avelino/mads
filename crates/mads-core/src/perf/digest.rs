@@ -1,30 +1,23 @@
 //! Reports plus the run's account give the performance digest the agents read.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     model::*,
-    table::{Row, Table},
+    table::{AD_GROUP, ASSET, CAMPAIGN, DAY, KEYWORD, MATCH, Row, SEARCH_TERM, Table},
 };
 use crate::{
     google::{Account, AdGroup, Campaign, MatchType, contains_word_sequence, normalize},
     input::fold,
 };
 
-const CAMPAIGN: &[&str] = &["campanha", "campaign"];
-const AD_GROUP: &[&str] = &["grupo de anuncios", "ad group"];
-const KEYWORD: &[&str] = &["palavra chave", "keyword", "search keyword"];
-const MATCH: &[&str] = &["tipo de corresp", "match type"];
-const SEARCH_TERM: &[&str] = &["termo de pesquisa", "search term"];
 const ADDED: &[&str] = &["adicionada excluida", "added excluded"];
 const REASONS: &[&str] = &["motivos do status", "status reasons"];
 const LIVE: &[&str] = &["status da campanha", "campaign status"];
 const BUDGET: &[&str] = &["orcamento", "budget"];
 const MAX_CPC: &[&str] = &["cpc max", "max cpc"];
 const QUALITY: &[&str] = &["indice de qualidade", "quality score", "qual score"];
-const ASSET: &[&str] = &["recurso", "asset"];
 const ASSET_KIND: &[&str] = &["tipo de recurso", "asset type"];
-const DAY: &[&str] = &["dia", "day"];
 
 /// One file of the reports folder: its name and the table, or why it is not a report.
 pub type ReportInput = (String, Result<Table, String>);
@@ -41,8 +34,7 @@ pub fn digest(files: &[ReportInput], account: &Account) -> Performance {
             .collect(),
         ..Default::default()
     };
-    let mut ignored = BTreeSet::new();
-    let mut acc = Accumulated::default();
+    let mut pass = Pass::default();
     for (file, table) in files {
         match table {
             Err(why) => p.unknown_files.push(format!("{file}: {why}")),
@@ -52,33 +44,44 @@ pub fn digest(files: &[ReportInput], account: &Account) -> Performance {
                     file: file.clone(),
                     kind: t.kind,
                     rows: t.rows().count(),
+                    window: t.window.clone(),
                 });
-                read(&mut p, &mut acc, &mut ignored, t, account);
+                read(&mut p, &mut pass, t, account);
             }
         }
     }
-    p.ignored_campaigns = ignored.into_iter().collect();
+    p.ignored_campaigns = pass.ignored.iter().cloned().collect();
+    let windows: BTreeSet<_> = p.reports.iter().filter_map(|r| r.window.as_ref()).collect();
+    p.mixed_windows = windows.len() > 1;
     let days = p.window.as_ref().map(|w| w.days);
     for (i, c) in p.campaigns.iter_mut().enumerate() {
-        finish(c, acc.campaign_metrics.contains(&i), days);
+        if !pass.totals.contains(&i)
+            && let Some((budget, rank)) = pass.day_lost.get(&i)
+        {
+            c.lost_to_budget_pct = mean(budget);
+            c.lost_to_rank_pct = mean(rank);
+        }
+        finish(c, pass.totals.contains(&i), days, p.mixed_windows);
     }
     p
 }
 
-/// What the rows say beyond the digest itself.
+/// What the rows say beyond the digest itself, kept while the files are read.
 #[derive(Default)]
-struct Accumulated {
-    /// Campaigns whose totals came from a campaign report, not summed from keywords.
-    campaign_metrics: BTreeSet<usize>,
+struct Pass {
+    ignored: BTreeSet<String>,
+    /// Campaigns whose totals came from a campaign report, not summed from other rows.
+    totals: BTreeSet<usize>,
+    /// Lost impression share of every day row, per campaign: budget, then rank.
+    day_lost: BTreeMap<usize, (Vec<f64>, Vec<f64>)>,
 }
 
-fn read(
-    p: &mut Performance,
-    acc: &mut Accumulated,
-    ignored: &mut BTreeSet<String>,
-    t: &Table,
-    account: &Account,
-) {
+fn mean(values: &[f64]) -> Option<f64> {
+    (!values.is_empty())
+        .then(|| (values.iter().sum::<f64>() / values.len() as f64 * 100.0).round() / 100.0)
+}
+
+fn read(p: &mut Performance, pass: &mut Pass, t: &Table, account: &Account) {
     use super::table::ReportKind::*;
     for row in t.rows() {
         let name = row.text(CAMPAIGN);
@@ -88,7 +91,7 @@ fn read(
             .position(|c| normalize(&c.name) == normalize(&name))
         else {
             if !name.is_empty() {
-                ignored.insert(name);
+                pass.ignored.insert(name);
             }
             continue;
         };
@@ -97,9 +100,12 @@ fn read(
         match t.kind {
             Campaigns => {
                 campaign_row(c, &row);
-                acc.campaign_metrics.insert(ci);
+                pass.totals.insert(ci);
             }
-            CampaignsByDay => day_row(c, &row, acc.campaign_metrics.contains(&ci)),
+            CampaignsByDay => {
+                let lost = pass.day_lost.entry(ci).or_default();
+                day_row(c, &row, pass.totals.contains(&ci), lost);
+            }
             Keywords => group(c, &row.text(AD_GROUP)).keywords.push(keyword(&row)),
             SearchTerms => {
                 let g = row.text(AD_GROUP);
@@ -149,16 +155,17 @@ fn campaign_row(c: &mut CampaignPerf, row: &Row) {
     c.lost_to_rank_pct = lost_rank(row).or(c.lost_to_rank_pct);
 }
 
-/// A day row adds to the totals only when no campaign report gave them.
-fn day_row(c: &mut CampaignPerf, row: &Row, has_totals: bool) {
+/// A day row adds to the totals only when no campaign report gave them. Its lost share is kept
+/// to average over the days: the last day alone would say nothing about the period.
+fn day_row(c: &mut CampaignPerf, row: &Row, has_totals: bool, lost: &mut (Vec<f64>, Vec<f64>)) {
     if !has_totals {
         c.metrics.add(&metrics(row));
     }
     if row.text(DAY).is_empty() {
         return;
     }
-    c.lost_to_budget_pct = lost_budget(row).or(c.lost_to_budget_pct);
-    c.lost_to_rank_pct = lost_rank(row).or(c.lost_to_rank_pct);
+    lost.0.extend(lost_budget(row));
+    lost.1.extend(lost_rank(row));
 }
 
 fn lost_budget(row: &Row) -> Option<f64> {
@@ -282,8 +289,9 @@ fn asset(row: &Row) -> AssetPerf {
 }
 
 /// Totals, the thin flag, hidden term cost, and the term list cut to the most expensive.
-fn finish(c: &mut CampaignPerf, has_totals: bool, days: Option<u32>) {
-    if !has_totals && c.metrics.impressions == 0 {
+fn finish(c: &mut CampaignPerf, has_totals: bool, days: Option<u32>, mixed_windows: bool) {
+    let empty = c.metrics.impressions == 0 && c.metrics.clicks == 0 && c.metrics.cost == 0.0;
+    if !has_totals && empty {
         let mut sum = Metrics::default();
         for k in c.ad_groups.iter().flat_map(|g| &g.keywords) {
             sum.add(&k.metrics);
@@ -298,7 +306,8 @@ fn finish(c: &mut CampaignPerf, has_totals: bool, days: Option<u32>) {
         .map(|t| t.metrics.cost)
         .sum();
     let any_terms = c.ad_groups.iter().any(|g| !g.search_terms.is_empty());
-    if has_totals && any_terms {
+    // Campaign cost minus term cost only means something when both cover the same days.
+    if has_totals && any_terms && !mixed_windows {
         c.hidden_terms_cost = Some(((c.metrics.cost - listed).max(0.0) * 100.0).round() / 100.0);
     }
     for g in &mut c.ad_groups {

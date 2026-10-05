@@ -30,6 +30,11 @@ fn summary(p: &Performance) -> String {
     );
     lines.push(format!("reports: {} read ({window})", p.reports.len()));
     lines.extend(p.unknown_files.iter().map(|u| format!("skipped: {u}")));
+    if p.mixed_windows {
+        lines.push(
+            "warning: the reports cover different dates, export them for the same dates".into(),
+        );
+    }
     if !p.ignored_campaigns.is_empty() {
         lines.push(format!(
             "not in this run: {}",

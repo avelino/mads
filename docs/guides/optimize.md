@@ -22,7 +22,7 @@ In Google Ads, export each report as CSV for the same date range and put the fil
 | Campaigns by day | Campaigns, segmented by Day | The same |
 | Ads and assets | Ads, Assets | Performance label |
 
-None is required, but at least one must be there. A CSV that is not one of these is listed as skipped and changes nothing. The two title lines, number formats such as `1.020,50` or `1,020.50`, `--` for empty and the `Total:` rows are handled.
+None is required, but at least one must be there. Export them for the same dates. Reports of different dates are read, but mads warns and leaves out the cost hidden from search terms, since campaign totals and term rows no longer add up. A CSV that is not one of these is listed as skipped and changes nothing. The two title lines, number formats such as `1.020,50` or `1,020.50`, `--` for empty and the `Total:` rows are handled.
 
 Do not rename campaigns or ad groups in Google Ads. The name is what links a report row to the run.
 
@@ -30,7 +30,7 @@ Do not rename campaigns or ad groups in Google Ads. The name is what links a rep
 
 The reports are not sent to the agents as they are. One search terms export can have thousands of rows. mads builds a digest per campaign and per ad group and stores it in `workspace.json` under `live.performance`.
 
-- **Campaigns.** Impressions, clicks, cost, conversions, value, CTR, average CPC, cost per conversion, the live status, Google's status reasons and the share of impressions lost to budget and to rank.
+- **Campaigns.** Impressions, clicks, cost, conversions, value, CTR, average CPC, cost per conversion, the live status, Google's status reasons and the share of impressions lost to budget and to rank. With a campaigns report, its numbers win. With only the by-day report, totals are summed and the lost shares are averaged over the days.
 - **Keywords.** The same numbers, the max CPC, the Quality Score and the bid estimates when the export has them, and three signals read from the status reasons: `below_first_page`, `rarely_shown` and `low_quality`. A Quality Score of 4 or less also counts as `low_quality`.
 - **Search terms.** The 30 most expensive terms of each ad group, each marked `keyword`, `negative`, `excluded` or `new`. Every group also gets the total cost of its terms with zero conversions. When a campaigns report is there, `hidden_terms_cost` is the campaign cost Google does not show by term.
 - **Thin campaigns.** Under 14 days in the date range, or under 100 clicks. The agents are told to fix structure only there: bids under the first page, low quality, missing ads, mixed groups. They do not cut or reward anything because of its results.
@@ -51,8 +51,8 @@ Import `google-ads/editor/account.csv` with Google Ads Editor, as described in [
 
 What the file does to the live account:
 
-- A campaign that is live keeps its status from the campaigns report. A new campaign follows `export.status`.
-- A campaign, ad group or keyword that the new run dropped comes as a row with status `Paused`. Editor never deletes on import, so without that row the old one would keep serving.
+- A campaign that is live keeps its status from the campaigns report. A new campaign follows `export.status`. So does a campaign the reports show as removed: Google Ads keeps removed campaigns out of reach, and the import treats it as a new one.
+- A campaign, ad group, asset group or keyword that the new run dropped comes as a row with status `Paused`. Editor never deletes on import, so without that row the old one would keep serving. mads writes these rows only for campaigns the reports show in the account and not removed: a row for a campaign that was never imported would create it.
 - Editor adds a responsive search ad with new texts next to the old one. Pause the old ad by hand.
 - A negative the new run dropped stays in Google Ads. Remove it by hand.
 

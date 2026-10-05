@@ -223,6 +223,18 @@ error: run directory not found: out/nope
 
 Pass the run directory (the folder with `workspace.json`), not the `out` folder. `export` needs every mission finished. Resume first.
 
+### Optimize errors
+
+```text
+error: cannot read run out/nope: No such file or directory (os error 2)
+error: run has unfinished missions (campaign:vinellu-marca); finish it with `mads generate --resume <run-dir>` first
+error: no Google Ads report in perf: export search terms, keywords or campaigns as CSV (no .csv file)
+```
+
+`mads optimize` starts from a finished run and a folder of reports. The third error lists every CSV of the folder with the reason it was not read, such as `x.csv: no known report header (search terms, keywords, campaigns or assets)`. Export the report again from Google Ads as CSV. A header renamed by hand is not recognized. No run directory is created in any of these cases. See [Optimize a live account](../guides/optimize.md).
+
+`warning: the reports cover different dates` is not an error. The run goes on, but the cost hidden from search terms is left out. Export every report for the same dates.
+
 ## Exit code 3
 
 The missions finished, but the account has errors, or a URL did not answer. mads writes `report.md` with the errors and no CSV. The exit line looks like this.

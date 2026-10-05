@@ -29,6 +29,9 @@ pub struct Performance {
     /// Campaigns in the reports that are not in the run, such as older campaigns of the account.
     pub ignored_campaigns: Vec<String>,
     pub campaigns: Vec<CampaignPerf>,
+    /// The reports cover different dates: totals of one and rows of another do not add up.
+    #[serde(default)]
+    pub mixed_windows: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -36,6 +39,8 @@ pub struct ReportFile {
     pub file: String,
     pub kind: ReportKind,
     pub rows: usize,
+    #[serde(default)]
+    pub window: Option<Window>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

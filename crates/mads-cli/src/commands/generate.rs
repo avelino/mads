@@ -7,7 +7,7 @@ use mads_core::{
     run::{Drivers, RunConfig, RunDir, generate},
     workspace::Workspace,
 };
-use mads_providers::{ProviderSelection, WebClient, build_drivers, build_image_model, preflight};
+use mads_providers::{WebClient, build_drivers, build_image_model, preflight};
 
 use crate::{
     cli::{CliError, GenerateArgs, RunArgs, usage},
@@ -107,7 +107,7 @@ pub(crate) async fn execute(
     run_dir: std::path::PathBuf,
     format: Format,
 ) -> anyhow::Result<i32> {
-    let selection: ProviderSelection = args.agent.selection();
+    let selection = args.agent.selection();
     let mut cfg = RunConfig::new(args.out.clone());
     cfg.run_dir = Some(run_dir);
     cfg.parallel = args.parallel;

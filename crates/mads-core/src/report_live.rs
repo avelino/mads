@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use crate::{
     google::{Account, AdGroup, Campaign, Keyword, normalize},
-    perf::Live,
+    perf::{Live, LiveStatus},
 };
 
 const LISTED: usize = 10;
@@ -26,6 +26,9 @@ pub(crate) fn performance(md: &mut String, live: &Live) {
         let _ = writeln!(md, "- skipped `{u}`");
     }
     md.push('\n');
+    if p.mixed_windows {
+        md.push_str("The reports cover different dates, so their numbers do not add up: the cost hidden from search terms is left out. Export them again for the same dates.\n\n");
+    }
     if !p.ignored_campaigns.is_empty() {
         let _ = writeln!(
             md,
@@ -57,7 +60,13 @@ pub(crate) fn changes(md: &mut String, live: &Live, account: &Account, comma: bo
             None => {
                 let _ = writeln!(md, "**{}**: new campaign.\n", c.name);
             }
-            Some(o) => campaign(md, o, c, comma),
+            Some(o) => {
+                let paused = live
+                    .performance
+                    .campaign(&c.name)
+                    .is_some_and(|p| p.live_status == Some(LiveStatus::Paused));
+                campaign(md, o, c, comma, paused);
+            }
         }
     }
     for o in old
@@ -76,7 +85,7 @@ fn same(a: &str, b: &str) -> bool {
     normalize(a) == normalize(b)
 }
 
-fn campaign(md: &mut String, o: &Campaign, c: &Campaign, comma: bool) {
+fn campaign(md: &mut String, o: &Campaign, c: &Campaign, comma: bool, paused: bool) {
     let mut lines = Vec::new();
     if o.daily_budget != c.daily_budget {
         lines.push(format!(
@@ -98,16 +107,51 @@ fn campaign(md: &mut String, o: &Campaign, c: &Campaign, comma: bool) {
     {
         lines.push(format!("ad group {} dropped, paused by the import", x.name));
     }
+    lines.extend(asset_groups(o, c));
     lines.extend(negatives("campaign", &o.negatives, &c.negatives));
+    let head = if paused {
+        format!("**{}** stays paused, as it is in Google Ads", c.name)
+    } else {
+        format!("**{}**", c.name)
+    };
     if lines.is_empty() {
-        let _ = writeln!(md, "**{}**: no change.\n", c.name);
+        let _ = writeln!(md, "{head}: no change.\n");
         return;
     }
-    let _ = writeln!(md, "**{}**\n", c.name);
+    let _ = writeln!(md, "{head}\n");
     for l in lines {
         let _ = writeln!(md, "- {l}");
     }
     md.push('\n');
+}
+
+/// Asset groups of image and app campaigns: Editor pauses the dropped ones like ad groups.
+fn asset_groups(o: &Campaign, c: &Campaign) -> Vec<String> {
+    let mut out = Vec::new();
+    for g in &c.asset_groups {
+        match o.asset_groups.iter().find(|x| same(&x.name, &g.name)) {
+            None => out.push(format!("new asset group {}", g.name)),
+            Some(x) => {
+                let changed = x.headlines != g.headlines
+                    || x.long_headlines != g.long_headlines
+                    || x.descriptions != g.descriptions;
+                if changed {
+                    out.push(format!("{}: new texts", g.name));
+                }
+            }
+        }
+    }
+    for x in o
+        .asset_groups
+        .iter()
+        .filter(|x| !c.asset_groups.iter().any(|g| same(&g.name, &x.name)))
+    {
+        out.push(format!(
+            "asset group {} dropped, paused by the import",
+            x.name
+        ));
+    }
+    out
 }
 
 fn group(o: &AdGroup, g: &AdGroup, comma: bool) -> Vec<String> {
@@ -262,6 +306,7 @@ mod tests {
                 file: "termos.csv".into(),
                 kind: ReportKind::SearchTerms,
                 rows: 1706,
+                window: None,
             }],
             unknown_files: vec!["notas.csv: no known report header".into()],
             ignored_campaigns: vec!["Rotulos antigo".into()],
@@ -270,6 +315,7 @@ mod tests {
                 thin: true,
                 ..Default::default()
             }],
+            mixed_windows: false,
         };
         (
             Live {
@@ -278,6 +324,48 @@ mod tests {
             },
             new,
         )
+    }
+
+    fn asset_group(name: &str, headlines: &[&str]) -> crate::google::AssetGroup {
+        crate::google::AssetGroup {
+            name: name.into(),
+            final_url: String::new(),
+            business_name: String::new(),
+            headlines: headlines.iter().map(|h| h.to_string()).collect(),
+            long_headlines: vec![],
+            descriptions: vec![],
+            search_themes: vec![],
+            images: vec![],
+        }
+    }
+
+    #[test]
+    fn changes_cover_asset_groups_and_campaigns_paused_in_google_ads() {
+        let (mut live, mut new) = fixture();
+        let mut old_feed = campaign("Feed", 1000, vec![]);
+        old_feed.asset_groups = vec![
+            asset_group("tintos", &["A"]),
+            asset_group("brancos", &["B"]),
+        ];
+        live.baseline.campaigns.push(old_feed);
+        let mut feed = campaign("Feed", 1000, vec![]);
+        feed.asset_groups = vec![asset_group("tintos", &["A2"]), asset_group("rose", &["C"])];
+        new.campaigns.push(feed);
+        live.performance.campaigns.push(CampaignPerf {
+            name: "Marca".into(),
+            live_status: Some(crate::perf::LiveStatus::Paused),
+            ..Default::default()
+        });
+        let mut md = String::new();
+        changes(&mut md, &live, &new, false);
+        for needle in [
+            "new asset group rose",
+            "asset group brancos dropped, paused by the import",
+            "tintos: new texts",
+            "**Marca** stays paused, as it is in Google Ads",
+        ] {
+            assert!(md.contains(needle), "missing {needle} in\n{md}");
+        }
     }
 
     #[test]
@@ -294,6 +382,15 @@ mod tests {
         ] {
             assert!(md.contains(needle), "missing {needle} in\n{md}");
         }
+    }
+
+    #[test]
+    fn reports_of_different_dates_are_called_out() {
+        let (mut live, _) = fixture();
+        live.performance.mixed_windows = true;
+        let mut md = String::new();
+        performance(&mut md, &live);
+        assert!(md.contains("cover different dates"), "{md}");
     }
 
     #[test]

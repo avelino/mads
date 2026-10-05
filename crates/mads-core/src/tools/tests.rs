@@ -1283,3 +1283,36 @@ async fn without_live_data_the_tools_say_nothing_about_it() {
         .await;
     assert!(out.content["result"].get("live").is_none());
 }
+
+#[tokio::test]
+async fn image_campaign_brief_shows_its_live_asset_groups_and_labels() {
+    let ws = image_planned().await;
+    let t = pmax_tools(&ws).await;
+    let out = t.call("upsert_asset_group", asset_group_args()).await;
+    assert!(!out.is_error, "{}", out.content);
+    {
+        let mut guard = ws.lock().await;
+        let baseline = guard.account.clone();
+        let name = baseline
+            .campaigns
+            .iter()
+            .find(|c| c.slug == "vinellu-pmax")
+            .map(|c| c.name.clone())
+            .unwrap();
+        let csv = format!(
+            "Recurso,Tipo de recurso,Campanha,Grupo de anúncios,Classificação de desempenho,Impr.\nTitulo numero 1,Título,{name},tintos,Baixo,90\n"
+        );
+        let files = vec![("a.csv".to_string(), crate::perf::read_table(csv.as_bytes()))];
+        let performance = crate::perf::digest(&files, &baseline);
+        guard.live = Some(crate::perf::Live {
+            baseline,
+            performance,
+        });
+    }
+    let r = &t.call("get_brief", json!({})).await.content["result"];
+    assert_eq!(r["live"]["asset_groups"][0]["name"], "tintos");
+    assert_eq!(
+        r["performance"]["ad_groups"][0]["assets"][0]["label"],
+        "Baixo"
+    );
+}

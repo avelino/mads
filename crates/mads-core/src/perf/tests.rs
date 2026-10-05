@@ -165,3 +165,86 @@ fn enough_days_and_clicks_is_not_thin() {
     assert!(!p.campaigns[0].thin);
     assert!(p.campaigns[1].thin, "zero clicks stays thin");
 }
+
+const LOST: &str = "Parc. impr. perdidas na rede de pesquisa (orçamento)";
+
+fn by_day(rows: &[(&str, &str)]) -> String {
+    let mut s = format!(
+        "Campanha por dia\n3 de outubro de 2026 - 5 de outubro de 2026\nCampanha,Dia,Cliques,{LOST}\n"
+    );
+    for (day, lost) in rows {
+        s.push_str(&format!("Marca Vinellu,{day},1,\"{lost}%\"\n"));
+    }
+    s
+}
+
+#[test]
+fn campaign_report_lost_share_wins_over_day_rows_in_any_file_order() {
+    let campaigns = format!(
+        "Relatório\n3 de outubro de 2026 - 5 de outubro de 2026\nCampanha,Cliques,{LOST}\nMarca Vinellu,3,\"40,00%\"\n"
+    );
+    let days = by_day(&[("2026-10-03", "10,00"), ("2026-10-05", "0,00")]);
+    for files in [
+        vec![("a.csv", campaigns.clone()), ("b.csv", days.clone())],
+        vec![("a.csv", days.clone()), ("b.csv", campaigns.clone())],
+    ] {
+        let inputs: Vec<ReportInput> = files
+            .iter()
+            .map(|(n, t)| (n.to_string(), read_table(t.as_bytes())))
+            .collect();
+        let p = digest(&inputs, &account());
+        assert_eq!(p.campaigns[1].lost_to_budget_pct, Some(40.0));
+    }
+}
+
+#[test]
+fn day_rows_alone_average_the_lost_share() {
+    let days = by_day(&[
+        ("2026-10-03", "10,00"),
+        ("2026-10-04", "20,00"),
+        ("2026-10-05", "0,00"),
+    ]);
+    let p = digest(&[("d.csv".into(), read_table(days.as_bytes()))], &account());
+    assert_eq!(p.campaigns[1].lost_to_budget_pct, Some(10.0));
+    assert_eq!(p.campaigns[1].metrics.clicks, 3);
+}
+
+#[test]
+fn reports_of_different_periods_are_flagged_and_hidden_cost_is_not_guessed() {
+    let terms = terms().replace(
+        "3 de outubro de 2026 - 5 de outubro de 2026",
+        "1 de outubro de 2026 - 5 de outubro de 2026",
+    );
+    let files: Vec<ReportInput> = vec![
+        ("c.csv".into(), read_table(CAMPAIGNS.as_bytes())),
+        ("t.csv".into(), read_table(terms.as_bytes())),
+    ];
+    let p = digest(&files, &account());
+    assert!(p.mixed_windows);
+    assert_eq!(p.campaigns[0].hidden_terms_cost, None);
+    let windows: Vec<u32> = p
+        .reports
+        .iter()
+        .filter_map(|r| r.window.as_ref().map(|w| w.days))
+        .collect();
+    assert_eq!(windows, [3, 5]);
+    assert!(!digest_all().mixed_windows);
+}
+
+#[test]
+fn assets_report_gives_each_text_its_label() {
+    let csv = "Relatório de recursos\n3 de outubro de 2026 - 5 de outubro de 2026\nRecurso,Tipo de recurso,Campanha,Grupo de anúncios,Classificação de desempenho,Impr.\nDescubra seu vinho,Título,\"Catálogo: uvas\",Uvas tintas,Melhor,\"1.200\"\nTexto fraco,Descrição,\"Catálogo: uvas\",Uvas tintas,Baixo,40\n";
+    let p = digest(&[("a.csv".into(), read_table(csv.as_bytes()))], &account());
+    let assets = &p.campaigns[0].ad_groups[0].assets;
+    assert_eq!(assets.len(), 2);
+    assert_eq!(
+        (
+            assets[0].text.as_str(),
+            assets[0].kind.as_str(),
+            assets[0].label.as_str(),
+            assets[0].impressions
+        ),
+        ("Descubra seu vinho", "Título", "Melhor", 1200)
+    );
+    assert_eq!(assets[1].label, "Baixo");
+}

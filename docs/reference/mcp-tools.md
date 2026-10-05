@@ -141,7 +141,9 @@ No arguments. Returns what the agent needs.
 
 `entities` are the full catalog rows of the entities in this campaign's ad groups. `built_ad_groups` is what an earlier attempt already saved.
 
-In a `mads optimize` run the result also has `live` and `performance`. `live` is this campaign as it ran: daily budget, negatives, ad groups with CPC, final URL, keywords, negatives and ad texts, and asset groups. It is null for a campaign that did not run. `performance` is the campaign's digest with its ad groups: keywords with their numbers and signals (`below_first_page`, `rarely_shown`, `low_quality`), the 30 most expensive search terms with their state, and asset labels. Keywords with no impressions and no signal are left out. The image campaign `get_brief` returns both fields too.
+In a `mads optimize` run the result also has `live` and `performance`. `live` is this campaign as it ran: daily budget, negatives, ad groups with CPC, final URL, keywords, negatives and ad texts, and asset groups. Keywords and negatives are written as Google writes them, `"phrase"` and `[exact]`. It is null for a campaign that did not run. `performance` is the campaign's digest with its ad groups: the keywords that had impressions with their numbers and signals (`below_first_page`, `rarely_shown`, `low_quality`), the others as `keywords_without_traffic` (a count, a count per signal and 5 examples), the 20 most expensive search terms with their state, and asset labels. Numbers that are zero or missing are left out. The image campaign `get_brief` returns both fields too.
+
+Both fields together stay under 50,000 characters. Claude Code saves a tool result over its output limit to a file the agent cannot read, and the mission fails without it. A catalog campaign with 7 ad groups and 200 keywords takes about 40,000. A larger one lists 10, then 5, then no search terms per group, and `performance.search_terms_cut_to` says how many.
 
 ### upsert_ad_group
 

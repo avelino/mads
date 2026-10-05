@@ -83,6 +83,8 @@ pub struct MissionTools {
     campaign_kind: CampaignKind,
     settings: ToolSettings,
     persist: Option<PathBuf>,
+    /// The workspace holds a live account (`mads optimize`): campaign missions get its detail tool.
+    has_live: bool,
     finished: AtomicBool,
     calls: AtomicUsize,
 }
@@ -95,6 +97,7 @@ impl MissionTools {
         persist: Option<PathBuf>,
     ) -> Result<Self, ToolError> {
         let mut campaign_kind = CampaignKind::Search;
+        let has_live = ws.lock().await.live.is_some();
         if let MissionKind::Campaign { slug } = &kind {
             let found = ws
                 .lock()
@@ -112,6 +115,7 @@ impl MissionTools {
             campaign_kind,
             settings,
             persist,
+            has_live,
             finished: AtomicBool::new(false),
             calls: AtomicUsize::new(0),
         })
@@ -135,13 +139,17 @@ impl MissionTools {
 #[async_trait]
 impl ToolHost for MissionTools {
     fn specs(&self) -> Vec<ToolSpec> {
-        match self.kind {
-            MissionKind::Plan => plan::specs(),
+        let mut specs = match self.kind {
+            MissionKind::Plan => return plan::specs(),
             MissionKind::Campaign { .. } if self.campaign_kind.has_images() => {
                 image_campaign::specs()
             }
             MissionKind::Campaign { .. } => campaign::specs(),
+        };
+        if self.has_live {
+            specs.insert(1, live::spec());
         }
+        specs
     }
 
     async fn call(&self, name: &str, args: Value) -> ToolOutput {
@@ -157,6 +165,9 @@ impl ToolHost for MissionTools {
         }
         match &self.kind {
             MissionKind::Plan => plan::call(self, name, args).await,
+            MissionKind::Campaign { slug } if name == "get_ad_group_performance" => {
+                live::call(self, slug, args).await
+            }
             MissionKind::Campaign { slug } if self.campaign_kind.has_images() => {
                 image_campaign::call(self, slug, name, args).await
             }

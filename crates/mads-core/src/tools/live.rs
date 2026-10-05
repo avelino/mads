@@ -1,24 +1,69 @@
 //! What `mads optimize` shows the agents: the account as it ran and what the reports say.
 
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::output::cents_to_f64;
+use super::{
+    MissionTools, ToolOutput, ToolSpec,
+    output::{cents_to_f64, parse_args},
+    schema::schema_for,
+};
 use crate::{
-    google::{Keyword, MatchType, normalize},
-    perf::{
-        AdGroupPerf, CampaignPerf, KeywordPerf, Live, Metrics, Signal, THIN_CLICKS, THIN_DAYS,
-        TermPerf,
-    },
+    google::{Campaign, Keyword, MatchType, normalize},
+    perf::{AdGroupPerf, KeywordPerf, Live, Metrics, Signal, THIN_CLICKS, THIN_DAYS, TermPerf},
 };
 
-/// Most characters `live` plus `performance` may take in a brief. Claude Code saves a tool result
-/// over its output limit to a file the agent cannot read, and the mission fails. A live catalog
-/// campaign with 7 ad groups and 200 keywords reached 125k characters before this budget.
-pub const BRIEF_BUDGET: usize = 50_000;
-/// Search terms per ad group in a brief, the most expensive first.
-pub const BRIEF_TERMS: usize = 20;
-/// Keywords without traffic named as examples in the summary of each ad group.
+// The brief of a live campaign carries a summary per ad group, and `get_ad_group_performance`
+// gives one group in detail. One call with every group reached 56k characters for 7 groups and
+// 200 keywords: Claude Code saves a result that large to a file the agent cannot read.
+
+/// Search terms listed per ad group, the most expensive first.
+pub const GROUP_TERMS: usize = 20;
+/// Keywords without traffic named as examples in the detail of an ad group.
 const QUIET_EXAMPLES: usize = 5;
+
+pub const DETAIL_HINT: &str = "live and performance are summaries. Call get_ad_group_performance with each ad group name before you rebuild it: it has the keywords, negatives and texts as they ran, and their numbers.";
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AdGroupArgs {
+    /// Name of an ad group or asset group of this campaign as it ran.
+    ad_group: String,
+}
+
+pub(super) fn spec() -> ToolSpec {
+    ToolSpec {
+        name: "get_ad_group_performance".into(),
+        description: "One ad group of this campaign as it ran in Google Ads, with its numbers: keywords, negatives, ad texts, signals, search terms and asset labels.".into(),
+        input_schema: schema_for::<AdGroupArgs>(),
+    }
+}
+
+pub(super) async fn call(t: &MissionTools, slug: &str, args: Value) -> ToolOutput {
+    let a: AdGroupArgs = match parse_args(args) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let ws = t.ws.lock().await;
+    let (Some(live), Some(c)) = (
+        &ws.live,
+        ws.account.campaigns.iter().find(|c| c.slug == slug),
+    ) else {
+        return ToolOutput::fail("NOT_FOUND", format!("campaign '{slug}' has no live data"));
+    };
+    match ad_group_view(live, &c.name, &a.ad_group) {
+        Some(v) => ToolOutput::ok(v, &[], format!("get_ad_group_performance {}", a.ad_group)),
+        None => {
+            let known = known_groups(live, &c.name).join(", ");
+            let msg = format!(
+                "'{}' did not run in this campaign. Groups that ran: {known}",
+                a.ad_group
+            );
+            ToolOutput::fail("NOT_FOUND", msg)
+        }
+    }
+}
 
 fn thin_rule() -> String {
     format!(
@@ -52,43 +97,111 @@ pub fn business_view(live: &Live) -> (Value, Value) {
     (account, perf)
 }
 
-/// For one campaign mission: the campaign as it ran and its detailed numbers. Keywords with no
-/// impressions and no signal say nothing and are left out.
-pub fn brief_view(live: &Live, campaign: &str) -> (Value, Value) {
+fn ran_campaign<'a>(live: &'a Live, campaign: &str) -> Option<&'a Campaign> {
     let key = normalize(campaign);
-    let ran = live
-        .baseline
+    live.baseline
         .campaigns
         .iter()
-        .find(|c| normalize(&c.name) == key);
-    let ran = ran.map_or(Value::Null, |c| {
-        json!({
-            "daily_budget": cents_to_f64(c.daily_budget),
-            "negatives": c.negatives,
-            "ad_groups": c.ad_groups.iter().map(|g| json!({
-                "name": g.name, "default_cpc": cents_to_f64(g.default_cpc),
-                "final_url": g.final_url, "keywords": notation(&g.keywords),
-                "negatives": notation(&g.negatives), "rsa": g.rsa,
-            })).collect::<Vec<_>>(),
-            "asset_groups": c.asset_groups,
+        .find(|c| normalize(&c.name) == key)
+}
+
+fn known_groups(live: &Live, campaign: &str) -> Vec<String> {
+    let mut names: Vec<String> = ran_campaign(live, campaign)
+        .map(|c| {
+            c.ad_groups
+                .iter()
+                .map(|g| g.name.clone())
+                .chain(c.asset_groups.iter().map(|g| g.name.clone()))
+                .collect()
         })
-    });
-    let Some(c) = live.performance.campaign(campaign) else {
-        return (ran, Value::Null);
-    };
-    // Fewer search terms until the brief fits. Terms are the part that grows with the account.
-    let room = BRIEF_BUDGET.saturating_sub(ran.to_string().len());
-    let mut perf = Value::Null;
-    for terms in [BRIEF_TERMS, 10, 5, 0] {
-        perf = perf_of(c, live, terms);
-        if terms < BRIEF_TERMS {
-            perf["search_terms_cut_to"] = json!(terms);
-        }
-        if perf.to_string().len() < room {
-            break;
+        .unwrap_or_default();
+    if let Some(p) = live.performance.campaign(campaign) {
+        for g in &p.ad_groups {
+            if !names.iter().any(|n| normalize(n) == normalize(&g.name)) {
+                names.push(g.name.clone());
+            }
         }
     }
+    names
+}
+
+/// For one campaign mission: the campaign as it ran and its numbers, one line per ad group.
+pub fn brief_view(live: &Live, campaign: &str) -> (Value, Value) {
+    let ran = ran_campaign(live, campaign).map_or(Value::Null, |c| {
+        json!({
+            "daily_budget": cents_to_f64(c.daily_budget),
+            "negatives": notation(&c.negatives),
+            "ad_groups": c.ad_groups.iter().map(|g| json!({
+                "name": g.name, "default_cpc": cents_to_f64(g.default_cpc),
+                "keywords": g.keywords.len(), "negatives": g.negatives.len(),
+            })).collect::<Vec<_>>(),
+            "asset_groups": c.asset_groups.iter().map(|g| g.name.clone()).collect::<Vec<_>>(),
+        })
+    });
+    let perf = live
+        .performance
+        .campaign(campaign)
+        .map_or(Value::Null, |c| {
+            let mut head = c.clone();
+            head.ad_groups.clear();
+            let mut v = serde_json::to_value(&head).unwrap_or(Value::Null);
+            v["metrics"] = metrics(&c.metrics);
+            v["ad_groups"] = c.ad_groups.iter().map(summary).collect::<Vec<_>>().into();
+            v["window"] = json!(live.performance.window);
+            v["thin_rule"] = json!(thin_rule());
+            v
+        });
     (ran, perf)
+}
+
+/// One ad group in a line: its totals and how many keywords carry each signal.
+fn summary(g: &AdGroupPerf) -> Value {
+    let mut total = Metrics::default();
+    for k in &g.keywords {
+        total.add(&k.metrics);
+    }
+    let count = |s: Signal| g.keywords.iter().filter(|k| k.signals.contains(&s)).count();
+    json!({
+        "name": g.name,
+        "metrics": metrics(&total),
+        "keywords": g.keywords.len(),
+        "keywords_with_traffic": g.keywords.iter().filter(|k| k.metrics.impressions > 0).count(),
+        "signals": {
+            "below_first_page": count(Signal::BelowFirstPage),
+            "rarely_shown": count(Signal::RarelyShown),
+            "low_quality": count(Signal::LowQuality),
+        },
+        "search_terms_total": g.search_terms_total,
+        "cost_without_conversions": round(g.cost_without_conversions),
+    })
+}
+
+/// One ad group or asset group as it ran and its numbers. None when neither the run nor the
+/// reports know it.
+pub fn ad_group_view(live: &Live, campaign: &str, name: &str) -> Option<Value> {
+    let key = normalize(name);
+    let c = ran_campaign(live, campaign);
+    let search = c.and_then(|c| c.ad_groups.iter().find(|g| normalize(&g.name) == key));
+    let asset = c.and_then(|c| c.asset_groups.iter().find(|g| normalize(&g.name) == key));
+    let perf = live
+        .performance
+        .campaign(campaign)
+        .and_then(|p| p.ad_groups.iter().find(|g| normalize(&g.name) == key));
+    let ran = match (search, asset) {
+        (Some(g), _) => json!({
+            "name": g.name, "default_cpc": cents_to_f64(g.default_cpc), "final_url": g.final_url,
+            "keywords": notation(&g.keywords), "negatives": notation(&g.negatives), "rsa": g.rsa,
+        }),
+        (None, Some(g)) => json!(g),
+        (None, None) if perf.is_none() => return None,
+        (None, None) => Value::Null,
+    };
+    let shown = search
+        .map(|g| g.name.clone())
+        .or(asset.map(|g| g.name.clone()))
+        .or(perf.map(|g| g.name.clone()))
+        .unwrap_or_default();
+    Some(json!({"ad_group": shown, "live": ran, "performance": perf.map_or(Value::Null, detail)}))
 }
 
 /// Keywords as Google writes them: `"phrase"` and `[exact]`. A third of the size of objects.
@@ -102,33 +215,12 @@ fn notation(keywords: &[Keyword]) -> Vec<String> {
         .collect()
 }
 
-fn perf_of(c: &CampaignPerf, live: &Live, terms: usize) -> Value {
-    let mut head = c.clone();
-    head.ad_groups.clear();
-    let mut v = serde_json::to_value(&head).unwrap_or(Value::Null);
-    if let Some(o) = v.as_object_mut() {
-        o.insert("metrics".into(), metrics(&c.metrics));
-        o.insert(
-            "ad_groups".into(),
-            c.ad_groups
-                .iter()
-                .map(|g| group(g, terms))
-                .collect::<Vec<_>>()
-                .into(),
-        );
-        o.insert("window".into(), json!(live.performance.window));
-        o.insert("thin_rule".into(), json!(thin_rule()));
-    }
-    v
-}
-
 /// One ad group: keywords with traffic in full, the silent ones as counts and examples.
-fn group(g: &AdGroupPerf, terms: usize) -> Value {
+fn detail(g: &AdGroupPerf) -> Value {
     let (busy, quiet): (Vec<&KeywordPerf>, Vec<&KeywordPerf>) =
         g.keywords.iter().partition(|k| k.metrics.impressions > 0);
     let count = |s: Signal| quiet.iter().filter(|k| k.signals.contains(&s)).count();
     let mut v = json!({
-        "name": g.name,
         "keywords": busy.iter().map(|k| keyword(k)).collect::<Vec<_>>(),
         "keywords_without_traffic": {
             "count": quiet.len(),
@@ -137,7 +229,7 @@ fn group(g: &AdGroupPerf, terms: usize) -> Value {
             "low_quality": count(Signal::LowQuality),
             "examples": quiet.iter().take(QUIET_EXAMPLES).map(|k| k.text.clone()).collect::<Vec<_>>(),
         },
-        "search_terms": g.search_terms.iter().take(terms).map(term).collect::<Vec<_>>(),
+        "search_terms": g.search_terms.iter().take(GROUP_TERMS).map(term).collect::<Vec<_>>(),
         "search_terms_total": g.search_terms_total,
         "cost_without_conversions": round(g.cost_without_conversions),
     });
@@ -208,8 +300,15 @@ mod tests {
     use super::*;
     use crate::{
         google::{Account, AdGroup, BidStrategy, Campaign, Cents, Intent, Keyword, MatchType, Rsa},
-        perf::{AdGroupPerf, KeywordPerf, Metrics, Performance, Signal, TermPerf, TermState},
+        perf::{
+            AdGroupPerf, CampaignPerf, KeywordPerf, Metrics, Performance, Signal, TermPerf,
+            TermState,
+        },
     };
+
+    /// What the tests hold the live parts of a brief and one group detail to.
+    const BRIEF_BUDGET: usize = 15_000;
+    const GROUP_BUDGET: usize = 15_000;
 
     /// The size of the live catalog campaign that broke Claude Code's tool output limit:
     /// 7 ad groups, 30 keywords each with a signal and no traffic, 30 terms each.
@@ -303,35 +402,52 @@ mod tests {
     }
 
     #[test]
-    fn a_large_campaign_brief_stays_well_under_agent_cli_output_limits() {
+    fn a_large_campaign_brief_is_a_small_summary() {
         let (ran, perf) = brief_view(&big(), "Catalogo");
         let size = ran.to_string().len() + perf.to_string().len();
         assert!(size < BRIEF_BUDGET, "{size} chars");
+        let g = &perf["ad_groups"][0];
+        assert_eq!(g["name"], "Grupo de uvas numero 0");
+        assert_eq!(g["keywords"], 30);
+        assert_eq!(g["keywords_with_traffic"], 1);
+        assert_eq!(g["signals"]["below_first_page"], 30);
+        assert_eq!(g["search_terms_total"], 160);
+        assert!(
+            g.get("search_terms").is_none(),
+            "detail is in get_ad_group_performance"
+        );
+        let r = &ran["ad_groups"][0];
+        assert_eq!(
+            (r["default_cpc"].as_f64(), r["keywords"].as_u64()),
+            (Some(1.2), Some(30))
+        );
     }
 
     #[test]
-    fn a_brief_over_budget_lists_fewer_search_terms() {
+    fn one_ad_group_detail_stays_small_even_with_long_terms() {
         let mut live = big();
         for g in &mut live.performance.campaigns[0].ad_groups {
             for t in &mut g.search_terms {
                 t.text = format!("{} {}", t.text, "vinho tinto ".repeat(25));
             }
         }
-        let (ran, perf) = brief_view(&live, "Catalogo");
-        let size = ran.to_string().len() + perf.to_string().len();
-        assert!(size < BRIEF_BUDGET, "{size} chars");
-        let terms = perf["ad_groups"][0]["search_terms"]
-            .as_array()
-            .unwrap()
-            .len();
-        assert!(terms < BRIEF_TERMS, "{terms} terms");
-        assert_eq!(perf["search_terms_cut_to"], terms);
+        let v = ad_group_view(&live, "Catalogo", "grupo de UVAS numero 3").unwrap();
+        assert!(
+            v.to_string().len() < GROUP_BUDGET,
+            "{} chars",
+            v.to_string().len()
+        );
+        assert_eq!(v["ad_group"], "Grupo de uvas numero 3");
+        assert_eq!(v["live"]["keywords"].as_array().unwrap().len(), 30);
+        assert_eq!(v["live"]["keywords"][0], "\"vinho tinto suave numero 0\"");
+        assert!(ad_group_view(&live, "Catalogo", "nope").is_none());
+        assert!(ad_group_view(&live, "Outra", "Grupo de uvas numero 3").is_none());
     }
 
     #[test]
     fn keywords_without_traffic_become_a_summary() {
-        let (_, perf) = brief_view(&big(), "Catalogo");
-        let g = &perf["ad_groups"][0];
+        let v = ad_group_view(&big(), "Catalogo", "Grupo de uvas numero 0").unwrap();
+        let g = &v["performance"];
         assert_eq!(
             g["keywords"].as_array().unwrap().len(),
             1,
@@ -342,7 +458,7 @@ mod tests {
         assert_eq!(quiet["below_first_page"], 29);
         assert_eq!(quiet["rarely_shown"], 29);
         assert_eq!(quiet["examples"].as_array().unwrap().len(), 5);
-        assert_eq!(g["search_terms"].as_array().unwrap().len(), BRIEF_TERMS);
+        assert_eq!(g["search_terms"].as_array().unwrap().len(), GROUP_TERMS);
         let kw = &g["keywords"][0];
         assert!(kw.get("quality_score").is_none(), "no nulls: {kw}");
         assert!(kw["metrics"].get("conversions").is_none(), "no zeros: {kw}");

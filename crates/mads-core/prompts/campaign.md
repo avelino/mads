@@ -63,7 +63,7 @@ Brand terms are cheap only for a brand people already search. A new or little-kn
 
 ## Optimizing a live campaign
 
-When `get_brief` has `live` and `performance`, this campaign already runs in Google Ads. `live` is what ran, `performance` is what it got. Rebuild every planned ad group from them: keep what works and fix what the numbers show.
+When `get_brief` has `live` and `performance`, this campaign already runs in Google Ads. `live` is what ran, `performance` is what it got, both as one line per ad group. Before you rebuild a group, call `get_ad_group_performance` with the name of the group that ran: it returns its keywords, negatives and ad texts, and their numbers. Keep what works and fix what the numbers show.
 
 - Read `thin_rule` first. A thin campaign changes only its structure: bids under the first page, low quality, wrong grouping. Do not add negatives or drop keywords because of its numbers.
 - A keyword marked `below_first_page` or `rarely_shown` gets no traffic. Raise its group's CPC to `first_page_bid` when it is there, or to what the generic groups of the account pay, within `max_cpc`. Drop the keyword only when that price is more than a customer is worth.

@@ -1252,13 +1252,14 @@ async fn get_brief_shows_the_live_campaign_and_its_keywords() {
     assert_eq!(r["live"]["ad_groups"][0]["name"], "alamos");
     assert_eq!(r["live"]["ad_groups"][0]["default_cpc"], 1.5);
     let g = &r["performance"]["ad_groups"][0];
-    let kws = g["keywords"].as_array().unwrap();
-    assert_eq!(
-        kws.len(),
-        1,
-        "keywords without impressions or signals are left out"
+    assert_eq!(g["keywords"], 2);
+    assert_eq!(g["signals"]["below_first_page"], 1);
+    assert!(
+        r["live_detail"]
+            .as_str()
+            .unwrap()
+            .contains("get_ad_group_performance")
     );
-    assert_eq!(kws[0]["signals"][0], "below_first_page");
 
     let brand = campaign_tools(&ws, "vinellu-marca")
         .await
@@ -1309,10 +1310,64 @@ async fn image_campaign_brief_shows_its_live_asset_groups_and_labels() {
             performance,
         });
     }
+    // Tools are built per mission attempt, after the workspace has its live data.
+    let t = pmax_tools(&ws).await;
     let r = &t.call("get_brief", json!({})).await.content["result"];
-    assert_eq!(r["live"]["asset_groups"][0]["name"], "tintos");
-    assert_eq!(
-        r["performance"]["ad_groups"][0]["assets"][0]["label"],
-        "Baixo"
+    assert_eq!(r["live"]["asset_groups"][0], "tintos");
+    let r = &t
+        .call("get_ad_group_performance", json!({"ad_group": "tintos"}))
+        .await
+        .content["result"];
+    assert_eq!(r["live"]["name"], "tintos");
+    assert_eq!(r["performance"]["assets"][0]["label"], "Baixo");
+}
+
+fn tool_names(t: &MissionTools) -> Vec<String> {
+    t.specs().into_iter().map(|s| s.name).collect()
+}
+
+#[tokio::test]
+async fn ad_group_performance_is_a_tool_only_with_live_data() {
+    let plain = planned().await;
+    let names = tool_names(&campaign_tools(&plain, "vinellu-catalogo").await);
+    assert!(!names.contains(&"get_ad_group_performance".to_string()));
+    let ws = live_planned().await;
+    let names = tool_names(&campaign_tools(&ws, "vinellu-catalogo").await);
+    assert!(names.contains(&"get_ad_group_performance".to_string()));
+    let names = tool_names(&plan_tools(&ws).await);
+    assert!(
+        !names.contains(&"get_ad_group_performance".to_string()),
+        "campaign missions only"
     );
+}
+
+#[tokio::test]
+async fn ad_group_performance_returns_one_group_in_detail() {
+    let ws = live_planned().await;
+    let t = campaign_tools(&ws, "vinellu-catalogo").await;
+    let before = ws.lock().await.account.clone();
+    let out = t
+        .call("get_ad_group_performance", json!({"ad_group": "ALAMOS"}))
+        .await;
+    assert!(!out.is_error, "{}", out.content);
+    let r = &out.content["result"];
+    assert_eq!(r["live"]["default_cpc"], 1.5);
+    assert_eq!(
+        r["performance"]["keywords"][0]["signals"][0],
+        "below_first_page"
+    );
+
+    let out = t
+        .call("get_ad_group_performance", json!({"ad_group": "luigi"}))
+        .await;
+    assert_eq!(error_codes(&out), ["NOT_FOUND"]);
+    assert!(
+        out.content.to_string().contains("alamos"),
+        "lists the groups it knows"
+    );
+    let bad = t
+        .call("get_ad_group_performance", json!({"group": "alamos"}))
+        .await;
+    assert_eq!(error_codes(&bad), ["ARGS"]);
+    assert_eq!(ws.lock().await.account, before, "read only");
 }

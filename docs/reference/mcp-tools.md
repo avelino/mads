@@ -119,7 +119,7 @@ No arguments. Fails with `E12` when the brand kit or the plan is missing. Result
 
 ## Campaign mission
 
-Tools: `get_brief`, `upsert_ad_group`, `set_campaign_negatives`, `set_assets`, `validate`, `finish`. A campaign mission reads and changes only its own campaign.
+Tools: `get_brief`, `upsert_ad_group`, `set_campaign_negatives`, `set_assets`, `validate`, `finish`, plus `get_ad_group_performance` in a `mads optimize` run. A campaign mission reads and changes only its own campaign.
 
 ### get_brief
 
@@ -141,9 +141,25 @@ No arguments. Returns what the agent needs.
 
 `entities` are the full catalog rows of the entities in this campaign's ad groups. `built_ad_groups` is what an earlier attempt already saved.
 
-In a `mads optimize` run the result also has `live` and `performance`. `live` is this campaign as it ran: daily budget, negatives, ad groups with CPC, final URL, keywords, negatives and ad texts, and asset groups. Keywords and negatives are written as Google writes them, `"phrase"` and `[exact]`. It is null for a campaign that did not run. `performance` is the campaign's digest with its ad groups: the keywords that had impressions with their numbers and signals (`below_first_page`, `rarely_shown`, `low_quality`), the others as `keywords_without_traffic` (a count, a count per signal and 5 examples), the 20 most expensive search terms with their state, and asset labels. Numbers that are zero or missing are left out. The image campaign `get_brief` returns both fields too.
+In a `mads optimize` run the result also has `live`, `performance` and `live_detail`, one line per ad group. `live` is this campaign as it ran: daily budget, negatives, and for each ad group its CPC and how many keywords and negatives it had, plus the asset group names. It is null for a campaign that did not run. `performance` is the campaign's totals and, per ad group, its totals, how many keywords had traffic, how many carry each signal (`below_first_page`, `rarely_shown`, `low_quality`), the search term count and the cost of terms without conversions. `live_detail` tells the agent to call `get_ad_group_performance` for the rest. The image campaign `get_brief` returns the same fields.
 
-Both fields together stay under 50,000 characters. Claude Code saves a tool result over its output limit to a file the agent cannot read, and the mission fails without it. A catalog campaign with 7 ad groups and 200 keywords takes about 40,000. A larger one lists 10, then 5, then no search terms per group, and `performance.search_terms_cut_to` says how many.
+The detail is a separate tool because one call with every group does not fit. A catalog campaign with 7 ad groups and 200 keywords reached 56,000 characters, and Claude Code saves a tool result that large to a file the agent cannot read. The summary of that campaign takes about 20,000 with the rest of the brief, and each group about 8,000 or less.
+
+### get_ad_group_performance
+
+Only in a `mads optimize` run, for campaign and image campaign missions. Read only.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `ad_group` | string | yes | Name of an ad group or asset group of this campaign as it ran. Compared after `normalize`. |
+
+```json
+{"ad_group": "", "live": {"name": "", "default_cpc": 0.0, "final_url": "", "keywords": ["\"phrase\"", "[exact]"], "negatives": [], "rsa": {}}, "performance": {"keywords": [], "keywords_without_traffic": {"count": 0, "below_first_page": 0, "rarely_shown": 0, "low_quality": 0, "examples": []}, "search_terms": [], "search_terms_total": 0, "cost_without_conversions": 0.0}}
+```
+
+`live` is the group as it ran. For an asset group it is the asset group itself. `performance.keywords` lists only the keywords that had impressions, with their numbers, signals, max CPC and, when the report has them, Quality Score and bid estimates. The others are counted in `keywords_without_traffic`. `search_terms` has the 20 most expensive terms with their state, and `assets` the labels Google gave the texts when an assets report was read. Numbers that are zero or missing are left out.
+
+A name that neither the run nor the reports know fails with `NOT_FOUND`, and the message lists the groups that ran.
 
 ### upsert_ad_group
 

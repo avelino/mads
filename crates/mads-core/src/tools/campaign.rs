@@ -240,6 +240,7 @@ async fn get_brief(t: &MissionTools, slug: &str) -> ToolOutput {
         let (ran, performance) = super::live::brief_view(live, &c.name);
         result["live"] = ran;
         result["performance"] = performance;
+        result["live_detail"] = json!(super::live::DETAIL_HINT);
     }
     ToolOutput::ok(result, &[], format!("get_brief {}", c.name))
 }

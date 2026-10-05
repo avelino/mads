@@ -41,7 +41,7 @@ Campaigns in the reports that are not part of the run, such as older campaigns o
 
 The plan mission gets `live_account` (every campaign as it ran) and `performance` (campaign totals) in `get_business`. It can move budget between campaigns, split or merge ad groups and leave a campaign out. The prompt asks it to keep the names of what continues.
 
-Each campaign mission gets `live` (its ad groups, keywords, negatives and texts as they ran) and `performance` (its detailed numbers) in `get_brief`. To keep the brief small enough for agent CLIs, keywords without impressions are summed up per ad group (how many, and how many have each signal) and only the 20 most expensive terms of each group are listed. See [MCP tools](../reference/mcp-tools.md).
+Each campaign mission gets `live` and `performance` in `get_brief` as one line per ad group, then calls `get_ad_group_performance` for each group before it rebuilds it. That call returns the group's keywords, negatives and texts as they ran, the keywords that had traffic with their numbers, a count of the silent ones per signal, and the 20 most expensive search terms. One call with every group did not fit in what an agent CLI can read. See [MCP tools](../reference/mcp-tools.md).
 
 Image and app campaigns get the same fields. A picture whose image id stays is reused from the old run and costs nothing.
 

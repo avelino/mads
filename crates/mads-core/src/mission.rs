@@ -122,6 +122,7 @@ mod tests {
             "first_page_bid",
             "thin_rule",
             "hidden_terms_cost",
+            "get_ad_group_performance",
         ] {
             assert!(
                 m.system.contains(rule),
@@ -167,6 +168,7 @@ mod tests {
             "in English",
             "`live`",
             "Best or Good",
+            "get_ad_group_performance",
         ] {
             assert!(m.system.contains(needle), "image prompt misses {needle}");
         }

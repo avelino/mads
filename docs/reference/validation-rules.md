@@ -85,6 +85,8 @@ The asset group `business_name` has at most 25 characters (`E01`).
 | `W05` | Fewer than 4 sitelinks, fewer than 4 callouts or no structured snippet. | Message `recommended: 4+ sitelinks, 4+ callouts and 1 structured snippet`. |
 | `W06` | Fewer pictures than Google recommends for ad strength. | Performance Max 4 landscape, 4 square and 2 portrait. Demand Gen 1 landscape, 1 square and 1 portrait. Message `recommended for ad strength: <missing>`. |
 | `W07` | A prompt asks for text in the picture, or shows an object that carries writing. | The words `text`, `logo`, `caption`, `headline`, `words`, `lettering`, `typography`, `slogan` or `label that reads`: Google adds the ad text itself. Or `menu`, `wine list`, `sign`, `signboard`, `billboard`, `poster`, `book`, `newspaper`, `magazine`, `screen`, `monitor`, `packaging`, `price tag`, `ticket`: the model fills them with invented text, so show them from the side, closed or out of focus. |
+| `W08` | Keyword spec `variants` look like different searches. | Returned by `upsert_ad_group`, not stored. Two variants belong together when, without accents or punctuation, they share a word of 3 or more letters, one holds the other (4 or more letters), they start with the same 4 letters, or one is the initials of the other. Message `variants look like <n> different searches: keep one theme per ad group and plan the others as their own groups`. |
+| `W09` | A one-word phrase keyword outside a brand campaign. | It matches any search with that word. mads no longer builds one from `variants`, so it comes from `extra`. Message `'<keyword>' as phrase matches any search with that word: make it exact or add words`. |
 
 ## Tool-only codes
 

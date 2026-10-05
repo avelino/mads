@@ -10,8 +10,9 @@ use super::{
 };
 use crate::{
     google::{
-        AdGroup, Assets, Campaign, Cents, Issue, Keyword, KeywordSpec, MatchType, Rsa, Rules,
-        Sitelink, Snippet, SnippetHeader, expand_keywords, merge_rsa, normalize,
+        AdGroup, Assets, Campaign, Cents, Intent, Issue, Keyword, KeywordSpec, MatchType, Rsa,
+        Rules, Sitelink, Snippet, SnippetHeader, expand_keywords, merge_rsa, normalize,
+        variant_themes,
     },
     workspace::Workspace,
 };
@@ -252,6 +253,7 @@ fn build_ad_group(
     a: UpsertAdGroupArgs,
     planned_name: &str,
     final_url: &str,
+    intent: Intent,
     issues: &mut Vec<Issue>,
 ) -> AdGroup {
     count_issue(issues, "keywords.variants", a.keywords.variants.len(), 1, 6);
@@ -263,6 +265,7 @@ fn build_ad_group(
         10,
     );
     count_issue(issues, "keywords.extra", a.keywords.extra.len(), 0, 20);
+    variant_themes(issues, "keywords.variants", &a.keywords.variants);
     let default_cpc = Cents::from_f64(a.default_cpc).unwrap_or_else(|| {
         issues.push(Issue::error(
             "E11",
@@ -275,6 +278,7 @@ fn build_ad_group(
         variants: a.keywords.variants,
         modifiers: a.keywords.modifiers,
         exact_heads: a.keywords.exact_heads,
+        one_word_phrase: intent == Intent::Brand,
         extra: keywords(a.keywords.extra),
     };
     let path = |p: String| Some(p.trim().to_string()).filter(|p| !p.is_empty());
@@ -315,7 +319,7 @@ async fn upsert_ad_group(t: &MissionTools, slug: &str, a: UpsertAdGroupArgs) -> 
     };
     let mut issues = Vec::new();
     let (name, url) = (planned.name.clone(), planned.final_url.clone());
-    let ad_group = build_ad_group(a, &name, &url, &mut issues);
+    let ad_group = build_ad_group(a, &name, &url, campaign.intent, &mut issues);
 
     let mut candidate = campaign.clone();
     candidate

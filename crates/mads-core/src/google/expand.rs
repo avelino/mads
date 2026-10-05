@@ -8,18 +8,25 @@ pub struct KeywordSpec {
     pub variants: Vec<String>,
     pub modifiers: Vec<String>,
     pub exact_heads: bool,
+    /// Keep a one-word variant as a phrase keyword. Alone it matches any search with that word,
+    /// so only brand campaigns want it.
+    pub one_word_phrase: bool,
     pub extra: Vec<Keyword>,
 }
 
 /// Phrase keywords (variants and variants x modifiers) in byte order, then the variants
 /// as exact match in input order, then explicit extras that are not already present.
+/// Without `one_word_phrase`, a one-word variant that is also exact has no bare phrase keyword.
 pub fn expand_keywords(spec: &KeywordSpec) -> Vec<Keyword> {
     let variants = unique_keep_first(spec.variants.iter().map(|v| normalize(v)));
     let modifiers = unique_keep_first(spec.modifiers.iter().map(|m| normalize(m)));
 
     let mut phrase = BTreeSet::new();
     for v in &variants {
-        phrase.insert(v.clone());
+        let one_word = !v.contains(' ');
+        if spec.one_word_phrase || !one_word || !spec.exact_heads {
+            phrase.insert(v.clone());
+        }
         // "vinellu app" x "app" would give "vinellu app app".
         for m in modifiers.iter().filter(|m| !contains_word_sequence(v, m)) {
             phrase.insert(format!("{v} {m}"));
@@ -77,8 +84,25 @@ mod tests {
             variants: variants.iter().map(|s| s.to_string()).collect(),
             modifiers: modifiers.iter().map(|s| s.to_string()).collect(),
             exact_heads,
+            one_word_phrase: true,
             extra: vec![],
         }
+    }
+
+    #[test]
+    fn one_word_head_without_phrase_keeps_exact_and_modifier_phrases() {
+        let mut s = spec(&["malbec", "vinho malbec"], &["review"], true);
+        s.one_word_phrase = false;
+        assert_eq!(
+            expand_keywords(&s),
+            kw(&[
+                ("malbec review", Phrase),
+                ("vinho malbec", Phrase),
+                ("vinho malbec review", Phrase),
+                ("malbec", Exact),
+                ("vinho malbec", Exact),
+            ])
+        );
     }
 
     #[test]

@@ -13,6 +13,6 @@ pub use export::*;
 pub use issue::*;
 pub use model::*;
 pub use rsa::*;
-pub use rules::Rules;
 pub(crate) use rules::blocks;
+pub use rules::{Rules, variant_themes};
 pub use text::*;

@@ -50,6 +50,14 @@ Attempts, input tokens, output tokens, cost and result for each mission, then to
 
 A short list of the upload steps. The next section expands it.
 
+### After launch
+
+What to check once the campaigns serve, and what to export for the next run.
+
+- After 2 days, look at the keyword status in Google Ads. `Below first page bid` and `Rarely shown` mean the CPC is too low to enter the auction: the ad group spends nothing. Add the First page bid estimate column and raise the CPC to it, or pause the keyword.
+- When Search campaigns run without `conversion_tracking`, the section says so. Google Ads then shows clicks and cost but not which searches bring customers.
+- After 14 days, export search terms, keywords with Quality Score and bid estimates, campaigns by day and asset performance as CSV. Keep the campaign and ad group names: they tie the reports to the run.
+
 ## Review the CSVs
 
 Open the files in `google-ads/`. Check the things the validator cannot judge.

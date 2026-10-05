@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use super::*;
+use crate::google::MatchType;
 use crate::testutil;
 use crate::workspace::Workspace;
 
@@ -455,11 +456,69 @@ async fn upsert_ad_group_expands_keywords_and_stores_in_plan_order() {
             .collect::<Vec<_>>(),
         ["alamos", "luigi"]
     );
-    assert_eq!(c.ad_groups[0].keywords.len(), 6 + 2);
+    // The one-word head 'alamos' is exact only: as phrase it would match any search with it.
+    assert_eq!(c.ad_groups[0].keywords.len(), 5 + 2);
     assert_eq!(c.ad_groups[0].default_cpc.0, 150);
     assert_eq!(c.ad_groups[0].final_url, "https://vinellu.com/w/alamos");
     assert_eq!(c.ad_groups[0].rsa.path2, None);
     assert!(out.summary.contains("luigi"), "{}", out.summary);
+}
+
+#[tokio::test]
+async fn one_word_heads_stay_phrase_only_in_brand_campaigns() {
+    let ws = planned().await;
+    let mut a = ad_group_args("marca");
+    a["keywords"]["variants"] = json!(["vinellu"]);
+    let out = campaign_tools(&ws, "vinellu-marca")
+        .await
+        .call("upsert_ad_group", a)
+        .await;
+    assert!(!out.is_error, "{}", out.content);
+    let guard = ws.lock().await;
+    let marca = &guard.account.campaigns[1].ad_groups[0];
+    assert!(
+        marca
+            .keywords
+            .iter()
+            .any(|k| k.text == "vinellu" && k.match_type == MatchType::Phrase)
+    );
+}
+
+fn warning_codes(out: &ToolOutput) -> Vec<String> {
+    out.content["warnings"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|w| w["code"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn variants_about_different_things_warn_w08() {
+    let ws = planned().await;
+    let t = campaign_tools(&ws, "vinellu-catalogo").await;
+    let mut mixed = ad_group_args("alamos");
+    mixed["keywords"]["variants"] = json!(["malbec", "cabernet sauvignon", "merlot"]);
+    let out = t.call("upsert_ad_group", mixed).await;
+    assert!(!out.is_error, "{}", out.content);
+    assert!(warning_codes(&out).contains(&"W08".to_string()));
+
+    let mut spellings = ad_group_args("alamos");
+    spellings["keywords"]["variants"] = json!([
+        "cabernet sauvignon",
+        "Cabernét",
+        "cab sauvignon",
+        "cs",
+        "cabernetsauvignon"
+    ]);
+    let out = t.call("upsert_ad_group", spellings).await;
+    assert!(
+        !warning_codes(&out).contains(&"W08".to_string()),
+        "{}",
+        out.content
+    );
 }
 
 #[tokio::test]
@@ -967,11 +1026,8 @@ async fn with_focus_terms_every_keyword_is_about_the_focus() {
         "{:?}",
         error_codes(&out)
     );
-    let msg = out.content["errors"][0]["message"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(msg.contains("'malbec' is not about the focus"), "{msg}");
+    let msgs = out.content["errors"].to_string();
+    assert!(msgs.contains("'malbec' is not about the focus"), "{msgs}");
 
     let mut ok = ad_group_args("alamos");
     ok["keywords"]["variants"] = json!(["alamos malbec", "Álamos"]);

@@ -30,13 +30,18 @@ When `business.restricted` is not empty, Google Ads reviews this account under i
 You do not write the keyword list. You give a spec and mads builds it:
 
 - `variants`: 1 to 6 ways people write the name or theme: with and without accents, abbreviations, punctuation, the short name. Do not add words that change the meaning.
+  All variants are one search. Two products, two kinds or two problems are two ad groups, not two variants: one ad and one landing page cannot fit both, Google rates the group low quality and raises its price. The tool warns with `W08` when variants look like different searches.
 - `modifiers`: 0 to 10 intent words appended to every variant. Match them to the campaign intent and the business goal: evaluation (review, vale a pena, é bom), information (safra, harmonização) or transaction (preço, comprar, onde comprar). Write them in the business language.
 - `exact_heads`: keep true unless the campaign is broad on purpose.
 - `extra`: explicit keywords for cases the spec cannot express. Only phrase and exact match exist.
 
+Outside brand campaigns a one-word variant is kept as exact only: as phrase it matches any search that has the word, whatever else it asks. Give it modifiers to reach the searches you want. Do not add one-word phrase keywords in `extra` either: the tool warns with `W09`.
+
 ## Negatives
 
 Negative keywords stop wasted clicks. Put the ones shared by the whole campaign in `set_campaign_negatives`, never repeat them per ad group. Think of: job seekers, wholesale and B2B, free or pirated when the offer is paid, recipes and DIY, and other meanings of the names. A negative must not block any of the campaign keywords: the tools reject it when it does.
+
+Businesses that do not sell what people search for (an app, a guide, a review or comparison site) pay for searches that want a store. For them, add purchase words as campaign negatives: buy, price, cheapest, store, delivery, coupon, in the business language. When the business sells the thing, purchase words are its best searches: keep them, within the restricted rules above.
 
 Brand terms and competitor names are added as negatives to the other campaigns automatically. Do not add them.
 
@@ -52,7 +57,9 @@ Each ad group has specific texts. The brand kit completes the ad to 15 headlines
 
 ## Bids
 
-`default_cpc` is an estimate without auction data. Be conservative, stay under the account `max_cpc` when it is set, and justify the number in `cpc_rationale`. Brand terms are cheaper than generic terms.
+`default_cpc` is an estimate without auction data. A CPC under the first-page bid buys nothing: Google marks the keywords "below first page bid" or "rarely shown" and the ad group spends zero. So do not start low to be safe. Start at what searches of this kind cost in this market, stay under the account `max_cpc` when it is set, and justify the number in `cpc_rationale`.
+
+Brand terms are cheap only for a brand people already search. A new or little-known brand has no history with Google: give its ad groups a CPC close to the generic ones, or they never show. The same goes for competitor groups, where the competitor bids on its own name.
 
 ## Assets
 

@@ -114,6 +114,10 @@ mod tests {
             "`focus`",
             "business.restricted",
             "E23",
+            "first-page bid",
+            "W08",
+            "W09",
+            "do not sell",
         ] {
             assert!(
                 m.system.contains(rule),
@@ -128,6 +132,8 @@ mod tests {
             "competition",
             "contain a competitor name",
             "Never mix",
+            "catch-all",
+            "nobody types",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }

@@ -31,7 +31,7 @@ The intent comes from the words people type, not from the label an opportunity h
 
 Skip an intent that does not fit the business. A business with no catalog has no `catalog` campaign.
 
-Ad groups are tightly themed: one entity, or a few entities that share the same searches. Every ad group about a catalog item must list that item's `id` in `entity_ids`: an ad group with no `entity_ids` lands on the home page, which converts worse than the item page. Leave `final_url` empty to land on the entity page (one entity) or the business URL (none). Never invent a URL.
+Ad groups are tightly themed: one entity, or a few entities that share the same searches. Never plan a catch-all group ("X and others", "misc", "other"): an entity that fits no group gets its own group or stays out. Never put an entity in a group whose theme it does not share. Every ad group about a catalog item must list that item's `id` in `entity_ids`: an ad group with no `entity_ids` lands on the home page, which converts worse than the item page. Leave `final_url` empty to land on the entity page (one entity) or the business URL (none). Never invent a URL.
 
 ## Restricted categories
 
@@ -70,7 +70,8 @@ Bidding by format: `search` takes `manual_cpc`. `performance_max` takes `maximiz
 
 The goal is the most customers for the money. Give the budget to the searches most likely to bring a customer at a low cost:
 
-- High intent and low competition first: specific, long searches where few advertisers bid. They usually cost less per customer.
+- High intent and low competition first: specific searches where few advertisers bid. They usually cost less per customer.
+- Specific is not invented. A long phrasing nobody types never shows, and a campaign made of them spends nothing. Plan groups around phrasings people search, not every way a sentence could be built.
 - Keep high competition small, even when the demand is high: famous terms that big players bid on can eat the budget.
 - Follow the order of the opportunities in `research` unless the catalog or the rules say otherwise, and cite the opportunity in `rationale`. When an opportunity mixes trademark searches with generic ones, split it: the generic part keeps its rank and its share, and only the trademark part stays small.
 

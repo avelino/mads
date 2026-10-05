@@ -51,7 +51,7 @@ The agent does not write the keyword list. It sends a spec.
 
 | Field | Limit | Meaning |
 |---|---|---|
-| `variants` | 1 to 6 | Ways people write the name. |
+| `variants` | 1 to 6 | Ways people write one name. Different things go in different ad groups (`W08`). |
 | `modifiers` | 0 to 10 | Intent words appended to each variant. |
 | `exact_heads` | default `true` | Also add each variant as an exact match keyword. |
 | `extra` | 0 to 20 | Explicit keywords for cases the spec cannot express. |
@@ -59,11 +59,11 @@ The agent does not write the keyword list. It sends a spec.
 mads expands it.
 
 1. Normalize every variant and modifier: lowercase, trim, collapse spaces. Drop empties and duplicates.
-2. Phrase keywords are every variant plus every `variant modifier` pair. Sort them by byte order and remove duplicates.
+2. Phrase keywords are every variant plus every `variant modifier` pair. Sort them by byte order and remove duplicates. Outside brand campaigns, a one-word variant gets no phrase keyword when `exact_heads` is true. Alone in phrase match it catches any search with that word: in a live account, `"malbec"` took 43% of the Search spend on people looking for a bottle to buy.
 3. If `exact_heads` is true, add each variant again as an exact match keyword, in the order the agent gave them.
 4. Add `extra` keywords that are not already present with the same text and match type.
 
-Example. Variants `vinellu` and `vinellu app` with modifiers `baixar` and `grátis` give 6 phrase keywords and 2 exact keywords.
+Example, in a brand campaign. Variants `vinellu` and `vinellu app` with modifiers `baixar` and `grátis` give 6 phrase keywords and 2 exact keywords.
 
 ```csv
 Keyword,Add,Enabled,Vinellu - Marca,marca-vinellu,vinellu,Phrase match
@@ -167,7 +167,7 @@ Search campaigns take only `manual_cpc`. The plan tool refuses `maximize_clicks`
 
 Performance Max takes `maximize_conversions`. Demand Gen takes `maximize_clicks` or `maximize_conversions`. Any other pair is `E17`.
 
-Each ad group gets a `default_cpc` and a `cpc_rationale`. These are estimates. mads has no auction data, no Keyword Planner volumes and no history. The prompt asks for conservative numbers, below `budget.max_cpc` when set, with brand terms cheaper than generic terms. `E11` rejects a zero CPC and any CPC above `max_cpc`.
+Each ad group gets a `default_cpc` and a `cpc_rationale`. These are estimates. mads has no auction data, no Keyword Planner volumes and no history. A CPC under the first-page bid gets no impressions, so the prompt asks for what searches of that kind cost, below `budget.max_cpc` when set. Brand and competitor groups of a little-known brand get a CPC close to the generic ones: in a live account, brand groups at 0.60 BRL showed zero times while generic groups at 1.00 to 1.20 BRL served. `E11` rejects a zero CPC and any CPC above `max_cpc`.
 
 The report labels budget shares and CPCs as estimates. Check them before you enable anything.
 

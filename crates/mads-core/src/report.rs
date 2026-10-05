@@ -58,6 +58,7 @@ pub fn render_report(d: &ReportData) -> String {
     images(&mut md, d);
     usage(&mut md, d);
     import_steps(&mut md, d);
+    after_launch(&mut md, d);
     md
 }
 
@@ -315,6 +316,37 @@ fn import_steps(md: &mut String, d: &ReportData) {
     }
 }
 
+/// What to check once the account serves, and the reports that let the next run learn from it.
+fn after_launch(md: &mut String, d: &ReportData) {
+    md.push_str(
+        "\n## After launch\n\n\
+         **After 2 days.** In Keywords, add the columns First page bid estimate and Top of page bid estimate. \
+         A keyword with the status Below first page bid or Rarely shown gets no traffic: raise its ad group CPC to the first page estimate, or pause it if that is more than a customer is worth.\n",
+    );
+    let search = d
+        .account
+        .campaigns
+        .iter()
+        .any(|c| c.kind == CampaignKind::Search);
+    if search && !d.input.business.conversion_tracking {
+        md.push_str(
+            "\nSearch campaigns run with no conversion tracking: Google Ads shows clicks and cost, not which searches bring customers. \
+             Set a conversion action (a sign-up, a store click, a sale) before judging them.\n",
+        );
+    }
+    if has_images(d) {
+        md.push_str("\nAn ad group or asset group that shows No ads did not get its pictures: attach them in Editor and post again.\n");
+    }
+    md.push_str(
+        "\n**After 14 days.** Export these as CSV for the same period, for the next `mads run` or `--resume`:\n\n\
+         1. Search terms, with match type, campaign, ad group, cost and conversions.\n\
+         2. Search keywords, with Quality Score, its three components and the first page bid estimate.\n\
+         3. Campaigns segmented by day, with impression share lost to budget and to rank.\n\
+         4. Ads and assets, with the performance label of every headline and description.\n\n\
+         Keep the campaign and ad group names: they link the reports to this run.\n",
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +463,27 @@ mod tests {
         for cell in ["catalog", "30,00 BRL", "Manual CPC", "| 1 |", "| 14 |"] {
             assert!(row.contains(cell), "{cell} missing in {row}");
         }
+    }
+
+    #[test]
+    fn after_launch_says_what_to_check_and_what_to_export() {
+        let md = render_default();
+        let at = md.find("## After launch").expect("after launch section");
+        let section = &md[at..];
+        for needle in [
+            "First page bid estimate",
+            "Rarely shown",
+            "Search terms",
+            "Quality Score",
+            "no conversion tracking",
+        ] {
+            assert!(section.contains(needle), "after launch misses {needle}");
+        }
+
+        let mut input = testutil::input();
+        input.business.conversion_tracking = true;
+        let md = render_report(&data(&input, &account()));
+        assert!(!md.contains("no conversion tracking"));
     }
 
     #[test]

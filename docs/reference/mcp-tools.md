@@ -156,7 +156,7 @@ Creates or replaces one planned ad group.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `variants` | string array | yes | 1 to 6 ways people write the name. |
+| `variants` | string array | yes | 1 to 6 ways people write one name. Variants of different things warn `W08`. Outside brand campaigns a one-word variant becomes exact only. |
 | `modifiers` | string array | no | 0 to 10 intent words. |
 | `exact_heads` | boolean | no, default `true` | Add every variant as exact match. |
 | `extra` | array | no | 0 to 20 explicit `{"text", "match"}` keywords. |

@@ -3,8 +3,8 @@ mod images;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    Account, AdGroup, Assets, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Issue, Keyword,
-    MatchType, Rsa, char_len, contains_word_sequence, merge_rsa, normalize,
+    Account, AdGroup, Assets, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Intent, Issue,
+    Keyword, MatchType, Rsa, char_len, contains_word_sequence, merge_rsa, normalize,
 };
 use crate::input::{AllowedUrls, Budget, Business, Input, fold};
 
@@ -287,6 +287,9 @@ impl<'a> Rules<'a> {
             out.extend(self.ad_group(ag, &c.negatives, kit, &format!("{path}.ad_groups[{i}]")));
         }
         same_keyword_in_two_groups(&mut out, c, path);
+        if c.intent != Intent::Brand {
+            one_word_phrases(&mut out, c, path);
+        }
         out
     }
 
@@ -711,6 +714,88 @@ pub(crate) fn blocks(neg: &Keyword, kw: &Keyword) -> bool {
         MatchType::Exact => n == k,
         MatchType::Phrase => contains_word_sequence(&k, &n),
     }
+}
+
+/// W09: a one-word phrase keyword matches any search that has the word, whatever else it says.
+fn one_word_phrases(out: &mut Vec<Issue>, c: &Campaign, path: &str) {
+    for (g, ag) in c.ad_groups.iter().enumerate() {
+        for (i, k) in ag.keywords.iter().enumerate() {
+            if k.match_type == MatchType::Phrase && !k.text.trim().contains(' ') {
+                let msg = format!(
+                    "'{}' as phrase matches any search with that word: make it exact or add words",
+                    k.text
+                );
+                out.push(Issue::warning(
+                    "W09",
+                    format!("{path}.ad_groups[{g}].keywords[{i}]"),
+                    msg,
+                ));
+            }
+        }
+    }
+}
+
+/// W08: keyword variants are ways to write one search. Variants that share no word, prefix or
+/// initials are different searches: one ad and one landing page cannot fit them all.
+pub fn variant_themes(out: &mut Vec<Issue>, path: &str, variants: &[String]) {
+    let folded: Vec<String> = variants
+        .iter()
+        .map(|v| fold(v))
+        .filter(|v| !v.is_empty())
+        .collect();
+    let themes = theme_count(&folded);
+    if themes > 1 {
+        let msg = format!(
+            "variants look like {themes} different searches: keep one theme per ad group and plan the others as their own groups"
+        );
+        out.push(Issue::warning("W08", path, msg));
+    }
+}
+
+fn theme_count(items: &[String]) -> usize {
+    let mut group: Vec<usize> = (0..items.len()).collect();
+    for i in 0..items.len() {
+        for j in 0..i {
+            if related(&items[i], &items[j]) {
+                let (from, to) = (group[i], group[j]);
+                group
+                    .iter_mut()
+                    .filter(|g| **g == from)
+                    .for_each(|g| *g = to);
+            }
+        }
+    }
+    group.iter().collect::<BTreeSet<_>>().len()
+}
+
+/// Two folded variants name the same thing: a shared word, one inside the other, the same
+/// start, or one is the initials of the other.
+fn related(a: &str, b: &str) -> bool {
+    let words = |s: &str| -> BTreeSet<String> {
+        s.split_whitespace()
+            .filter(|w| w.chars().count() >= 3)
+            .map(str::to_string)
+            .collect()
+    };
+    let initials = |s: &str| -> String {
+        let w: Vec<&str> = s.split_whitespace().collect();
+        if w.len() < 2 {
+            return String::new();
+        }
+        w.iter().filter_map(|w| w.chars().next()).collect()
+    };
+    let (ca, cb) = (a.replace(' ', ""), b.replace(' ', ""));
+    let (short, long) = if ca.len() <= cb.len() {
+        (&ca, &cb)
+    } else {
+        (&cb, &ca)
+    };
+    let prefix = |s: &str| s.chars().take(4).collect::<String>();
+    !words(a).is_disjoint(&words(b))
+        || (short.chars().count() >= 4 && long.contains(short.as_str()))
+        || (short.chars().count() >= 4 && prefix(&ca) == prefix(&cb))
+        || ca == initials(b)
+        || cb == initials(a)
 }
 
 fn same_keyword_in_two_groups(out: &mut Vec<Issue>, c: &Campaign, path: &str) {
@@ -1204,6 +1289,44 @@ mod tests {
             final_url: s("https://vinellu.com/w/a"),
         });
         assert_has(&a, "W03");
+    }
+
+    #[test]
+    fn w08_variants_of_different_searches() {
+        let cases: &[(&[&str], bool)] = &[
+            (&["malbec", "cabernet sauvignon", "merlot"], true),
+            (&["vinho para peixe", "harmonizacao churrasco"], true),
+            (
+                &["cabernet sauvignon", "Cabernét", "cab sauvignon", "cs"],
+                false,
+            ),
+            (&["vinellu", "vinelu", "vinellu app"], false),
+            (&["São Paulo", "sao paulo", "sp"], false),
+            (&["alamos malbec"], false),
+        ];
+        for (variants, warns) in cases {
+            let v: Vec<String> = variants.iter().map(|s| s.to_string()).collect();
+            let mut out = Vec::new();
+            variant_themes(&mut out, "keywords.variants", &v);
+            assert_eq!(!out.is_empty(), *warns, "{variants:?}");
+        }
+    }
+
+    #[test]
+    fn w09_one_word_phrase_keyword_outside_brand() {
+        let mut a = account();
+        a.campaigns[0].ad_groups[0]
+            .keywords
+            .push(kw("malbec", Phrase));
+        assert_has(&a, "W09");
+        a.campaigns[0].intent = Intent::Brand;
+        assert!(run(&a).iter().all(|i| i.code != "W09"));
+        a.campaigns[0].intent = Intent::Generic;
+        a.campaigns[0].ad_groups[0].keywords.pop();
+        a.campaigns[0].ad_groups[0]
+            .keywords
+            .push(kw("malbec", Exact));
+        assert!(run(&a).iter().all(|i| i.code != "W09"));
     }
 
     #[test]

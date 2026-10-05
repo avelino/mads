@@ -139,4 +139,4 @@ A short summary written at the end.
 
 ## report.md
 
-Sections in order: header, status line, Summary, Budget and bids, Validation, URL check, Usage, How to import. See [Review and import](../guides/review-and-import.md).
+Sections in order: header, status line, Summary, Budget and bids, Validation, URL check, Usage, How to import, After launch. See [Review and import](../guides/review-and-import.md).

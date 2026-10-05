@@ -4,13 +4,13 @@ use anyhow::Context;
 use mads_core::{
     events::EventSink,
     input::{Input, load_input, parse_input_toml},
-    run::{RunConfig, RunDir, generate},
+    run::{Drivers, RunConfig, RunDir, generate},
     workspace::Workspace,
 };
-use mads_providers::{WebClient, build_drivers, build_image_model, preflight};
+use mads_providers::{ProviderSelection, WebClient, build_drivers, build_image_model, preflight};
 
 use crate::{
-    cli::{CliError, GenerateArgs, usage},
+    cli::{CliError, GenerateArgs, RunArgs, usage},
     render::{Format, pump},
 };
 
@@ -72,16 +72,15 @@ fn prepare_run_dir(args: &GenerateArgs) -> anyhow::Result<std::path::PathBuf> {
     if let Some(dir) = &args.resume {
         return Ok(dir.clone());
     }
-    let run = RunDir::create(&args.out).context("could not create the run directory")?;
+    let run = RunDir::create(&args.run.out).context("could not create the run directory")?;
     if let Some(business) = args.business.as_deref() {
         snapshot(&run, business)?;
     }
     Ok(run.root().to_path_buf())
 }
 
-pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
-    // Everything that can be wrong with the inputs fails here, before a run directory exists.
-    let mut input = load_input_for(&args)?;
+/// Drivers and the image model for `input`, with every provider problem found before a run starts.
+pub(crate) async fn drivers_for(args: &RunArgs, input: &Input) -> anyhow::Result<Drivers> {
     let selection = args.agent.selection();
     let mut drivers = build_drivers(&selection).map_err(|e| usage(e.to_string()))?;
     drivers.image = build_image_model(&args.image_provider, args.image_model.as_deref())
@@ -94,24 +93,21 @@ pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
             f.label()
         )));
     }
-    if input.app.is_some()
-        && !input.formats.is_empty()
-        && !input
-            .formats
-            .contains(&mads_core::google::CampaignKind::AppInstalls)
-    {
-        eprintln!(
-            "note: business.toml has [app] but [campaigns] formats leaves out \"app_installs\": no App campaign will be planned"
-        );
-    }
     preflight(&selection)
         .await
         .map_err(|e| usage(e.to_string()))?;
-    let run_dir = prepare_run_dir(&args)?;
-    if args.resume.is_none() {
-        snapshot_logo(&run_dir, &mut input)?;
-    }
+    Ok(drivers)
+}
 
+/// Runs the missions in `run_dir` and prints progress. Returns the exit code.
+pub(crate) async fn execute(
+    args: &RunArgs,
+    input: Input,
+    drivers: Drivers,
+    run_dir: std::path::PathBuf,
+    format: Format,
+) -> anyhow::Result<i32> {
+    let selection: ProviderSelection = args.agent.selection();
     let mut cfg = RunConfig::new(args.out.clone());
     cfg.run_dir = Some(run_dir);
     cfg.parallel = args.parallel;
@@ -122,8 +118,8 @@ pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
     cfg.max_ad_groups = args.max_ad_groups;
     cfg.skip_url_check = args.skip_url_check;
     cfg.max_images = args.max_images;
-    cfg.provider = selection.provider.clone();
-    cfg.model = selection.model.clone();
+    cfg.provider = selection.provider;
+    cfg.model = selection.model;
 
     let web = Arc::new(WebClient::new().context("could not start the HTTP client")?);
     let (events, rx) = EventSink::channel();
@@ -131,4 +127,25 @@ pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
     let result = generate(input, drivers, web, cfg, events).await;
     printer.await.context("event printer stopped")?;
     Ok(result?.exit_code)
+}
+
+pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
+    // Everything that can be wrong with the inputs fails here, before a run directory exists.
+    let mut input = load_input_for(&args)?;
+    if input.app.is_some()
+        && !input.formats.is_empty()
+        && !input
+            .formats
+            .contains(&mads_core::google::CampaignKind::AppInstalls)
+    {
+        eprintln!(
+            "note: business.toml has [app] but [campaigns] formats leaves out \"app_installs\": no App campaign will be planned"
+        );
+    }
+    let drivers = drivers_for(&args.run, &input).await?;
+    let run_dir = prepare_run_dir(&args)?;
+    if args.resume.is_none() {
+        snapshot_logo(&run_dir, &mut input)?;
+    }
+    execute(&args.run, input, drivers, run_dir, format).await
 }

@@ -11,14 +11,19 @@ use std::collections::BTreeMap;
 
 use super::{
     Account, AdGroup, AssetGroup, BrandKit, Campaign, CampaignKind, CsvFile, MatchType,
-    export::effective_negatives, merge_rsa,
+    export::effective_negatives, merge_rsa, normalize,
 };
-use crate::{input::Input, money::Cents};
+use crate::{
+    input::Input,
+    money::Cents,
+    perf::{Live, LiveStatus},
+};
 
 /// Path of the file under the platform directory.
 pub const EDITOR_FILE: &str = "editor/account.csv";
 
 const ACTIVE: &str = "Enabled";
+const PAUSED: &str = "Paused";
 /// The bid Editor fills in when a field does not apply to the bid strategy. Every ad group of a
 /// real export carries it, and Editor warns "the ad group has no bids" without it.
 const MIN_BID: &str = "0.01";
@@ -99,13 +104,86 @@ struct Ctx<'a> {
     input: &'a Input,
     kit: Option<&'a BrandKit>,
     status: &'static str,
+    live: Option<&'a Live>,
+}
+
+fn same_name(a: &str, b: &str) -> bool {
+    normalize(a) == normalize(b)
 }
 
 impl Ctx<'_> {
+    /// A campaign already in the account keeps the status it has there, so an import over a live
+    /// account neither pauses what serves nor turns on what the advertiser paused.
+    fn status_of(&self, c: &Campaign) -> &'static str {
+        let live = self.live.and_then(|l| l.performance.campaign(&c.name));
+        match live.and_then(|p| p.live_status) {
+            Some(LiveStatus::Enabled) => ACTIVE,
+            Some(LiveStatus::Paused) => PAUSED,
+            _ => self.status,
+        }
+    }
+
     fn under(&self, c: &Campaign) -> Row {
         Row::default()
             .set("Campaign", &c.name)
-            .set("Campaign Status", self.status)
+            .set("Campaign Status", self.status_of(c))
+    }
+
+    /// Rows that pause what the live account has and the new account dropped. Editor never
+    /// deletes on import: a missing row would leave the old entity serving.
+    fn dropped(&self, new: &Account) -> Vec<Row> {
+        let Some(live) = self.live else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for old in &live.baseline.campaigns {
+            match new.campaigns.iter().find(|c| same_name(&c.name, &old.name)) {
+                None => out.push(
+                    Row::default()
+                        .set("Campaign", &old.name)
+                        .set("Campaign Status", PAUSED),
+                ),
+                Some(c) => self.dropped_in(old, c, &mut out),
+            }
+        }
+        out
+    }
+
+    fn dropped_in(&self, old: &Campaign, c: &Campaign, out: &mut Vec<Row>) {
+        for g in &old.ad_groups {
+            let Some(kept) = c.ad_groups.iter().find(|n| same_name(&n.name, &g.name)) else {
+                out.push(
+                    self.under(c)
+                        .set("Ad Group", &g.name)
+                        .set("Ad Group Status", PAUSED),
+                );
+                continue;
+            };
+            let gone = g.keywords.iter().filter(|k| {
+                !kept
+                    .keywords
+                    .iter()
+                    .any(|n| n.match_type == k.match_type && same_name(&n.text, &k.text))
+            });
+            for k in gone {
+                let kind = criterion(k.match_type, false);
+                out.push(self.keyword(c, kept, &k.text, kind).set("Status", PAUSED));
+            }
+        }
+        for g in &old.asset_groups {
+            if c.asset_groups.iter().any(|n| same_name(&n.name, &g.name)) {
+                continue;
+            }
+            out.push(if c.kind == CampaignKind::PerformanceMax {
+                self.under(c)
+                    .set("Asset Group", &g.name)
+                    .set("Asset Group Status", PAUSED)
+            } else {
+                self.under(c)
+                    .set("Ad Group", &g.name)
+                    .set("Ad Group Status", PAUSED)
+            });
+        }
     }
 
     fn in_group(&self, c: &Campaign, group: &str) -> Row {
@@ -279,6 +357,16 @@ fn utf16le(text: &str) -> Vec<u8> {
 
 /// Every campaign of the account in one Editor import file. None for an empty account.
 pub fn export_editor(input: &Input, account: &Account) -> Option<CsvFile> {
+    export_editor_live(input, account, None)
+}
+
+/// The Editor file of an account that replaces a live one: campaigns already live keep their
+/// status, and what the live account has that this one dropped is paused.
+pub fn export_editor_live(
+    input: &Input,
+    account: &Account,
+    live: Option<&Live>,
+) -> Option<CsvFile> {
     if account.campaigns.is_empty() {
         return None;
     }
@@ -286,11 +374,13 @@ pub fn export_editor(input: &Input, account: &Account) -> Option<CsvFile> {
         input,
         kit: account.brand_kit.as_ref(),
         status: input.export.status.as_str(),
+        live,
     };
     let cols = editor_columns();
     let mut text = cols.join("\t");
     text.push('\n');
-    for row in account.campaigns.iter().flat_map(|c| ctx.rows_of(c)) {
+    let rows = account.campaigns.iter().flat_map(|c| ctx.rows_of(c));
+    for row in rows.chain(ctx.dropped(account)) {
         let line: Vec<String> = cols
             .iter()
             .map(|col| field(row.0.get(col).map_or("", String::as_str)))
@@ -341,7 +431,8 @@ pub fn read_editor(bytes: &[u8]) -> Result<Vec<BTreeMap<String, String>>, String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::google::{BidStrategy, Intent};
+    use crate::google::{AdGroup, BidStrategy, Intent};
+    use crate::perf::{Live, LiveStatus};
 
     fn demand_gen() -> Campaign {
         Campaign {
@@ -400,6 +491,148 @@ mod tests {
             locations[0].get("Ad Group").map(String::as_str),
             Some("tintos"),
             "Demand Gen targets location on the ad group too"
+        );
+    }
+
+    fn search(name: &str, groups: &[(&str, &[&str])]) -> Campaign {
+        Campaign {
+            name: name.into(),
+            slug: crate::input::slugify(name),
+            kind: CampaignKind::Search,
+            intent: Intent::Generic,
+            daily_budget: Cents(5000),
+            bid_strategy: BidStrategy::ManualCpc,
+            rationale: String::new(),
+            planned_ad_groups: vec![],
+            ad_groups: groups
+                .iter()
+                .map(|(g, kws)| AdGroup {
+                    name: (*g).into(),
+                    default_cpc: Cents(120),
+                    cpc_rationale: String::new(),
+                    final_url: "https://vinellu.com/app".into(),
+                    keywords: kws
+                        .iter()
+                        .map(|k| super::super::Keyword {
+                            text: (*k).into(),
+                            match_type: MatchType::Phrase,
+                        })
+                        .collect(),
+                    negatives: vec![],
+                    rsa: Default::default(),
+                })
+                .collect(),
+            asset_groups: vec![],
+            negatives: vec![],
+            assets: None,
+        }
+    }
+
+    fn live(baseline: Vec<Campaign>, status: &[(&str, LiveStatus)]) -> Live {
+        let mut performance = crate::perf::Performance::default();
+        for (name, s) in status {
+            performance.campaigns.push(crate::perf::CampaignPerf {
+                name: (*name).into(),
+                live_status: Some(*s),
+                ..Default::default()
+            });
+        }
+        Live {
+            baseline: Account {
+                brand_kit: None,
+                campaigns: baseline,
+            },
+            performance,
+        }
+    }
+
+    fn row(
+        rows: &[BTreeMap<String, String>],
+        pick: impl Fn(&BTreeMap<String, String>) -> bool,
+    ) -> Option<&BTreeMap<String, String>> {
+        rows.iter().find(|r| pick(r))
+    }
+
+    #[test]
+    fn what_the_new_account_drops_is_paused() {
+        let old = vec![
+            search(
+                "Catalogo",
+                &[
+                    ("tintos", &["malbec", "merlot"]),
+                    ("brancos", &["chardonnay"]),
+                ],
+            ),
+            search("Antiga", &[("g", &["x"])]),
+            demand_gen(),
+        ];
+        let mut feed = demand_gen();
+        feed.asset_groups.clear();
+        let new = Account {
+            brand_kit: None,
+            campaigns: vec![search("Catalogo", &[("tintos", &["malbec"])]), feed],
+        };
+        let base = live(old, &[]);
+        let file = export_editor_live(&crate::testutil::input(), &new, Some(&base)).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        let get = |r: &BTreeMap<String, String>, k: &str| r.get(k).cloned().unwrap_or_default();
+        let paused_kw = row(&rows, |r| get(r, "Keyword") == "merlot").expect("merlot row");
+        assert_eq!(get(paused_kw, "Status"), "Paused");
+        assert_eq!(get(paused_kw, "Criterion Type"), "Phrase");
+        let kept_kw = row(&rows, |r| get(r, "Keyword") == "malbec").unwrap();
+        assert_eq!(get(kept_kw, "Status"), "Enabled");
+        let group = row(&rows, |r| get(r, "Ad Group") == "brancos").expect("brancos row");
+        assert_eq!(get(group, "Ad Group Status"), "Paused");
+        assert!(
+            row(&rows, |r| get(r, "Keyword") == "chardonnay").is_none(),
+            "pausing the group is enough"
+        );
+        let campaign = row(&rows, |r| get(r, "Campaign") == "Antiga").expect("Antiga row");
+        assert_eq!(get(campaign, "Campaign Status"), "Paused");
+        assert_eq!(
+            rows.iter()
+                .filter(|r| get(r, "Campaign") == "Antiga")
+                .count(),
+            1
+        );
+        let tintos = row(&rows, |r| {
+            get(r, "Ad Group") == "tintos" && get(r, "Campaign") == "Feed"
+        })
+        .expect("asset group row");
+        assert_eq!(get(tintos, "Ad Group Status"), "Paused");
+    }
+
+    #[test]
+    fn campaigns_already_live_keep_their_status() {
+        let input = crate::testutil::input();
+        assert_eq!(input.export.status.as_str(), "Paused");
+        let new = Account {
+            brand_kit: None,
+            campaigns: vec![
+                search("Catalogo", &[("tintos", &["malbec"])]),
+                search("Nova", &[("g", &["x"])]),
+            ],
+        };
+        let base = live(
+            vec![search("Catalogo", &[("tintos", &["malbec"])])],
+            &[("catalogo", LiveStatus::Enabled)],
+        );
+        let file = export_editor_live(&input, &new, Some(&base)).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        let status = |c: &str| {
+            rows.iter()
+                .filter(|r| r.get("Campaign").map(String::as_str) == Some(c))
+                .map(|r| r.get("Campaign Status").cloned().unwrap_or_default())
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        assert_eq!(
+            status("Catalogo").into_iter().collect::<Vec<_>>(),
+            ["Enabled"]
+        );
+        assert_eq!(
+            status("Nova").into_iter().collect::<Vec<_>>(),
+            ["Paused"],
+            "new campaigns follow export.status"
         );
     }
 }

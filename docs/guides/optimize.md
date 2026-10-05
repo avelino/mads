@@ -1,0 +1,73 @@
+# Optimize a live account
+
+This page shows how to feed Google Ads reports back to mads so it rebuilds a running account from what the numbers say.
+
+`mads optimize` starts from a finished run that you imported into Google Ads. It reads the reports you exported, runs the plan and every campaign mission again with those numbers, and writes a new run. You import the new Editor file over the live account. The original run is not changed.
+
+```bash
+mads optimize out/<run-id> --reports perf/2026-10-17 --provider anthropic --model <model-id>
+```
+
+## Export the reports
+
+Wait until the account has data. 14 days or 100 clicks per campaign is the line mads uses: below it a campaign is marked thin and only its structure changes (see below).
+
+In Google Ads, export each report as CSV for the same date range and put the files in one folder. The file names do not matter. mads tells the reports apart by their columns, in English or Portuguese.
+
+| Report | Where in Google Ads | Columns to add |
+|---|---|---|
+| Search terms | Insights and reports, Search terms | Match type, Added/Excluded, Conversions |
+| Search keywords | Keywords, Search keywords | Quality Score, First page bid estimate, Top of page bid estimate, Status reasons |
+| Campaigns | Campaigns | Campaign status, Budget, Status reasons, Search lost IS (budget), Search lost IS (rank) |
+| Campaigns by day | Campaigns, segmented by Day | The same |
+| Ads and assets | Ads, Assets | Performance label |
+
+None is required, but at least one must be there. A CSV that is not one of these is listed as skipped and changes nothing. The two title lines, number formats such as `1.020,50` or `1,020.50`, `--` for empty and the `Total:` rows are handled.
+
+Do not rename campaigns or ad groups in Google Ads. The name is what links a report row to the run.
+
+## What mads reads from them
+
+The reports are not sent to the agents as they are. One search terms export can have thousands of rows. mads builds a digest per campaign and per ad group and stores it in `workspace.json` under `live.performance`.
+
+- **Campaigns.** Impressions, clicks, cost, conversions, value, CTR, average CPC, cost per conversion, the live status, Google's status reasons and the share of impressions lost to budget and to rank.
+- **Keywords.** The same numbers, the max CPC, the Quality Score and the bid estimates when the export has them, and three signals read from the status reasons: `below_first_page`, `rarely_shown` and `low_quality`. A Quality Score of 4 or less also counts as `low_quality`.
+- **Search terms.** The 30 most expensive terms of each ad group, each marked `keyword`, `negative`, `excluded` or `new`. Every group also gets the total cost of its terms with zero conversions. When a campaigns report is there, `hidden_terms_cost` is the campaign cost Google does not show by term.
+- **Thin campaigns.** Under 14 days in the date range, or under 100 clicks. The agents are told to fix structure only there: bids under the first page, low quality, missing ads, mixed groups. They do not cut or reward anything because of its results.
+
+Campaigns in the reports that are not part of the run, such as older campaigns of the account, are listed as not in this run and left alone.
+
+## What the agents see
+
+The plan mission gets `live_account` (every campaign as it ran) and `performance` (campaign totals) in `get_business`. It can move budget between campaigns, split or merge ad groups and leave a campaign out. The prompt asks it to keep the names of what continues.
+
+Each campaign mission gets `live` (its ad groups, keywords, negatives and texts as they ran) and `performance` (its detailed numbers) in `get_brief`. Keywords with no impressions and no signal are left out of `performance`. See [MCP tools](../reference/mcp-tools.md).
+
+Image and app campaigns get the same fields. A picture whose image id stays is reused from the old run and costs nothing.
+
+## Import the result
+
+Import `google-ads/editor/account.csv` with Google Ads Editor, as described in [Review and import](review-and-import.md). Do not upload files 1 to 5 on the web: they would add every Search campaign a second time.
+
+What the file does to the live account:
+
+- A campaign that is live keeps its status from the campaigns report. A new campaign follows `export.status`.
+- A campaign, ad group or keyword that the new run dropped comes as a row with status `Paused`. Editor never deletes on import, so without that row the old one would keep serving.
+- Editor adds a responsive search ad with new texts next to the old one. Pause the old ad by hand.
+- A negative the new run dropped stays in Google Ads. Remove it by hand.
+
+The `Changes` section of `report.md` lists each of these per campaign, so you know what to check in the Editor preview.
+
+## Errors
+
+```text
+error: run has unfinished missions (campaign:vinellu-marca); finish it with `mads generate --resume <run-dir>` first
+```
+
+`optimize` needs a finished run. Exit code `1`.
+
+```text
+error: no Google Ads report in perf: export search terms, keywords or campaigns as CSV (no .csv file)
+```
+
+The folder has no CSV, or none of them is a report mads knows. The message lists each file with the reason. Exit code `1`. In both cases no run directory is created.

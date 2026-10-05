@@ -1185,3 +1185,101 @@ async fn an_app_campaign_plans_without_conversion_tracking() {
     let out = t.call("set_account_plan", plan).await;
     assert!(!out.is_error, "{}", out.content);
 }
+
+// ---- optimize: live account and performance ----
+
+async fn live_planned() -> SharedWorkspace {
+    let ws = planned().await;
+    let t = campaign_tools(&ws, "vinellu-catalogo").await;
+    assert!(
+        !t.call("upsert_ad_group", ad_group_args("alamos"))
+            .await
+            .is_error
+    );
+    {
+        let mut guard = ws.lock().await;
+        let baseline = guard.account.clone();
+        let files = vec![(
+            "k.csv".to_string(),
+            crate::perf::read_table(
+                "Palavra-chave,Tipo de corresp.,Campanha,Grupo de anúncios,Motivos do status,Cliques,Impr.,Custo\n\"\"\"alamos\"\"\",Correspondência de frase,Vinellu - Catalogo,alamos,abaixo do lance de primeira página,9,120,\"9,90\"\n\"\"\"alamos safra\"\"\",Correspondência de frase,Vinellu - Catalogo,alamos,,0,0,\"0,00\"\n"
+                    .as_bytes(),
+            ),
+        )];
+        let performance = crate::perf::digest(&files, &baseline);
+        guard.live = Some(crate::perf::Live {
+            baseline,
+            performance,
+        });
+    }
+    ws
+}
+
+#[tokio::test]
+async fn get_business_shows_the_live_account_and_its_numbers() {
+    let ws = live_planned().await;
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    let r = &out.content["result"];
+    assert_eq!(
+        r["live_account"]["campaigns"][0]["name"],
+        "Vinellu - Catalogo"
+    );
+    assert_eq!(r["live_account"]["campaigns"][0]["ad_groups"][0], "alamos");
+    let c = &r["performance"]["campaigns"][0];
+    assert_eq!(c["name"], "Vinellu - Catalogo");
+    assert_eq!(c["metrics"]["clicks"], 9);
+    assert_eq!(c["thin"], true);
+    assert!(
+        r["performance"]["thin_rule"]
+            .as_str()
+            .unwrap()
+            .contains("structure")
+    );
+    assert!(
+        c.get("ad_groups").is_none(),
+        "the plan sees campaign totals only"
+    );
+}
+
+#[tokio::test]
+async fn get_brief_shows_the_live_campaign_and_its_keywords() {
+    let ws = live_planned().await;
+    let out = campaign_tools(&ws, "vinellu-catalogo")
+        .await
+        .call("get_brief", json!({}))
+        .await;
+    let r = &out.content["result"];
+    assert_eq!(r["live"]["ad_groups"][0]["name"], "alamos");
+    assert_eq!(r["live"]["ad_groups"][0]["default_cpc"], 1.5);
+    let g = &r["performance"]["ad_groups"][0];
+    let kws = g["keywords"].as_array().unwrap();
+    assert_eq!(
+        kws.len(),
+        1,
+        "keywords without impressions or signals are left out"
+    );
+    assert_eq!(kws[0]["signals"][0], "below_first_page");
+
+    let brand = campaign_tools(&ws, "vinellu-marca")
+        .await
+        .call("get_brief", json!({}))
+        .await;
+    assert!(
+        brand.content["result"]["live"].is_null()
+            || brand.content["result"]["live"]["ad_groups"]
+                .as_array()
+                .is_some_and(|a| a.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn without_live_data_the_tools_say_nothing_about_it() {
+    let ws = planned().await;
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    assert!(out.content["result"].get("performance").is_none());
+    let out = campaign_tools(&ws, "vinellu-catalogo")
+        .await
+        .call("get_brief", json!({}))
+        .await;
+    assert!(out.content["result"].get("live").is_none());
+}

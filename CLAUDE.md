@@ -15,7 +15,7 @@ Run the whole flow offline with the hidden `replay` provider: see `crates/mads-c
 ## Architecture
 
 - `mads-core` never touches the network. It defines the traits (`ChatModel`, `Driver`, `Web`, `SiteFetch`, `ToolHost`) and `mads-providers` implements them. `mads-cli` depends on both.
-- A run is missions: `plan`, then one `campaign:<slug>` per campaign in parallel, then deterministic post-processing (cross negatives, validate, URL check, export). `mads init` is a separate single mission.
+- A run is missions: `plan`, then one `campaign:<slug>` per campaign in parallel, then deterministic post-processing (cross negatives, validate, URL check, export). `mads init` is a separate single mission. `mads optimize` prepares a new run from a finished one plus Google Ads report CSVs (`src/perf`, `workspace.live`) and runs the same missions.
 - Agents work only through typed tools (`crates/mads-core/src/tools`, `src/init/tools.rs`). API providers loop over `ChatModel`. Agent CLIs reach the same tools through a per-mission MCP server (`mads-providers/src/mcp.rs`).
 - Output per ad platform: `out/<run>/google-ads/` (five CSVs), plus `report.md`, `workspace.json`, `events.ndjson`, `transcripts/`.
 

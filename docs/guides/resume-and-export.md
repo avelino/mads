@@ -29,6 +29,8 @@ error: cannot resume out/nope: No such file or directory (os error 2)
 
 That is the error for a missing directory, with exit code `1`.
 
+To improve a run that is already live from its Google Ads reports, use [`mads optimize`](optimize.md) instead. It creates a new run and leaves this one as it is.
+
 ## Export again without a model
 
 `mads export` reruns cross negatives, validation, the URL check and the CSV export on `workspace.json`. No LLM runs.

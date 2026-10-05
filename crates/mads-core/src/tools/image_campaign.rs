@@ -152,6 +152,11 @@ async fn get_brief(t: &MissionTools, slug: &str) -> ToolOutput {
     if !ws.input.design.is_empty() {
         result["design"] = json!(ws.input.design);
     }
+    if let Some(live) = &ws.live {
+        let (ran, performance) = super::live::brief_view(live, &c.name);
+        result["live"] = ran;
+        result["performance"] = performance;
+    }
     ToolOutput::ok(result, &[], format!("get_brief {}", c.name))
 }
 

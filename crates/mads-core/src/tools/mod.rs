@@ -1,5 +1,6 @@
 mod campaign;
 mod image_campaign;
+mod live;
 mod output;
 mod plan;
 pub mod schema;

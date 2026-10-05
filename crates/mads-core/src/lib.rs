@@ -7,8 +7,11 @@ pub mod init;
 pub mod input;
 pub mod mission;
 pub mod money;
+pub mod optimize;
+pub mod perf;
 pub mod post;
 pub mod report;
+mod report_live;
 pub mod run;
 #[cfg(test)]
 pub mod testutil;

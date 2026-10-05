@@ -10,6 +10,7 @@ mads [OPTIONS] <COMMAND>
 |---|---|
 | `init` | Read a website with an agent and draft `business.toml` and `catalog.csv` for review. |
 | `generate` | Generate campaigns and the Google Ads bulk upload CSVs from `business.toml`. |
+| `optimize` | Optimize a finished run that is live in Google Ads, from the reports exported there. |
 | `export` | Validate and export a finished run again, without calling any model. |
 | `providers` | List the providers and whether each one is ready. |
 | `help` | Print help for the program or a subcommand. |
@@ -105,6 +106,27 @@ mads generate --resume out/<run-id> --provider anthropic --model <model-id>
 ```
 
 Exit codes: `0`, `1`, `2`, `3`. See below.
+
+## mads optimize
+
+```text
+mads optimize [OPTIONS] --reports <REPORTS> <RUN_DIR>
+```
+
+Starts a new run from a finished one and the CSV reports of its live account, and runs every mission again with those numbers. The base run is not changed. See [Optimize a live account](../guides/optimize.md).
+
+| Argument or flag | Default | Description |
+|---|---|---|
+| `<RUN_DIR>` | | Finished run directory whose account is live in Google Ads. Required. |
+| `--reports <REPORTS>` | | Folder with the CSV reports exported from Google Ads. Required. |
+
+It takes every flag of `mads generate` except `[BUSINESS]` and `--resume`: `--out`, `--parallel`, `--skip-url-check`, `--max-ad-groups`, the image flags and the agent flags, with the same defaults.
+
+```bash
+mads optimize out/<run-id> --reports perf/2026-10-17 --provider anthropic --model <model-id>
+```
+
+`optimize` fails with exit code `1`, before creating a run directory, when the run does not exist, has unfinished missions, or the folder holds no report mads knows.
 
 ## mads export
 

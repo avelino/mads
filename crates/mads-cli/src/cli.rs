@@ -36,6 +36,8 @@ pub enum Command {
     Init(InitArgs),
     /// Generate campaigns and the Google Ads bulk upload CSVs from business.toml.
     Generate(GenerateArgs),
+    /// Optimize a finished run that is live in Google Ads, from the reports exported there.
+    Optimize(OptimizeArgs),
     /// Validate and export a finished run again, without calling any model.
     Export(ExportArgs),
     /// List the providers and whether each one is ready.
@@ -77,12 +79,30 @@ pub struct GenerateArgs {
     /// Path to business.toml.
     #[arg(required_unless_present = "resume")]
     pub business: Option<PathBuf>,
-    /// Directory where run directories are created.
-    #[arg(long, default_value = "out")]
-    pub out: PathBuf,
     /// Run directory to resume: only the missions that are not finished run again.
     #[arg(long)]
     pub resume: Option<PathBuf>,
+    #[command(flatten)]
+    pub run: RunArgs,
+}
+
+#[derive(Args)]
+pub struct OptimizeArgs {
+    /// Finished run directory whose account is live in Google Ads. It is not changed.
+    pub run_dir: PathBuf,
+    /// Folder with the CSV reports exported from Google Ads: search terms, keywords, campaigns, assets.
+    #[arg(long)]
+    pub reports: PathBuf,
+    #[command(flatten)]
+    pub run: RunArgs,
+}
+
+/// Flags shared by the commands that run missions.
+#[derive(Args)]
+pub struct RunArgs {
+    /// Directory where run directories are created.
+    #[arg(long, default_value = "out")]
+    pub out: PathBuf,
     /// Campaign missions that run at the same time.
     #[arg(long, default_value_t = 4)]
     pub parallel: usize,
@@ -230,6 +250,7 @@ mod tests {
             panic!("expected generate")
         };
         assert_eq!(g.business.as_deref(), Some(std::path::Path::new("b.toml")));
+        let g = g.run;
         assert_eq!(g.out, std::path::PathBuf::from("out"));
         assert_eq!(
             (g.parallel, g.max_ad_groups, g.skip_url_check),
@@ -279,7 +300,7 @@ mod tests {
         let Command::Generate(g) = cli.command else {
             panic!()
         };
-        let sel = g.agent.selection();
+        let sel = g.run.agent.selection();
         assert_eq!(
             (
                 sel.provider.as_str(),
@@ -289,6 +310,19 @@ mod tests {
             ),
             ("ollama", Some("m"), Some("p"), Some("http://x"))
         );
+    }
+
+    #[test]
+    fn optimize_needs_a_run_and_a_reports_folder() {
+        assert!(Cli::try_parse_from(["mads", "optimize", "out/x"]).is_err());
+        assert!(Cli::try_parse_from(["mads", "optimize", "--reports", "perf"]).is_err());
+        let cli = Cli::try_parse_from(["mads", "optimize", "out/x", "--reports", "perf"]).unwrap();
+        let Command::Optimize(o) = cli.command else {
+            panic!("expected optimize")
+        };
+        assert_eq!(o.run_dir, std::path::PathBuf::from("out/x"));
+        assert_eq!(o.reports, std::path::PathBuf::from("perf"));
+        assert_eq!((o.run.parallel, o.run.max_ad_groups), (4, 50));
     }
 
     #[test]

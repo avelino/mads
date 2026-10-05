@@ -534,13 +534,14 @@ async fn conclude(
         };
         images = images_step(run, ws, web, cfg, events, finish.image).await;
         notes.extend(images.notes.iter().cloned());
-        let (input, account) = {
+        let (input, account, live) = {
             let w = ws.lock().await;
-            (w.input.clone(), w.account.clone())
+            (w.input.clone(), w.account.clone(), w.live.clone())
         };
         finalize(
             &input,
             &account,
+            live.as_ref(),
             web,
             cfg.skip_url_check,
             cfg.max_ad_groups,
@@ -593,6 +594,7 @@ async fn conclude(
         totals: totals.clone(),
         status,
         images,
+        live: guard.live.clone(),
     };
     std::fs::write(run.report_path(), render_report(&report))?;
     events.emit(Event::ArtifactWritten {

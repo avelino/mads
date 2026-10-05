@@ -110,6 +110,7 @@ The state of the run. It is saved after every successful mutating tool call (wri
 | `input` | The parsed business, budget, export settings and catalog. `--resume` and `export` use this. |
 | `account` | The brand kit and the campaigns with their planned ad groups, ad groups, negatives and assets. |
 | `missions` | One entry per mission id. `status` is `pending`, `running`, `finished` or `{"failed": {"reason": "..."}}`. |
+| `live` | Only in a `mads optimize` run. `baseline` is the account of the run it started from, `performance` the digest of the reports. Absent otherwise. See [Optimize a live account](../guides/optimize.md). |
 
 Money in `account` is in cents (`5000` for 50.00). Enums are snake_case strings.
 
@@ -139,4 +140,4 @@ A short summary written at the end.
 
 ## report.md
 
-Sections in order: header, status line, Summary, Budget and bids, Validation, URL check, Usage, How to import, After launch. See [Review and import](../guides/review-and-import.md).
+Sections in order: header, status line, Summary, Budget and bids, Validation, URL check, Usage, How to import, After launch. A run of `mads optimize` adds Performance data after Summary and Changes after Budget and bids, and its How to import keeps only Google Ads Editor. See [Review and import](../guides/review-and-import.md).

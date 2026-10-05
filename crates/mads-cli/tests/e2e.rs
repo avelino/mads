@@ -185,7 +185,7 @@ fn help_lists_the_commands() {
         .assert()
         .success();
     let text = String::from_utf8_lossy(&out.get_output().stdout).to_string();
-    for cmd in ["init", "generate", "export", "providers"] {
+    for cmd in ["init", "generate", "optimize", "export", "providers"] {
         assert!(text.contains(cmd), "{cmd} missing in help");
     }
 }
@@ -852,4 +852,184 @@ fn a_required_image_format_without_an_image_model_is_a_usage_error() {
         &["--skip-url-check", "--image-provider", "solid"],
     )
     .code(0);
+}
+
+// ---- optimize ----
+
+const CAMPAIGN_REPORT: &str = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus da campanha,Campanha,Orçamento,Status,Motivos do status,Custo,Conversões,Impr.,Cliques\nAtivada,Vinellu - Catalogo,\"30,00\",Qualificado,,\"40,00\",\"0,00\",\"1.200\",35\nPausada,Vinellu - Marca,\"20,00\",Pausado,,\"0,00\",\"0,00\",0,0\nAtivada,Campanha antiga,\"10,00\",Qualificado,,\"5,00\",\"0,00\",50,3\nTotal: Conta,,,,,\"45,00\",\"0,00\",\"1.250\",38\n";
+
+const KEYWORD_REPORT: &str = "Relatório de palavras-chave da rede de pesquisa\n3 de outubro de 2026 - 5 de outubro de 2026\nPalavra-chave,Tipo de corresp.,Campanha,Grupo de anúncios,Motivos do status,CPC máx.,Impr.,Custo,Cliques,Conversões\n\"\"\"vinellu\"\"\",Correspondência de frase,Vinellu - Marca,marca,abaixo do lance de primeira página,\"1,50\",0,\"0,00\",0,\"0,00\"\n";
+
+fn optimize_plan() -> Value {
+    let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});
+    let plan = json!({"campaigns": [
+        {"name": "Vinellu - Catalogo", "intent": "catalog", "daily_budget": 35.0, "bid_strategy": {"type": "manual_cpc"}, "rationale": "3 dias, 35 cliques: so estrutura",
+         "ad_groups": [{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}]},
+        {"name": "Vinellu - Marca", "intent": "brand", "daily_budget": 15.0, "bid_strategy": {"type": "manual_cpc"}, "rationale": "abaixo da primeira pagina",
+         "ad_groups": [{"name": "marca", "theme": "vinellu", "entity_ids": []}]}
+    ]});
+    resp(vec![
+        ("get_business", json!({})),
+        ("set_brand_kit", kit),
+        ("set_account_plan", plan),
+        ("finish", json!({})),
+    ])
+}
+
+fn run_dirs(p: &Project) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = fs::read_dir(p.dir.path().join("out"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+fn reports_dir(p: &Project) -> PathBuf {
+    let dir = p.dir.path().join("perf");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("campanha.csv"), CAMPAIGN_REPORT).unwrap();
+    fs::write(dir.join("palavras.csv"), KEYWORD_REPORT).unwrap();
+    fs::write(dir.join("leia.txt"), "not a report").unwrap();
+    dir
+}
+
+#[test]
+fn optimize_writes_a_new_run_that_pauses_what_it_dropped() {
+    let p = Project::new(SITE);
+    p.generate(&p.full_script(), &["--skip-url-check"])
+        .success();
+    let base = p.run_dir();
+    let base_ws = fs::read_to_string(base.join("workspace.json")).unwrap();
+
+    let mut marca = ad_group("marca", &["vinellu", "vinellu app"]);
+    marca["default_cpc"] = json!(2.5);
+    let script = p.script(
+        "optimize.json",
+        json!({
+            "plan": [optimize_plan()],
+            "campaign:vinellu-catalogo": [resp(vec![
+                ("get_brief", json!({})),
+                ("upsert_ad_group", ad_group("alamos", &["alamos malbec"])),
+                ("set_assets", assets(&p.site)),
+                ("finish", json!({})),
+            ])],
+            "campaign:vinellu-marca": [resp(vec![
+                ("upsert_ad_group", marca),
+                ("set_assets", assets(&p.site)),
+                ("finish", json!({})),
+            ])],
+        }),
+    );
+    let out = p
+        .mads()
+        .arg("optimize")
+        .arg(&base)
+        .arg("--reports")
+        .arg(reports_dir(&p))
+        .args(["--provider", "replay", "--script"])
+        .arg(&script)
+        .args([
+            "--out",
+            "out",
+            "--mission-retries",
+            "0",
+            "--skip-url-check",
+            "--format",
+            "plain",
+        ])
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("reports: 2 read (2026-10-03 to 2026-10-05, 3 days)"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("not in this run: Campanha antiga"),
+        "{stderr}"
+    );
+
+    let dirs = run_dirs(&p);
+    assert_eq!(dirs.len(), 2);
+    let new = dirs.into_iter().find(|d| *d != base).unwrap();
+    assert_eq!(
+        fs::read_to_string(base.join("workspace.json")).unwrap(),
+        base_ws,
+        "the base run is not touched"
+    );
+
+    let editor = fs::read(new.join("google-ads/editor/account.csv")).unwrap();
+    let rows = mads_core::google::read_editor(&editor).unwrap();
+    let get = |r: &std::collections::BTreeMap<String, String>, k: &str| {
+        r.get(k).cloned().unwrap_or_default()
+    };
+    let luigi = rows
+        .iter()
+        .find(|r| get(r, "Ad Group") == "luigi")
+        .expect("luigi is paused");
+    assert_eq!(get(luigi, "Ad Group Status"), "Paused");
+    let dropped_kw = rows
+        .iter()
+        .find(|r| get(r, "Ad Group") == "alamos" && get(r, "Keyword") == "alamos review")
+        .expect("dropped keyword row");
+    assert_eq!(get(dropped_kw, "Status"), "Paused");
+    let status = |c: &str| {
+        rows.iter()
+            .find(|r| get(r, "Campaign") == c && !get(r, "Campaign Type").is_empty())
+            .map(|r| get(r, "Campaign Status"))
+            .unwrap()
+    };
+    assert_eq!(status("Vinellu - Catalogo"), "Enabled", "live status wins");
+    assert_eq!(status("Vinellu - Marca"), "Paused");
+
+    let report = fs::read_to_string(new.join("report.md")).unwrap();
+    for needle in [
+        "## Performance data",
+        "## Changes",
+        "Campanha antiga",
+        "daily budget 30,00 to 35,00",
+        "marca: CPC 1,50 to 2,50",
+        "Google Ads Editor only",
+    ] {
+        assert!(report.contains(needle), "report misses {needle}");
+    }
+    let ws: Value =
+        serde_json::from_str(&fs::read_to_string(new.join("workspace.json")).unwrap()).unwrap();
+    assert_eq!(
+        ws["live"]["performance"]["campaigns"][0]["metrics"]["clicks"],
+        35
+    );
+}
+
+#[test]
+fn optimize_refuses_bad_inputs_before_creating_a_run() {
+    let p = Project::new(SITE);
+    p.generate(&p.full_script(), &["--skip-url-check"])
+        .success();
+    let base = p.run_dir();
+    let empty = p.dir.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let out = p
+        .mads()
+        .arg("optimize")
+        .arg(&base)
+        .arg("--reports")
+        .arg(&empty)
+        .args(["--provider", "replay", "--script"])
+        .arg(p.full_script())
+        .args(["--out", "out"])
+        .assert()
+        .code(1);
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(stderr.contains("no Google Ads report"), "{stderr}");
+    assert_eq!(run_dirs(&p).len(), 1, "no run directory is created");
+
+    p.mads()
+        .args(["optimize", "out/nope", "--reports"])
+        .arg(&empty)
+        .args(["--provider", "replay", "--script"])
+        .arg(p.full_script())
+        .assert()
+        .code(1);
 }

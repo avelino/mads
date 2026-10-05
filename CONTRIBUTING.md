@@ -35,6 +35,8 @@ crates/
     src/tools/       typed tools, JSON schemas, MissionTools (the ToolHost)
     src/agent/       ChatModel and Driver ports, LoopDriver, scripted driver
     src/run.rs       orchestration, limits, resume, export
+    src/perf/        Google Ads report CSVs and the performance digest
+    src/optimize.rs  prepares a `mads optimize` run from a finished one
     src/post.rs      cross negatives, URL check
     src/finalize.rs  validate, URL check, export
     src/report.rs    report.md

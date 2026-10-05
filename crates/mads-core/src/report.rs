@@ -5,6 +5,7 @@ use crate::{
     google::{Account, CampaignKind, EDITOR_FILE, Issue},
     images::ImageStepResult,
     input::{ExportStatus, Input},
+    perf::Live,
     post::UrlResult,
     workspace::{MissionState, MissionStatus},
 };
@@ -35,6 +36,8 @@ pub struct ReportData {
     pub status: ReportStatus,
     /// What the image step did. Default when the run has no image campaign.
     pub images: ImageStepResult,
+    /// Set by `mads optimize`: the account that ran and its reports.
+    pub live: Option<Live>,
 }
 
 const EXAMPLES_PER_CODE: usize = 5;
@@ -51,7 +54,13 @@ pub fn render_report(d: &ReportData) -> String {
     md.push_str(status_line(d));
     md.push_str("\n\n");
     summary(&mut md, d);
+    if let Some(live) = &d.live {
+        crate::report_live::performance(&mut md, live);
+    }
     bids(&mut md, d);
+    if let Some(live) = &d.live {
+        crate::report_live::changes(&mut md, live, &d.account, d.input.export.decimal_comma);
+    }
     validation(&mut md, d);
     url_check(&mut md, d);
     restricted(&mut md, d);
@@ -281,13 +290,22 @@ fn import_steps(md: &mut String, d: &ReportData) {
             "Campaigns arrive enabled. They start serving as soon as Google approves the ads."
         }
     };
-    let _ = writeln!(
-        md,
-        "## How to import\n\nPick one way. Doing both creates every Search campaign twice. {last}\n\n\
-         ### Google Ads Editor, the whole account\n\n\
+    let editor = format!(
+        "### Google Ads Editor, the whole account\n\n\
          1. Open Google Ads Editor and get the recent changes of the account.\n\
          2. Account, Import, From file, and pick `google-ads/{EDITOR_FILE}`. Review the changes and keep them."
     );
+    if d.live.is_some() {
+        let _ = writeln!(
+            md,
+            "## How to import\n\nThis run replaces an account that is already live. Import it with Google Ads Editor only: files 1 to 5 would add every Search campaign a second time. Campaigns already live keep their status, new ones follow `export.status`, and what this run dropped arrives paused.\n\n{editor}"
+        );
+    } else {
+        let _ = writeln!(
+            md,
+            "## How to import\n\nPick one way. Doing both creates every Search campaign twice. {last}\n\n{editor}"
+        );
+    }
     if has_images(d) {
         md.push_str(
             "3. Account, Import, Image assets from files, select the folder `google-ads/editor/images`, and choose to import image assets to the root folder: the pictures sit in one subfolder per campaign, which the account does not have, and the default skips them.\n\
@@ -304,6 +322,9 @@ fn import_steps(md: &mut String, d: &ReportData) {
         .any(|c| c.kind == CampaignKind::PerformanceMax);
     if unverified {
         md.push_str("\n> Performance Max rows follow Google's documented Editor headers and have not gone through a real import yet. Check the import preview.\n");
+    }
+    if d.live.is_some() {
+        return;
     }
     md.push_str(
         "\n### Google Ads on the web, Search campaigns only\n\n\
@@ -338,7 +359,7 @@ fn after_launch(md: &mut String, d: &ReportData) {
         md.push_str("\nAn ad group or asset group that shows No ads did not get its pictures: attach them in Editor and post again.\n");
     }
     md.push_str(
-        "\n**After 14 days.** Export these as CSV for the same period, for the next `mads run` or `--resume`:\n\n\
+        "\n**After 14 days.** Export these as CSV for the same period, into one folder, and run `mads optimize <run-dir> --reports <folder>`:\n\n\
          1. Search terms, with match type, campaign, ad group, cost and conversions.\n\
          2. Search keywords, with Quality Score, its three components and the first page bid estimate.\n\
          3. Campaigns segmented by day, with impression share lost to budget and to rank.\n\
@@ -433,6 +454,7 @@ mod tests {
             totals: Totals::default(),
             status: ReportStatus::Success,
             images: Default::default(),
+            live: None,
         }
     }
 
@@ -463,6 +485,33 @@ mod tests {
         for cell in ["catalog", "30,00 BRL", "Manual CPC", "| 1 |", "| 14 |"] {
             assert!(row.contains(cell), "{cell} missing in {row}");
         }
+    }
+
+    #[test]
+    fn an_optimize_run_reports_its_data_its_changes_and_imports_with_editor_only() {
+        let input = testutil::input();
+        let mut d = data(&input, &account());
+        let mut baseline = account();
+        baseline.campaigns[0].daily_budget = Cents(5000);
+        d.live = Some(Live {
+            baseline,
+            performance: Default::default(),
+        });
+        let md = render_report(&d);
+        for needle in [
+            "## Performance data",
+            "## Changes",
+            "daily budget 50,00 to 30,00",
+            "Google Ads Editor only",
+        ] {
+            assert!(md.contains(needle), "missing {needle}");
+        }
+        assert!(
+            !md.contains("Upload files 1 to 5"),
+            "no web upload over a live account"
+        );
+        let plain = render_default();
+        assert!(!plain.contains("## Changes") && plain.contains("Upload files 1 to 5"));
     }
 
     #[test]

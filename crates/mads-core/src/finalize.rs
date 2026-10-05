@@ -1,7 +1,8 @@
 use crate::{
     events::{Event, EventSink},
-    google::{Account, CsvFile, ExportError, Issue, Rules, export_csvs, export_editor},
+    google::{Account, CsvFile, ExportError, Issue, Rules, export_csvs, export_editor_live},
     input::Input,
+    perf::Live,
     post::{UrlResult, check_urls, collect_urls, url_issues},
     web::Web,
 };
@@ -35,15 +36,20 @@ fn invalid(errors: Vec<Issue>, warnings: Vec<Issue>, urls: Option<Vec<UrlResult>
 }
 
 /// Bulk upload files 1 to 5 for Search, then the Editor file for image campaigns.
-fn export_all(input: &Input, account: &Account) -> Result<Vec<CsvFile>, ExportError> {
+fn export_all(
+    input: &Input,
+    account: &Account,
+    live: Option<&Live>,
+) -> Result<Vec<CsvFile>, ExportError> {
     let mut files = export_csvs(input, account)?;
-    files.extend(export_editor(input, account));
+    files.extend(export_editor_live(input, account, live));
     Ok(files)
 }
 
 pub async fn finalize(
     input: &Input,
     account: &Account,
+    live: Option<&Live>,
     web: &dyn Web,
     skip_url_check: bool,
     max_ad_groups: usize,
@@ -80,7 +86,7 @@ pub async fn finalize(
     }
 
     step(events, "export", "writing CSV files");
-    match export_all(input, account) {
+    match export_all(input, account, live) {
         Ok(csv) => Finalized {
             exit_code: 0,
             errors: Vec::new(),
@@ -177,6 +183,7 @@ mod tests {
         let out = finalize(
             &input,
             &account,
+            None,
             &FakeWeb(HashMap::new()),
             false,
             50,
@@ -208,6 +215,7 @@ mod tests {
         let out = finalize(
             &input,
             &account,
+            None,
             &FakeWeb(HashMap::new()),
             true,
             50,
@@ -227,6 +235,7 @@ mod tests {
         let out = finalize(
             &input,
             &account,
+            None,
             &FakeWeb(HashMap::new()),
             false,
             50,
@@ -250,7 +259,7 @@ mod tests {
         let dead = account.campaigns[0].ad_groups[0].final_url.clone();
         let web = FakeWeb(HashMap::from([(dead.clone(), 404)]));
         let (events, _rx) = EventSink::channel();
-        let out = finalize(&input, &account, &web, false, 50, &events).await;
+        let out = finalize(&input, &account, None, &web, false, 50, &events).await;
         assert_eq!(out.exit_code, 3);
         assert!(out.errors.iter().any(|e| e.code == "E15" && e.path == dead));
         assert!(out.csv.is_empty());
@@ -267,6 +276,7 @@ mod tests {
         let out = finalize(
             &input,
             &account,
+            None,
             &FakeWeb(HashMap::new()),
             true,
             50,

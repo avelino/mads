@@ -61,6 +61,19 @@ Each ad group has specific texts. The brand kit completes the ad to 15 headlines
 
 Brand terms are cheap only for a brand people already search. A new or little-known brand has no history with Google: give its ad groups a CPC close to the generic ones, or they never show. The same goes for competitor groups, where the competitor bids on its own name.
 
+## Optimizing a live campaign
+
+When `get_brief` has `live` and `performance`, this campaign already runs in Google Ads. `live` is what ran, `performance` is what it got. Rebuild every planned ad group from them: keep what works and fix what the numbers show.
+
+- Read `thin_rule` first. A thin campaign changes only its structure: bids under the first page, low quality, wrong grouping. Do not add negatives or drop keywords because of its numbers.
+- A keyword marked `below_first_page` or `rarely_shown` gets no traffic. Raise its group's CPC to `first_page_bid` when it is there, or to what the generic groups of the account pay, within `max_cpc`. Drop the keyword only when that price is more than a customer is worth.
+- `low_quality` means the keyword does not fit the group's ad or landing page. Give it a group about it, or drop it.
+- Keep keywords with conversions and ad texts Google labels Best or Good. Rewrite texts labeled Low.
+- A search term with state `new` and conversions is a keyword to add. Terms with cost, no conversions and a meaning the offer does not serve are negatives to add. Turn a word that keeps coming back into one negative, not one negative per term.
+- `hidden_terms_cost` is spend Google does not show by term. Exact match and negatives shrink it.
+- Keep the ad group names: Google Ads Editor matches by name, and a new name creates a new group next to the old one.
+- Say in `cpc_rationale` which numbers moved the bid.
+
 ## Assets
 
 Call `set_assets` with at least 4 sitelinks to distinct allowed pages (business pages or catalog URLs from the brief), at least 4 short callouts and 1 structured snippet with real values from the business. Sitelink text has at most 25 characters, descriptions at most 35 (both or none), callouts and snippet values at most 25.

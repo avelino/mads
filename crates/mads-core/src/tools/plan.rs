@@ -184,6 +184,11 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
     if !ws.input.formats.is_empty() {
         result["required_formats"] = json!(ws.input.formats);
     }
+    if let Some(live) = &ws.live {
+        let (account, performance) = super::live::business_view(live);
+        result["live_account"] = account;
+        result["performance"] = performance;
+    }
     ToolOutput::ok(result, &[], "get_business")
 }
 

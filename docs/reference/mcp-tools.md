@@ -52,6 +52,8 @@ When `business.toml` has `[campaigns] formats`, the result also has `required_fo
 
 When `business.toml` has a `[research]` table, the result also has `research`, the Markdown text of that file. Without notes the key is absent.
 
+In a `mads optimize` run the result also has `live_account` and `performance`. `live_account.campaigns` lists every campaign as it ran: name, kind, intent, daily budget, bid strategy and ad group names. `performance` has the report `window`, a `thin_rule` sentence, `ignored_campaigns` and one entry per campaign with its totals, live status, status reasons, impression share lost to budget and rank, `thin` and `hidden_terms_cost`, without ad group detail. See [Optimize a live account](../guides/optimize.md).
+
 ### query_catalog
 
 | Argument | Type | Default | Description |
@@ -138,6 +140,8 @@ No arguments. Returns what the agent needs.
 ```
 
 `entities` are the full catalog rows of the entities in this campaign's ad groups. `built_ad_groups` is what an earlier attempt already saved.
+
+In a `mads optimize` run the result also has `live` and `performance`. `live` is this campaign as it ran: daily budget, negatives, ad groups with CPC, final URL, keywords, negatives and ad texts, and asset groups. It is null for a campaign that did not run. `performance` is the campaign's digest with its ad groups: keywords with their numbers and signals (`below_first_page`, `rarely_shown`, `low_quality`), the 30 most expensive search terms with their state, and asset labels. Keywords with no impressions and no signal are left out. The image campaign `get_brief` returns both fields too.
 
 ### upsert_ad_group
 

@@ -219,7 +219,7 @@ async fn get_brief(t: &MissionTools, slug: &str) -> ToolOutput {
         .iter()
         .map(|g| json!({"name": g.name, "keywords": g.keywords.len(), "negatives": g.negatives.len(), "default_cpc": cents_to_f64(g.default_cpc)}))
         .collect();
-    let result = json!({
+    let mut result = json!({
         "campaign": {
             "name": c.name, "slug": c.slug, "intent": c.intent,
             "daily_budget": cents_to_f64(c.daily_budget),
@@ -236,6 +236,11 @@ async fn get_brief(t: &MissionTools, slug: &str) -> ToolOutput {
         "assets_set": c.assets.is_some(),
         "rules": rules_summary(&t.settings),
     });
+    if let Some(live) = &ws.live {
+        let (ran, performance) = super::live::brief_view(live, &c.name);
+        result["live"] = ran;
+        result["performance"] = performance;
+    }
     ToolOutput::ok(result, &[], format!("get_brief {}", c.name))
 }
 

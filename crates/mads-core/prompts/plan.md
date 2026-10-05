@@ -79,6 +79,18 @@ Campaign budgets must sum exactly to the account daily budget. Explain each shar
 
 The CPC per Search ad group is chosen later.
 
+## Optimizing a live account
+
+When `get_business` has `live_account` and `performance`, this account already runs in Google Ads. Plan its next version, not a new account.
+
+- Keep the name of every campaign that continues and of its ad groups. Google Ads Editor matches by name: a new name creates a new campaign and leaves the old one serving.
+- A campaign you leave out is paused at import. Leave one out only for a reason in `performance`.
+- Read `thin_rule`. A thin campaign keeps its budget unless it is broken: no impressions because of bids under the first page, no ads, or a policy limit.
+- Move budget toward campaigns that bring customers at a lower cost and away from campaigns that spend without results. A campaign that loses impressions to budget and converts deserves more. One that loses them to rank needs better bids or quality, not more budget.
+- Split an ad group that mixes themes, merge ones that share the same searches.
+- `ignored_campaigns` are campaigns of the account that this run does not manage. Do not plan them.
+- Start each `rationale` with the numbers behind it: days, cost, clicks, conversions.
+
 ## Brand kit
 
 The brand kit is shared by every ad in the account: 8 to 12 headlines and 2 to 3 descriptions.

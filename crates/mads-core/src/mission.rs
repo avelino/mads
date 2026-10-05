@@ -118,6 +118,10 @@ mod tests {
             "W08",
             "W09",
             "do not sell",
+            "`live`",
+            "first_page_bid",
+            "thin_rule",
+            "hidden_terms_cost",
         ] {
             assert!(
                 m.system.contains(rule),
@@ -134,6 +138,9 @@ mod tests {
             "Never mix",
             "catch-all",
             "nobody types",
+            "live_account",
+            "Keep the name",
+            "ignored_campaigns",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }
@@ -158,6 +165,8 @@ mod tests {
             "brand color",
             "Never invent facts",
             "in English",
+            "`live`",
+            "Best or Good",
         ] {
             assert!(m.system.contains(needle), "image prompt misses {needle}");
         }

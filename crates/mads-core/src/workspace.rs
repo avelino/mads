@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, io, path::Path};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{google::Account, input::Input, usage::Usage};
+use crate::{google::Account, input::Input, perf::Live, usage::Usage};
 
 pub const WORKSPACE_VERSION: u32 = 1;
 
@@ -13,6 +13,9 @@ pub struct Workspace {
     pub account: Account,
     /// Keyed by mission id (`plan`, `campaign:<slug>`).
     pub missions: BTreeMap<String, MissionState>,
+    /// Set by `mads optimize`: the account as it ran and what the reports say about it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<Live>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -41,6 +44,7 @@ impl Workspace {
             input,
             account: Account::default(),
             missions: BTreeMap::new(),
+            live: None,
         }
     }
 

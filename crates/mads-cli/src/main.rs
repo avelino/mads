@@ -31,6 +31,7 @@ async fn main() {
     let result = match cli.command {
         Command::Init(args) => commands::init::run(args, format).await,
         Command::Generate(args) => commands::generate::run(args, format).await,
+        Command::Optimize(args) => commands::optimize::run(args, format).await,
         Command::Export(args) => commands::export::run(args, format).await,
         Command::Providers => commands::providers::run(),
     };

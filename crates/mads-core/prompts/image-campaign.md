@@ -37,6 +37,14 @@ Write each `prompt` in English, 1 to 4 sentences: subject, setting, light, camer
 
 Ratios: Performance Max needs at least 1 `landscape` and 1 `square`, and Google recommends 4 landscape, 4 square and 2 `portrait`. It takes no `vertical`. Demand Gen needs at least 1 `landscape` or `square`, and benefits from 1 `portrait` and 1 `vertical` for mobile feeds. At most 20 pictures per asset group. Fewer good pictures beat many similar ones: each picture costs money.
 
+## Optimizing a live campaign
+
+When `get_brief` has `live` and `performance`, this campaign already runs. `live` has its asset groups as they ran, `performance` what they got.
+
+- Keep the asset group names and the image ids of pictures that stay: a kept id reuses its picture and costs nothing.
+- Keep texts Google labels Best or Good, rewrite the ones labeled Low.
+- Read `thin_rule`: with too little data, fix only what is broken, such as an asset group with no ads.
+
 ## Focus
 
 When `get_brief` has `focus`, the account advertises only that offer. Texts and pictures are about it: name it in headlines, and show the moment, the place or the people of that offer.

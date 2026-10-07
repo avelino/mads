@@ -474,13 +474,26 @@ pub async fn export_run(
 }
 
 /// A failed export must not leave CSVs from an earlier, different account next to the new report.
-/// Images stay: they cost money and the next export reuses them.
+/// Images stay: they cost money and the next export reuses them. An `editor/` directory that
+/// only held `account.csv` is removed, so a bulk run re-exported as drive-folders does not
+/// leave an empty folder behind.
 fn remove_stale_csvs(dir: &Path) {
     remove_csvs_in(dir);
-    remove_csvs_in(&dir.join(EDITOR_DIR));
+    let editor = dir.join(EDITOR_DIR);
+    remove_csvs_in(&editor);
+    remove_dir_if_empty(&editor);
     let drive = dir.join("drive");
     if drive.exists() {
         let _ = std::fs::remove_dir_all(drive);
+    }
+}
+
+fn remove_dir_if_empty(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    if entries.flatten().next().is_none() {
+        let _ = std::fs::remove_dir(dir);
     }
 }
 
@@ -1350,5 +1363,28 @@ mod image_tests {
             "{report}"
         );
         assert!(report.contains("E20"));
+    }
+
+    #[test]
+    fn remove_stale_csvs_drops_an_empty_editor_dir_and_keeps_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let platform = dir.path().join("google-ads");
+        let editor = platform.join("editor");
+        std::fs::create_dir_all(&editor).unwrap();
+        std::fs::write(editor.join("account.csv"), b"x").unwrap();
+        remove_stale_csvs(&platform);
+        assert!(
+            !editor.exists(),
+            "an editor directory that only held the csv is removed"
+        );
+
+        let image = editor.join("images/vinellu-feed/tintos-story.jpg");
+        std::fs::create_dir_all(image.parent().unwrap()).unwrap();
+        std::fs::write(editor.join("account.csv"), b"x").unwrap();
+        std::fs::write(&image, b"jpg").unwrap();
+        remove_stale_csvs(&platform);
+        assert!(!editor.join("account.csv").exists());
+        assert!(image.is_file(), "pictures stay");
+        assert!(editor.is_dir());
     }
 }

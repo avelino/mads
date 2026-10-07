@@ -230,7 +230,7 @@ fn one_ad_group_keeps_every_keyword() {
     assert_eq!(cell(&kws[0], "Match Type"), "Phrase");
     assert_eq!(cell(&kws[1], "Keyword"), "alamos");
     assert_eq!(cell(&kws[1], "Match Type"), "Exact");
-    assert_eq!(cell(&kws[0], "Status"), "Enabled");
+    assert_eq!(cell(&kws[0], "Status"), "Paused");
     assert_eq!(cell(&kws[0], "Final URL"), "https://vinellu.com/w/alamos");
     assert!(
         !kws[0].contains_key("Max CPC"),
@@ -248,7 +248,7 @@ fn ads_carry_fifteen_headline_columns_and_the_merged_rsa() {
     assert!(text.contains("\tHeadline 15\tDescription 1\tDescription 2\tDescription 3\tDescription 4\tHeadline 1 position\tPath 1\tPath 2\tFinal URL\n"));
     let ads = rows(file(&files, &format!("{DIR}/B5-anuncios.csv")));
     assert_eq!(ads.len(), 1);
-    assert_eq!(cell(&ads[0], "Ad status"), "Enabled");
+    assert_eq!(cell(&ads[0], "Ad status"), "Paused");
     assert_eq!(cell(&ads[0], "Ad type"), "Responsive search ad");
     assert_eq!(cell(&ads[0], "Headline 1"), "Alamos Malbec");
     assert_eq!(cell(&ads[0], "Headline 2"), "Kit headline");
@@ -257,7 +257,7 @@ fn ads_carry_fifteen_headline_columns_and_the_merged_rsa() {
     assert_eq!(cell(&ads[0], "Path 1"), "vinhos");
     assert_eq!(cell(&ads[0], "Path 2"), "alamos");
     assert_eq!(cell(&ads[0], "Final URL"), "https://vinellu.com/w/alamos");
-    assert!(!ads[0].contains_key("Headline 1 position"));
+    assert_eq!(cell(&ads[0], "Headline 1 position"), "1");
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn a_missing_customer_id_stays_blank_and_b8_needs_an_app_id() {
     let b8 = decode(file(&files, &format!("{DIR}/B8-extensao-app.csv")));
     assert!(
         b8.starts_with(
-            "Action\tCustomer ID\tCampaign\tAd group\tLink Text\tApp ID / Package name\tApp store\tFinal URL\n"
+            "Action\tCustomer ID\tCampaign\tLink Text\tApp ID / Package name\tApp store\tFinal URL\n"
         ),
         "{b8}"
     );
@@ -352,6 +352,8 @@ fn readme_is_portuguese_and_lists_the_paste_order_and_the_pending_items() {
         "Max CPC",
         "000-000-0000",
         "Google Ads Editor",
+        "Um grupo criado depois no Editor não herda essas negativas.",
+        "EU political ads",
     ] {
         assert!(
             readme.contains(needle),

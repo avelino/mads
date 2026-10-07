@@ -42,10 +42,10 @@ Paste each file once, at setup, in Google Ads Editor under Account, Import, From
 | B4 | Creates the keywords of each group. |
 | B5 | Creates the responsive search ad of each group. |
 | B6 | Writes the tracking template of each group. |
-| B7 | Writes campaign negatives into every ad group, then the group's own negatives. |
+| B7 | Writes campaign negatives into every ad group, then the group's own negatives. A group created later in Editor does not inherit them. |
 | B8 | Creates the app extension on each Search campaign. |
 
-Campaigns are paused in B1 even when `export.status` is `Enabled`. B2 is an edit that sets Campaign status to Enabled. Ad groups, keywords and ads are Enabled, so enabling the campaign is what makes them serve.
+Campaigns are paused in B1 even when `export.status` is `Enabled`. B2 is an edit that sets Campaign status to Enabled. Ad groups are Enabled. Keywords in B4 and ads in B5 are Paused. Headline 1 position is 1. Enabling the campaign does not enable a paused keyword or ad. B1 has no `EU political ads` column. Confirm that in the Editor import preview before you post.
 
 Editor matches campaigns and ad groups by name. These files do not carry Campaign ID or Ad group ID.
 
@@ -62,13 +62,13 @@ B2, B6, B7 and B8 use column names from [CSV file columns](https://support.googl
 | B2 | Action, Customer ID, Campaign, Campaign status |
 | B6 | Action, Customer ID, Campaign, Ad group, Tracking template |
 | B7 | Action, Customer ID, Campaign, Ad group, Keyword, Criterion Type |
-| B8 | Action, Customer ID, Campaign, Ad group, Link Text, App ID / Package name, App store, Final URL |
+| B8 | Action, Customer ID, Campaign, Link Text, App ID / Package name, App store, Final URL |
 
 B2 writes Action `Edit` and Campaign status `Enabled`. The other files write Action `Add`.
 
-B7 writes Criterion Type as `Negative Phrase` or `Negative Exact`. Campaign negatives are copied into every ad group of that campaign, campaign negatives first, with duplicates dropped.
+B7 writes Criterion Type as `Negative Phrase` or `Negative Exact`. Campaign negatives are copied into every ad group of that campaign, campaign negatives first, with duplicates dropped. A group you add later in Editor does not get those rows.
 
-B8 leaves Ad group empty. It is a campaign-level asset. A package name that contains a dot goes to Google Play. Digits only go to the Apple App Store. Link text is `Baixar o app` plus the business name when that fits in 25 characters, otherwise `Baixar o app`.
+B8 is a campaign-level asset, so the file has no Ad group column. A package name that contains a dot goes to Google Play. Digits only go to the Apple App Store. Link text is `Baixar o app` plus the business name when that fits in 25 characters, otherwise `Baixar o app`.
 
 Budgets and Max CPC use a dot and two decimals (`50.00`, `1.50`). Keyword Max CPC is left blank. The bid is the ad group's Max CPC.
 

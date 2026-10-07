@@ -1083,6 +1083,7 @@ fn generate_with_drive_folders_writes_the_structural_track_locally() {
         per_group.values().any(|n| *n >= 2),
         "one ad group keeps several keywords: {per_group:?}"
     );
+    assert!(b4.contains("\tPaused\t"), "{b4}");
     let report = fs::read_to_string(run.join("report.md")).unwrap();
     assert!(report.contains("W11"), "{report}");
     assert!(
@@ -1098,6 +1099,7 @@ fn generate_with_drive_folders_writes_the_structural_track_locally() {
         .assert()
         .success();
     assert!(run.join("google-ads/1-campaign.csv").is_file());
+    assert!(run.join("google-ads/editor/account.csv").is_file());
     assert!(!dir.join("B1-campanhas.csv").exists());
     let bulk = fs::read_to_string(run.join("report.md")).unwrap();
     assert!(bulk.contains("Upload files 1 to 5"), "{bulk}");
@@ -1110,6 +1112,10 @@ fn generate_with_drive_folders_writes_the_structural_track_locally() {
         .success();
     assert!(dir.join("B1-campanhas.csv").is_file());
     assert!(!run.join("google-ads/1-campaign.csv").exists());
+    assert!(
+        !run.join("google-ads/editor").exists(),
+        "a bulk run re-exported as drive-folders drops the empty editor directory"
+    );
 }
 
 #[test]

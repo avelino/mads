@@ -43,6 +43,8 @@ struct RawFile {
     design: Option<RawResearch>,
     focus: Option<RawFocus>,
     app: Option<App>,
+    #[serde(default)]
+    google_ads: RawGoogleAds,
 }
 
 #[derive(Deserialize)]
@@ -98,6 +100,22 @@ struct RawExport {
     url_suffix: Option<String>,
     eu_political_ads: Option<bool>,
     decimal_comma: Option<bool>,
+}
+
+/// Optional account details for the drive-folder Editor files.
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RawGoogleAds {
+    #[serde(default)]
+    customer_id: String,
+    #[serde(default)]
+    tracking_template: String,
+    #[serde(default)]
+    devices: String,
+    #[serde(default)]
+    labels: Vec<String>,
+    #[serde(default)]
+    app_id: String,
 }
 
 #[derive(Deserialize)]
@@ -364,6 +382,22 @@ pub struct ExportConfig {
     pub decimal_comma: bool,
 }
 
+/// Optional `[google_ads]` values for the drive-folder Editor files.
+/// Empty strings mean unset. `customer_id` is never the `000-000-0000` placeholder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct GoogleAds {
+    #[serde(default)]
+    pub customer_id: String,
+    #[serde(default)]
+    pub tracking_template: String,
+    #[serde(default)]
+    pub devices: String,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub app_id: String,
+}
+
 /// Validated `business.toml`. `catalog_file` is still relative to the TOML file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputFile {
@@ -381,6 +415,7 @@ pub struct InputFile {
     pub design_file: Option<String>,
     pub focus: Option<Focus>,
     pub app: Option<App>,
+    pub google_ads: GoogleAds,
 }
 
 /// Everything `generate` consumes.
@@ -408,6 +443,9 @@ pub struct Input {
     /// The app `app_installs` campaigns promote.
     #[serde(default)]
     pub app: Option<App>,
+    /// Account details for `--layout drive-folders`. Absent in older `workspace.json` files.
+    #[serde(default)]
+    pub google_ads: GoogleAds,
 }
 
 fn check_len(key: &str, s: &str, min: usize, max: usize) -> Result<(), InputError> {
@@ -549,7 +587,75 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
         design_file: raw.design.map(|d| d.file),
         focus: check_focus(raw.focus)?,
         app: check_app(raw.app)?,
+        google_ads: check_google_ads(raw.google_ads)?,
     })
+}
+
+fn check_google_ads(raw: RawGoogleAds) -> Result<GoogleAds, InputError> {
+    let customer_id = raw.customer_id.trim().to_string();
+    if !customer_id.is_empty() {
+        check_customer_id(&customer_id)?;
+    }
+    let tracking_template = raw.tracking_template.trim().to_string();
+    if !tracking_template.is_empty() {
+        check_len("google_ads.tracking_template", &tracking_template, 1, 2048)?;
+    }
+    let devices = raw.devices.trim().to_string();
+    if !devices.is_empty() {
+        check_len("google_ads.devices", &devices, 1, 80)?;
+    }
+    check_list("google_ads.labels", &raw.labels)?;
+    let app_id = raw.app_id.trim().to_string();
+    if !app_id.is_empty() {
+        check_drive_app_id(&app_id)?;
+    }
+    Ok(GoogleAds {
+        customer_id,
+        tracking_template,
+        devices,
+        labels: raw.labels,
+        app_id,
+    })
+}
+
+/// 10 digits, or `123-456-7890`. All zeros is the placeholder Vaz's sheet used.
+fn check_customer_id(id: &str) -> Result<(), InputError> {
+    let key = "google_ads.customer_id";
+    let digits: String = id.chars().filter(|c| c.is_ascii_digit()).collect();
+    let dashed = id.len() == 12
+        && id.as_bytes().get(3) == Some(&b'-')
+        && id.as_bytes().get(7) == Some(&b'-')
+        && id
+            .chars()
+            .enumerate()
+            .all(|(i, c)| (i == 3 || i == 7) == (c == '-'));
+    let plain = id.len() == 10 && id.chars().all(|c| c.is_ascii_digit());
+    if !(dashed && digits.len() == 10 || plain) {
+        return Err(invalid(key, "use 10 digits or 123-456-7890"));
+    }
+    if digits.chars().all(|c| c == '0') {
+        return Err(invalid(
+            key,
+            "000-000-0000 is a placeholder: leave customer_id empty or set the real account id",
+        ));
+    }
+    Ok(())
+}
+
+fn check_drive_app_id(id: &str) -> Result<(), InputError> {
+    let play = id.contains('.')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_');
+    let apple = id.chars().all(|c| c.is_ascii_digit());
+    if play || apple {
+        Ok(())
+    } else {
+        Err(invalid(
+            "google_ads.app_id",
+            "Google Play takes a package name such as com.example.app, the App Store a numeric id",
+        ))
+    }
 }
 
 /// `[campaigns] formats`: known, distinct, and possible with this file.
@@ -625,6 +731,7 @@ pub fn load_input(path: &Path) -> Result<Input, InputError> {
         design,
         focus: file.focus,
         app: file.app,
+        google_ads: file.google_ads,
     })
 }
 
@@ -788,6 +895,22 @@ currency = "BRL"
     fn max_cpc_must_have_two_decimals_at_most() {
         let toml = MINIMAL.replace("currency = \"BRL\"", "currency = \"BRL\"\nmax_cpc = 1.234");
         assert_eq!(err_key(&toml), "budget.max_cpc");
+    }
+
+    #[test]
+    fn google_ads_is_optional_and_rejects_the_placeholder_customer_id() {
+        let f = parse_input_toml(MINIMAL).unwrap();
+        assert!(f.google_ads.customer_id.is_empty());
+        assert!(f.google_ads.app_id.is_empty());
+        let toml = format!(
+            "{MINIMAL}\n[google_ads]\ncustomer_id = \"123-456-7890\"\ndevices = \"Mobile;Desktop;Tablet\"\nlabels = [\"estrutural\"]\napp_id = \"com.vinellu.app\"\ntracking_template = \"{{lpurl}}?utm_campaign={{mads_campaign}}\"\n"
+        );
+        let f = parse_input_toml(&toml).unwrap();
+        assert_eq!(f.google_ads.customer_id, "123-456-7890");
+        assert_eq!(f.google_ads.labels, vec!["estrutural"]);
+        assert_eq!(f.google_ads.app_id, "com.vinellu.app");
+        let placeholder = format!("{MINIMAL}\n[google_ads]\ncustomer_id = \"000-000-0000\"\n");
+        assert_eq!(err_key(&placeholder), "google_ads.customer_id");
     }
 
     #[test]

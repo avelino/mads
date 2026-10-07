@@ -50,7 +50,19 @@ The whole table is optional.
 | `status` | `"Paused"` or `"Enabled"` | `"Paused"` | Exact case. Written to the `Campaign status` column. |
 | `url_suffix` | string | `utm_source=google&utm_medium=cpc&utm_campaign={mads_campaign}&utm_content={adgroupid}&utm_term={keyword}` | `{mads_campaign}` becomes the campaign slug. Any other `{...}` is a Google ValueTrack parameter and stays as written. |
 | `eu_political_ads` | bool | `false` | Written as `Yes` or `No`. |
-| `decimal_comma` | bool | `true` when the primary language subtag is `pt`, `es`, `fr`, `de` or `it`, else `false` | Prints CPCs and budgets with a comma. |
+| `decimal_comma` | bool | `true` when the primary language subtag is `pt`, `es`, `fr`, `de` or `it`, else `false` | Prints CPCs and budgets with a comma. The drive-folder files always use a dot, because that is how Editor writes money. |
+
+## [google_ads]
+
+Optional. Used by `--layout drive-folders`. The whole table can be absent. `mads init --force` keeps a table you wrote.
+
+| Key | Type | Default | Validation and effect |
+|---|---|---|---|
+| `customer_id` | string | empty | 10 digits, or `123-456-7890`. Empty leaves the Customer ID column blank and adds warning `W11` on a drive-folder export. `000-000-0000` and `0000000000` are rejected. |
+| `tracking_template` | string | empty | 1 to 2048 characters when set. `{mads_campaign}` becomes the campaign slug. Empty means the file uses `{lpurl}?` plus `export.url_suffix`. |
+| `devices` | string | empty | 1 to 80 characters when set. Written as given, for example `Mobile;Desktop;Tablet`. |
+| `labels` | string array | `[]` | Each 1 to 80 characters. Joined with `;` into the Label column. |
+| `app_id` | string | empty | Google Play package (`com.example.app`) or a numeric App Store id. Empty skips `B8-extensao-app.csv`. |
 
 ## [catalog]
 
@@ -200,6 +212,9 @@ business.pages: at most 20 pages
 budget.daily: must be greater than 0 with at most 2 decimals
 budget.currency: must be 3 uppercase letters
 budget.max_cpc: must be greater than 0 with at most 2 decimals
+google_ads.customer_id: use 10 digits or 123-456-7890
+google_ads.customer_id: 000-000-0000 is a placeholder: leave customer_id empty or set the real account id
+google_ads.app_id: Google Play takes a package name such as com.example.app, the App Store a numeric id
 ```
 
 Entries in lists name their index, for example `business.competitors[1]` or `business.pages[0].url`.

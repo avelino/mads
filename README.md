@@ -118,7 +118,7 @@ A slice of `report.md`.
 | Vinellu - Rotulos | catalog | 40,00 BRL | Manual CPC | 4 | 63 |
 ```
 
-The CSVs follow the format of a real Google Ads export: CRLF line endings, UTF-8 without BOM, comma decimals for `pt`, `es`, `fr`, `de` and `it`, and parents referenced by name. See [the bulk upload format](docs/howto/google-ads-bulk-upload-format.md).
+The CSVs follow the format of a real Google Ads export: CRLF line endings, UTF-8 without BOM, comma decimals for `pt`, `es`, `fr`, `de` and `it`, and parents referenced by name. See [the bulk upload format](docs/howto/google-ads-bulk-upload-format.md). Pass `--layout drive-folders` to write the structural Editor folder on disk instead. See [Drive folder layout](docs/howto/google-ads-editor-drive-folders.md).
 
 ## How it works
 

@@ -1,3 +1,4 @@
+mod drive_layout;
 mod editor;
 mod expand;
 mod export;
@@ -7,6 +8,7 @@ mod rsa;
 mod rules;
 mod text;
 
+pub use drive_layout::{ExportLayout, export_drive_layout};
 pub use editor::*;
 pub use expand::*;
 pub use export::*;

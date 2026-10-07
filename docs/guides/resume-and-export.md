@@ -47,6 +47,7 @@ Use it when.
 
 ```bash
 mads export out/20261001-122850-b51417 --skip-url-check
+mads export out/20261001-122850-b51417 --layout drive-folders
 ```
 
 `export` refuses a run with unfinished missions.
@@ -71,9 +72,10 @@ To change an input value such as `export.decimal_comma` or `export.status`, edit
 
 ### Limits of export
 
-- `export` takes `--max-ad-groups` (default 50). Pass the same value you used for `generate`. A run generated with a higher limit fails `E13` on export otherwise.
+- `export` takes `--max-ad-groups` (default 50). Pass the same value you used for `generate`. A run generated with a higher limit fails `E13` on export otherwise. Character limits such as `E01` still apply with `--layout drive-folders`.
+- `export` takes `--layout` (default `bulk`). `drive-folders` writes `google-ads/drive/B - Estrutural/` and removes files 1 to 5 and `editor/account.csv`. Exporting `bulk` again removes that folder. Pictures in `editor/images/` stay.
 - `events.ndjson` is appended. The export events follow the original events.
-- A failed export (exit `3`) deletes the CSV files that an earlier export left in `google-ads/`, so the folder never holds files that do not match the report.
+- A failed export (exit `3`) deletes the CSV files that an earlier export left in `google-ads/`, and the `google-ads/drive/` folder, so the folder never holds files that do not match the report.
 - The run keeps its original provider and model labels in the report. `export` reads them from `run.json`.
 - `export` has no image model. It reuses the pictures in `google-ads/editor/images/`, and a missing one fails with `E20`. A failed export keeps the pictures. `generate --resume` draws only the missing ones, within `--max-images`.
 

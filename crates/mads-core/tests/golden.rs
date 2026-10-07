@@ -31,6 +31,7 @@ fn reference_input() -> Input {
         design: String::new(),
         focus: None,
         app: None,
+        google_ads: Default::default(),
         catalog: vec![],
     }
 }

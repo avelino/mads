@@ -42,6 +42,7 @@ fn input() -> Input {
         design: String::new(),
         focus: None,
         app: Some(App { store: AppStore::GooglePlay, id: "com.vinellu.app".into() }),
+        google_ads: Default::default(),
     }
 }
 

@@ -135,7 +135,7 @@ init refuses to overwrite any of these files.
 error: ./business.toml, ./catalog.csv already exist: use --force to overwrite
 ```
 
-Exit code `2`. Pass `--force` to replace them. `--force` keeps what you wrote by hand in `business.toml`: `budget.max_cpc`, `[export]` and `[campaigns]`. A kept part that no longer fits the new draft, such as a Performance Max format without conversion tracking, is left out. When the site has no usable logo, an existing `brand/logo.png` that passes the checks is kept too. With `--force` and no catalog items, mads also deletes an old `catalog.csv` in that folder, because it would not match the new `business.toml`.
+Exit code `2`. Pass `--force` to replace them. `--force` keeps what you wrote by hand in `business.toml`: `budget.max_cpc`, `[export]`, `[campaigns]` and `[google_ads]`. A kept part that no longer fits the new draft, such as a Performance Max format without conversion tracking, is left out. When the site has no usable logo, an existing `brand/logo.png` that passes the checks is kept too. With `--force` and no catalog items, mads also deletes an old `catalog.csv` in that folder, because it would not match the new `business.toml`.
 
 ## Read the draft
 
@@ -201,6 +201,7 @@ Treat the draft as a first pass. Read every line. These are the usual fixes.
 - **brand_terms.** Left out, it defaults to the lowercase business name. Add the other spellings people use.
 - **max_cpc.** init does not write it. Add `max_cpc` under `[budget]` to cap every CPC.
 - **[export].** init does not write it. Add it if you need `status`, `url_suffix` or `decimal_comma`. See the [business.toml reference](../reference/business-toml.md).
+- **[google_ads].** init does not write it. Add it when you export with `--layout drive-folders` and you already know the Customer ID, devices, labels, tracking template or app id. `--force` keeps the table.
 - **pages.** Keep the pages that make good sitelinks and delete the rest. They all exist, because the agent may only use URLs it fetched or saw in the sitemap.
 - **Catalog.** Delete items you do not sell or do not want ads for. Check `third_party`, `aliases` and `notes`. The `notes` of each item are facts an ad can use. Clear an `image` that is a banner and not a photo of the item.
 - **brand/logo.png.** Open it. Replace it with your real logo when it is wrong.

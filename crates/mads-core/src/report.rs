@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, fmt::Write};
 
 use crate::{
     events::Totals,
-    google::{Account, CampaignKind, EDITOR_FILE, Issue},
+    google::{Account, CampaignKind, EDITOR_FILE, ExportLayout, Issue},
     images::ImageStepResult,
     input::{ExportStatus, Input},
     perf::Live,
@@ -38,6 +38,8 @@ pub struct ReportData {
     pub images: ImageStepResult,
     /// Set by `mads optimize`: the account that ran and its reports.
     pub live: Option<Live>,
+    /// Which CSV set this run wrote.
+    pub layout: ExportLayout,
 }
 
 const EXAMPLES_PER_CODE: usize = 5;
@@ -284,6 +286,20 @@ fn usage(md: &mut String, d: &ReportData) {
 }
 
 fn import_steps(md: &mut String, d: &ReportData) {
+    if d.layout == ExportLayout::DriveFolders {
+        let _ = writeln!(
+            md,
+            "## How to import\n\n\
+             The files are in `google-ads/drive/B - Estrutural/` on this computer. Nothing was sent to Drive. A person pastes them in Google Ads Editor.\n\n\
+             1. Open Google Ads Editor and get the recent changes of the account.\n\
+             2. Read `LEIA-ME.md` in that folder. Account, Import, From file, and paste B1 through B8 once, in that order.\n\
+             3. B1 creates the campaigns paused. B2 sets them to Enabled, so hold B2 until you are ready to go live.\n\
+             4. Editor matches campaigns and ad groups by name. These files leave the ids blank.\n\
+             5. Before you post, fill Customer ID, Max CPC (Manual CPC needs a bid), budgets, final URLs, and the app id and store URL when B8 is present.\n\
+             6. Review the preview, then post.\n"
+        );
+        return;
+    }
     let last = match d.input.export.status {
         ExportStatus::Paused => "Campaigns arrive paused. Review them before enabling.",
         ExportStatus::Enabled => {
@@ -372,7 +388,10 @@ fn after_launch(md: &mut String, d: &ReportData) {
 mod tests {
     use super::*;
     use crate::{
-        google::{AdGroup, BidStrategy, Campaign, Cents, Intent, Issue, Keyword, MatchType, Rsa},
+        google::{
+            AdGroup, BidStrategy, Campaign, Cents, ExportLayout, Intent, Issue, Keyword, MatchType,
+            Rsa,
+        },
         testutil,
         usage::Usage,
         workspace::{MissionState, MissionStatus},
@@ -455,6 +474,7 @@ mod tests {
             status: ReportStatus::Success,
             images: Default::default(),
             live: None,
+            layout: ExportLayout::Bulk,
         }
     }
 
@@ -708,5 +728,17 @@ mod tests {
         let enabled = render_report(&data(&input, &account()));
         assert!(!enabled.contains("arrive paused"), "{enabled}");
         assert!(enabled.contains("arrive enabled"), "{enabled}");
+    }
+
+    #[test]
+    fn drive_folders_import_steps_name_the_structural_folder() {
+        let mut d = data(&testutil::input(), &account());
+        d.layout = ExportLayout::DriveFolders;
+        let md = render_report(&d);
+        assert!(md.contains("google-ads/drive/B - Estrutural/"), "{md}");
+        assert!(md.contains("LEIA-ME.md"), "{md}");
+        assert!(md.contains("B2"), "{md}");
+        assert!(!md.contains("Upload files 1 to 5"), "{md}");
+        assert!(!md.contains('\u{2014}'), "{md}");
     }
 }

@@ -117,6 +117,7 @@ pub(crate) async fn execute(
     cfg.mission_retries = args.agent.mission_retries;
     cfg.max_ad_groups = args.max_ad_groups;
     cfg.skip_url_check = args.skip_url_check;
+    cfg.layout = args.layout.core();
     cfg.max_images = args.max_images;
     cfg.provider = selection.provider;
     cfg.model = selection.model;

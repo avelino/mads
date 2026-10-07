@@ -1,6 +1,9 @@
 use crate::{
     events::{Event, EventSink},
-    google::{Account, CsvFile, ExportError, Issue, Rules, export_csvs, export_editor_live},
+    google::{
+        Account, CsvFile, ExportError, ExportLayout, Issue, Rules, export_csvs,
+        export_drive_layout, export_editor_live,
+    },
     input::Input,
     perf::Live,
     post::{UrlResult, check_urls, collect_urls, url_issues},
@@ -35,6 +38,14 @@ fn invalid(errors: Vec<Issue>, warnings: Vec<Issue>, urls: Option<Vec<UrlResult>
     }
 }
 
+/// Knobs for validation and the CSV export.
+#[derive(Debug, Clone, Copy)]
+pub struct ExportOpts {
+    pub skip_url_check: bool,
+    pub max_ad_groups: usize,
+    pub layout: ExportLayout,
+}
+
 /// Bulk upload files 1 to 5 for Search, then the Editor file for image campaigns.
 fn export_all(
     input: &Input,
@@ -51,15 +62,21 @@ pub async fn finalize(
     account: &Account,
     live: Option<&Live>,
     web: &dyn Web,
-    skip_url_check: bool,
-    max_ad_groups: usize,
+    opts: ExportOpts,
     events: &EventSink,
 ) -> Finalized {
     step(events, "validate", "checking limits and policies");
-    let (errors, warnings): (Vec<_>, Vec<_>) = Rules::new(input, max_ad_groups)
+    let (errors, mut warnings): (Vec<_>, Vec<_>) = Rules::new(input, opts.max_ad_groups)
         .account(account, true)
         .into_iter()
         .partition(Issue::is_error);
+    if opts.layout == ExportLayout::DriveFolders && input.google_ads.customer_id.trim().is_empty() {
+        warnings.push(Issue::warning(
+            "W11",
+            "google_ads.customer_id",
+            "Customer ID is empty, so the drive files leave that column blank. Set google_ads.customer_id to the real account id before import.",
+        ));
+    }
     events.emit(Event::Validation {
         errors: errors.clone(),
         warnings: warnings.clone(),
@@ -68,7 +85,7 @@ pub async fn finalize(
         return invalid(errors, warnings, None);
     }
 
-    let urls = if skip_url_check {
+    let urls = if opts.skip_url_check {
         step(events, "url-check", "skipped");
         None
     } else {
@@ -86,7 +103,11 @@ pub async fn finalize(
     }
 
     step(events, "export", "writing CSV files");
-    match export_all(input, account, live) {
+    let exported = match opts.layout {
+        ExportLayout::Bulk => export_all(input, account, live),
+        ExportLayout::DriveFolders => export_drive_layout(input, account),
+    };
+    match exported {
         Ok(csv) => Finalized {
             exit_code: 0,
             errors: Vec::new(),
@@ -125,6 +146,14 @@ mod tests {
         }
     }
 
+    fn opts(skip_url_check: bool, max_ad_groups: usize, layout: ExportLayout) -> ExportOpts {
+        ExportOpts {
+            skip_url_check,
+            max_ad_groups,
+            layout,
+        }
+    }
+
     fn reference_account() -> Account {
         serde_json::from_str(include_str!("../tests/fixtures/vinellu.account.json")).unwrap()
     }
@@ -145,6 +174,7 @@ mod tests {
             design: String::new(),
             focus: None,
             app: None,
+            google_ads: Default::default(),
             business: Business {
                 name: "Vinellu".into(),
                 url: "https://vinellu.com".into(),
@@ -185,8 +215,7 @@ mod tests {
             &account,
             None,
             &FakeWeb(HashMap::new()),
-            false,
-            50,
+            opts(false, 50, ExportLayout::Bulk),
             &events,
         )
         .await;
@@ -217,8 +246,7 @@ mod tests {
             &account,
             None,
             &FakeWeb(HashMap::new()),
-            true,
-            50,
+            opts(true, 50, ExportLayout::Bulk),
             &events,
         )
         .await;
@@ -237,8 +265,7 @@ mod tests {
             &account,
             None,
             &FakeWeb(HashMap::new()),
-            false,
-            50,
+            opts(false, 50, ExportLayout::Bulk),
             &events,
         )
         .await;
@@ -259,7 +286,15 @@ mod tests {
         let dead = account.campaigns[0].ad_groups[0].final_url.clone();
         let web = FakeWeb(HashMap::from([(dead.clone(), 404)]));
         let (events, _rx) = EventSink::channel();
-        let out = finalize(&input, &account, None, &web, false, 50, &events).await;
+        let out = finalize(
+            &input,
+            &account,
+            None,
+            &web,
+            opts(false, 50, ExportLayout::Bulk),
+            &events,
+        )
+        .await;
         assert_eq!(out.exit_code, 3);
         assert!(out.errors.iter().any(|e| e.code == "E15" && e.path == dead));
         assert!(out.csv.is_empty());
@@ -278,13 +313,66 @@ mod tests {
             &account,
             None,
             &FakeWeb(HashMap::new()),
-            true,
-            50,
+            opts(true, 50, ExportLayout::Bulk),
             &events,
         )
         .await;
         assert_eq!(out.exit_code, 3);
         assert!(out.errors.iter().any(|e| e.code == "E17"));
         assert!(out.csv.is_empty());
+    }
+
+    #[tokio::test]
+    async fn drive_layout_keeps_character_limits_and_warns_without_a_customer_id() {
+        let mut account = reference_account();
+        account.campaigns[0].ad_groups[0].rsa.headlines[0] = "x".repeat(31);
+        let input = reference_input(&account);
+        let (events, _rx) = EventSink::channel();
+        let blocked = finalize(
+            &input,
+            &account,
+            None,
+            &FakeWeb(HashMap::new()),
+            opts(true, 50, ExportLayout::DriveFolders),
+            &events,
+        )
+        .await;
+        assert_eq!(blocked.exit_code, 3);
+        assert!(blocked.errors.iter().any(|e| e.code == "E01"));
+        assert!(blocked.csv.is_empty());
+        assert!(blocked.warnings.iter().any(|w| w.code == "W11"));
+
+        let account = reference_account();
+        let input = reference_input(&account);
+        let out = finalize(
+            &input,
+            &account,
+            None,
+            &FakeWeb(HashMap::new()),
+            opts(true, 50, ExportLayout::DriveFolders),
+            &events,
+        )
+        .await;
+        assert_eq!(out.exit_code, 0, "{:?}", out.errors);
+        assert!(out.csv.iter().any(|f| f.name.ends_with("B1-campanhas.csv")));
+        assert!(out.csv.iter().all(|f| !f.name.ends_with("1-campaign.csv")));
+        assert!(
+            out.warnings
+                .iter()
+                .any(|w| w.code == "W11" && w.path == "google_ads.customer_id")
+        );
+
+        let limited = finalize(
+            &input,
+            &account,
+            None,
+            &FakeWeb(HashMap::new()),
+            opts(true, 1, ExportLayout::DriveFolders),
+            &events,
+        )
+        .await;
+        assert_eq!(limited.exit_code, 3);
+        assert!(limited.errors.iter().any(|e| e.code == "E13"));
+        assert!(limited.csv.is_empty());
     }
 }

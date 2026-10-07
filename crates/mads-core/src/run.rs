@@ -15,7 +15,8 @@ use tokio::{
 use crate::{
     agent::{Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget},
     events::{Event, EventSink, Totals},
-    finalize::{Finalized, finalize},
+    finalize::{ExportOpts, Finalized, finalize},
+    google::ExportLayout,
     images::{EDITOR_DIR, ImageModel, ImageStepConfig, ImageStepResult, run_image_step},
     input::Input,
     mission::{PLAN_ID, campaign_id, campaign_mission, plan_mission},
@@ -49,6 +50,8 @@ pub struct RunConfig {
     pub mission_retries: u32,
     pub max_ad_groups: usize,
     pub skip_url_check: bool,
+    /// `bulk` or the local drive-folder Editor set.
+    pub layout: ExportLayout,
     /// New images allowed in one run.
     pub max_images: usize,
     pub provider: String,
@@ -67,6 +70,7 @@ impl RunConfig {
             mission_retries: 1,
             max_ad_groups: 50,
             skip_url_check: false,
+            layout: ExportLayout::Bulk,
             max_images: 40,
             provider: String::new(),
             model: None,
@@ -425,6 +429,7 @@ pub async fn export_run(
     web: &dyn Web,
     skip_url_check: bool,
     max_ad_groups: usize,
+    layout: ExportLayout,
     events: &EventSink,
 ) -> Result<RunResult, RunError> {
     let run = RunDir::open(run_dir)?;
@@ -453,6 +458,7 @@ pub async fn export_run(
     cfg.model = text("model");
     cfg.skip_url_check = skip_url_check;
     cfg.max_ad_groups = max_ad_groups;
+    cfg.layout = layout;
     events.emit(Event::RunStarted {
         run_id: run.id(),
         run_dir: run.root().display().to_string(),
@@ -472,6 +478,10 @@ pub async fn export_run(
 fn remove_stale_csvs(dir: &Path) {
     remove_csvs_in(dir);
     remove_csvs_in(&dir.join(EDITOR_DIR));
+    let drive = dir.join("drive");
+    if drive.exists() {
+        let _ = std::fs::remove_dir_all(drive);
+    }
 }
 
 fn remove_csvs_in(dir: &Path) {
@@ -543,8 +553,11 @@ async fn conclude(
             &account,
             live.as_ref(),
             web,
-            cfg.skip_url_check,
-            cfg.max_ad_groups,
+            ExportOpts {
+                skip_url_check: cfg.skip_url_check,
+                max_ad_groups: cfg.max_ad_groups,
+                layout: cfg.layout,
+            },
             events,
         )
         .await
@@ -558,9 +571,7 @@ async fn conclude(
         }
     };
 
-    if fin.exit_code != 0 {
-        remove_stale_csvs(&run.platform_dir());
-    }
+    remove_stale_csvs(&run.platform_dir());
     for file in &fin.csv {
         let path = run.platform_dir().join(file.name);
         if let Some(parent) = path.parent() {
@@ -595,6 +606,7 @@ async fn conclude(
         status,
         images,
         live: guard.live.clone(),
+        layout: cfg.layout,
     };
     std::fs::write(run.report_path(), render_report(&report))?;
     events.emit(Event::ArtifactWritten {
@@ -641,6 +653,7 @@ mod tests {
     use crate::{
         agent::{DriverCtx, MissionOutcome, MissionReport, MissionSpec, ScriptedDriver},
         events::Event,
+        google::ExportLayout,
         testutil,
         tools::ToolHost,
         usage::Usage,
@@ -995,6 +1008,7 @@ mod tests {
             web(&["https://vinellu.com/w/alamos"]).as_ref(),
             true,
             50,
+            ExportLayout::Bulk,
             &events,
         )
         .await
@@ -1021,9 +1035,16 @@ mod tests {
         );
         let (first, _) = run(cfg(&dir), partial, web(&[])).await;
         let (events, _rx) = EventSink::channel();
-        let err = export_run(&first.run_dir, web(&[]).as_ref(), true, 50, &events)
-            .await
-            .unwrap_err();
+        let err = export_run(
+            &first.run_dir,
+            web(&[]).as_ref(),
+            true,
+            50,
+            ExportLayout::Bulk,
+            &events,
+        )
+        .await
+        .unwrap_err();
         assert!(
             err.to_string().contains("unfinished") && err.to_string().contains("--resume"),
             "{err}"
@@ -1039,6 +1060,7 @@ mod tests {
                 web(&[]).as_ref(),
                 true,
                 50,
+                ExportLayout::Bulk,
                 &events
             )
             .await
@@ -1057,9 +1079,16 @@ mod tests {
         ws.account.campaigns[0].daily_budget = crate::money::Cents(100);
         ws.save(&ws_path).unwrap();
         let (events, _rx) = EventSink::channel();
-        let again = export_run(&first.run_dir, web(&[]).as_ref(), true, 50, &events)
-            .await
-            .unwrap();
+        let again = export_run(
+            &first.run_dir,
+            web(&[]).as_ref(),
+            true,
+            50,
+            ExportLayout::Bulk,
+            &events,
+        )
+        .await
+        .unwrap();
         assert_eq!(again.exit_code, 3);
         for f in ["1-campaign.csv", "5-responsive-search-ads.csv"] {
             assert!(
@@ -1074,9 +1103,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (first, _) = run(cfg(&dir), full_script(), web(&[])).await;
         let (events, _rx) = EventSink::channel();
-        let limited = export_run(&first.run_dir, web(&[]).as_ref(), true, 1, &events)
-            .await
-            .unwrap();
+        let limited = export_run(
+            &first.run_dir,
+            web(&[]).as_ref(),
+            true,
+            1,
+            ExportLayout::Bulk,
+            &events,
+        )
+        .await
+        .unwrap();
         assert_eq!(limited.exit_code, 3, "3 ad groups exceed a limit of 1");
     }
 
@@ -1250,7 +1286,7 @@ mod image_tests {
         let dir = tempfile::tempdir().unwrap();
         let (r, _) = generate_images(&dir, 40).await;
         let (events, _rx) = EventSink::channel();
-        let again = export_run(&r.run_dir, &OkWeb, true, 50, &events)
+        let again = export_run(&r.run_dir, &OkWeb, true, 50, ExportLayout::Bulk, &events)
             .await
             .unwrap();
         assert_eq!(again.exit_code, 0);
@@ -1265,7 +1301,7 @@ mod image_tests {
                 .join("google-ads/editor/images/vinellu-feed/tintos-jantar.jpg"),
         )
         .unwrap();
-        let broken = export_run(&r.run_dir, &OkWeb, true, 50, &events)
+        let broken = export_run(&r.run_dir, &OkWeb, true, 50, ExportLayout::Bulk, &events)
             .await
             .unwrap();
         assert_eq!(broken.exit_code, 3);

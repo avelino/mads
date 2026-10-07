@@ -32,6 +32,7 @@
 * [Run with Ollama](howto/ollama-local.md)
 * [Use an OpenAI-compatible server](howto/openai-compatible.md)
 * [Google Ads bulk upload format](howto/google-ads-bulk-upload-format.md)
+* [Drive folder layout](howto/google-ads-editor-drive-folders.md)
 
 ## Reference
 

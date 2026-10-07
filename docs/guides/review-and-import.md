@@ -91,7 +91,7 @@ The files use CRLF line endings, UTF-8 without a BOM, and comma decimals for `pt
 
 ## Paused by default
 
-`export.status` defaults to `Paused`. Campaigns arrive paused, and nothing serves until you enable them. The ad groups, keywords and ads are `Enabled` inside the paused campaign. With `--layout drive-folders`, B1 is paused even when `export.status` is `Enabled`, and B2 is the file that enables them.
+`export.status` defaults to `Paused`. Campaigns arrive paused, and nothing serves until you enable them. The ad groups, keywords and ads are `Enabled` inside the paused campaign. With `--layout drive-folders`, B1 is paused even when `export.status` is `Enabled`, and B2 is the file that enables the campaigns. In that layout the ad groups stay Enabled, and the keywords and ads in B4 and B5 are Paused.
 
 Keep `Paused` for your first runs. Open the campaigns, check settings and enable one at a time.
 

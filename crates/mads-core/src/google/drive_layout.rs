@@ -88,7 +88,7 @@ pub fn export_drive_layout(input: &Input, account: &Account) -> Result<Vec<CsvFi
                         .set("Ad group", &ag.name)
                         .set("Keyword", &k.text)
                         .set("Match Type", match_label(k.match_type))
-                        .set("Status", "Enabled")
+                        .set("Status", "Paused")
                         .set("Final URL", &ag.final_url),
                 );
             }
@@ -97,7 +97,7 @@ pub fn export_drive_layout(input: &Input, account: &Account) -> Result<Vec<CsvFi
                 ads.push(
                     Row::default()
                         .set("Action", "Add")
-                        .set("Ad status", "Enabled")
+                        .set("Ad status", "Paused")
                         .set("Customer ID", id)
                         .set("Campaign", &c.name)
                         .set("Ad group", &ag.name)
@@ -105,6 +105,7 @@ pub fn export_drive_layout(input: &Input, account: &Account) -> Result<Vec<CsvFi
                         .set("Label", &labels)
                         .numbered("Headline", 1, &ad.headlines)
                         .numbered("Description", 1, &ad.descriptions)
+                        .set("Headline 1 position", "1")
                         .set("Path 1", ad.path1.unwrap_or_default())
                         .set("Path 2", ad.path2.unwrap_or_default())
                         .set("Final URL", &ag.final_url),
@@ -240,7 +241,6 @@ const B8_HEADER: &[&str] = &[
     "Action",
     "Customer ID",
     "Campaign",
-    "Ad group",
     "Link Text",
     "App ID / Package name",
     "App store",
@@ -389,6 +389,10 @@ Cole uma vez, na largada, nesta ordem. No Editor, Account, Import, From file. Re
 6. `B6-utm.csv` grava o tracking template de cada grupo.
 7. `B7-negativas.csv` grava as negativas da campanha em cada grupo, mais as do próprio grupo.
 {b8}
+
+As negativas de campanha são copiadas para cada grupo. Um grupo criado depois no Editor não herda essas negativas.
+
+O B1 não traz a coluna `EU political ads`. Confira isso na prévia do Editor antes de postar.
 
 O Editor casa campanha e grupo pelo nome. Estes arquivos não trazem Campaign ID nem Ad group ID.
 

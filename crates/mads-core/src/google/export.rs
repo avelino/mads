@@ -264,6 +264,7 @@ mod tests {
             design: String::new(),
             focus: None,
             app: None,
+            google_ads: Default::default(),
             business: Business {
                 name: "Acme".into(),
                 url: "https://acme.com".into(),

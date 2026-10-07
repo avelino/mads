@@ -70,15 +70,15 @@ pub fn editor_columns() -> Vec<String> {
 
 /// One row as column name to value. Missing columns are empty.
 #[derive(Default)]
-struct Row(BTreeMap<String, String>);
+pub(crate) struct Row(BTreeMap<String, String>);
 
 impl Row {
-    fn set(mut self, col: &str, value: impl Into<String>) -> Self {
+    pub(crate) fn set(mut self, col: &str, value: impl Into<String>) -> Self {
         self.0.insert(col.to_string(), value.into());
         self
     }
 
-    fn numbered(mut self, name: &str, from: usize, values: &[String]) -> Self {
+    pub(crate) fn numbered(mut self, name: &str, from: usize, values: &[String]) -> Self {
         for (i, v) in values.iter().enumerate() {
             self.0.insert(format!("{name} {}", from + i), v.clone());
         }
@@ -87,7 +87,7 @@ impl Row {
 }
 
 /// `250.00`: Editor writes money with a dot and 2 decimals whatever the account language.
-fn money(c: Cents) -> String {
+pub(crate) fn money(c: Cents) -> String {
     format!("{}.{:02}", c.0 / 100, c.0 % 100)
 }
 
@@ -393,10 +393,23 @@ pub fn export_editor_live(
         live,
     };
     let cols = editor_columns();
+    let rows = account
+        .campaigns
+        .iter()
+        .flat_map(|c| ctx.rows_of(c))
+        .chain(ctx.dropped(account));
+    Some(editor_sheet(EDITOR_FILE, &cols, rows))
+}
+
+/// UTF-16 LE with a BOM, tab separated, LF. The same writer `editor_columns` feeds.
+pub(crate) fn editor_sheet(
+    name: &'static str,
+    cols: &[String],
+    rows: impl IntoIterator<Item = Row>,
+) -> CsvFile {
     let mut text = cols.join("\t");
     text.push('\n');
-    let rows = account.campaigns.iter().flat_map(|c| ctx.rows_of(c));
-    for row in rows.chain(ctx.dropped(account)) {
+    for row in rows {
         let line: Vec<String> = cols
             .iter()
             .map(|col| field(row.0.get(col).map_or("", String::as_str)))
@@ -404,10 +417,10 @@ pub fn export_editor_live(
         text.push_str(&line.join("\t"));
         text.push('\n');
     }
-    Some(CsvFile {
-        name: EDITOR_FILE,
+    CsvFile {
+        name,
         bytes: utf16le(&text),
-    })
+    }
 }
 
 /// Reads an Editor file back: header and rows as column to value. For tests and tools.

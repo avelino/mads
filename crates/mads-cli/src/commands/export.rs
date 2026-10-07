@@ -18,6 +18,7 @@ pub async fn run(args: ExportArgs, format: Format) -> anyhow::Result<i32> {
         web.as_ref(),
         args.skip_url_check,
         args.max_ad_groups,
+        args.layout.core(),
         &events,
     )
     .await;

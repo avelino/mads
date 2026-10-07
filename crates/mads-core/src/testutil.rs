@@ -19,6 +19,7 @@ pub fn input() -> Input {
         design: String::new(),
         focus: None,
         app: None,
+        google_ads: Default::default(),
         business: Business {
             name: "Vinellu".into(),
             url: "https://vinellu.com".into(),

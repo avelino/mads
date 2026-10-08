@@ -203,7 +203,7 @@ jobs:
           mkdir -p /tmp/digests
           touch "/tmp/digests/${DIGEST#sha256:}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: github.event_name != 'pull_request'
         with:
           name: digests-${{ env.PAIR }}

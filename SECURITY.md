@@ -14,4 +14,4 @@ Tell me what you found, the version or commit, and how to reproduce it. A proof 
 
 ## Scope
 
-mads talks to model providers and to Google Ads with credentials you give it, and it reads files you point it at. Problems in that path count: a leaked API key or token, a prompt that makes mads write outside its output directory, a URL check that can be bypassed, or anything in the container image. Bugs in the providers themselves belong to them.
+mads talks to model providers with the API keys you give it, and it reads files you point it at: your brief, the reports you export from Google Ads, and its own output. It has no Google Ads API client and never holds Google Ads credentials; you upload what it writes yourself. Problems in that path count: a leaked API key or token, a prompt that makes mads write outside its output directory, a URL check that can be bypassed, or anything in the container image. Bugs in the providers themselves belong to them.

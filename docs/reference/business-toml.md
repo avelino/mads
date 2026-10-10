@@ -61,7 +61,7 @@ Optional. Used by `--layout drive-folders`. The whole table can be absent. `mads
 | `customer_id` | string | empty | 10 digits, or `123-456-7890`. Empty leaves the Customer ID column blank and adds warning `W11` on a drive-folder export. `000-000-0000` and `0000000000` are rejected. |
 | `tracking_template` | string | empty | 1 to 2048 characters when set. `{mads_campaign}` becomes the campaign slug. Empty means the file uses `{lpurl}?` plus `export.url_suffix`. |
 | `devices` | string | empty | 1 to 80 characters when set. Written as given, for example `Mobile;Desktop;Tablet`. |
-| `labels` | string array | `[]` | Each 1 to 80 characters. Joined with `;` into the Label column. |
+| `labels` | string array | `[]` | Each 1 to 80 characters, trimmed. A label cannot hold `;`, because Editor splits the Label column on it. Joined with `;` into the Label column. |
 | `app_id` | string | empty | Google Play package (`com.example.app`) or a numeric App Store id. Empty skips `B8-extensao-app.csv`. |
 
 ## [catalog]

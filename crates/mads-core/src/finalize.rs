@@ -1,7 +1,7 @@
 use crate::{
     events::{Event, EventSink},
     google::{
-        Account, CsvFile, ExportError, ExportLayout, Issue, Rules, export_csvs,
+        Account, CsvFile, ExportError, ExportLayout, Issue, Rules, drive_warnings, export_csvs,
         export_drive_layout, export_editor_live,
     },
     input::Input,
@@ -70,12 +70,8 @@ pub async fn finalize(
         .account(account, true)
         .into_iter()
         .partition(Issue::is_error);
-    if opts.layout == ExportLayout::DriveFolders && input.google_ads.customer_id.trim().is_empty() {
-        warnings.push(Issue::warning(
-            "W11",
-            "google_ads.customer_id",
-            "Customer ID is empty, so the drive files leave that column blank. Set google_ads.customer_id to the real account id before import.",
-        ));
+    if opts.layout == ExportLayout::DriveFolders {
+        warnings.extend(drive_warnings(input, account));
     }
     events.emit(Event::Validation {
         errors: errors.clone(),
@@ -105,6 +101,8 @@ pub async fn finalize(
     step(events, "export", "writing CSV files");
     let exported = match opts.layout {
         ExportLayout::Bulk => export_all(input, account, live),
+        // The drive files only add. Bulk writes the pause rows a live account needs.
+        ExportLayout::DriveFolders if live.is_some() => Err(ExportError::DriveFoldersOnLive),
         ExportLayout::DriveFolders => export_drive_layout(input, account),
     };
     match exported {
@@ -320,6 +318,35 @@ mod tests {
         assert_eq!(out.exit_code, 3);
         assert!(out.errors.iter().any(|e| e.code == "E17"));
         assert!(out.csv.is_empty());
+    }
+
+    #[tokio::test]
+    async fn drive_layout_refuses_a_live_account() {
+        let account = reference_account();
+        let input = reference_input(&account);
+        let live = Live {
+            baseline: account.clone(),
+            performance: Default::default(),
+        };
+        let (events, _rx) = EventSink::channel();
+        let out = finalize(
+            &input,
+            &account,
+            Some(&live),
+            &FakeWeb(HashMap::new()),
+            opts(true, 50, ExportLayout::DriveFolders),
+            &events,
+        )
+        .await;
+        assert_eq!(out.exit_code, 3);
+        assert!(out.csv.is_empty());
+        assert!(
+            out.errors
+                .iter()
+                .any(|e| e.code == "EXPORT" && e.message.contains("--layout bulk")),
+            "{:?}",
+            out.errors
+        );
     }
 
     #[tokio::test]

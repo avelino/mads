@@ -15,6 +15,10 @@ pub enum ExportError {
     PendingTemplate(String),
     #[error("csv write failed: {0}")]
     Csv(String),
+    #[error(
+        "--layout drive-folders creates a new account and cannot pause or edit a live one: export this run with --layout bulk"
+    )]
+    DriveFoldersOnLive,
 }
 
 impl From<csv::Error> for ExportError {

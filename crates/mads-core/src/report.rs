@@ -287,12 +287,17 @@ fn usage(md: &mut String, d: &ReportData) {
 
 fn import_steps(md: &mut String, d: &ReportData) {
     if d.layout == ExportLayout::DriveFolders {
+        let last = if d.input.google_ads.app_id.trim().is_empty() {
+            "B7"
+        } else {
+            "B8"
+        };
         let _ = writeln!(
             md,
             "## How to import\n\n\
              The files are in `google-ads/drive/B - Estrutural/` on this computer. Nothing was sent to Drive. A person pastes them in Google Ads Editor.\n\n\
              1. Open Google Ads Editor and get the recent changes of the account.\n\
-             2. Read `LEIA-ME.md` in that folder. Account, Import, From file, and paste B1 through B8 once, in that order.\n\
+             2. Read `LEIA-ME.md` in that folder. Account, Import, From file, and paste B1 through {last} once, in that order.\n\
              3. B1 creates the campaigns paused. B2 sets them to Enabled, so hold B2 until you are ready to go live.\n\
              4. Editor matches campaigns and ad groups by name. These files leave the ids blank.\n\
              5. Before you post, fill Customer ID, Max CPC (Manual CPC needs a bid), budgets, final URLs, and the app id and store URL when B8 is present.\n\
@@ -738,6 +743,9 @@ mod tests {
         assert!(md.contains("google-ads/drive/B - Estrutural/"), "{md}");
         assert!(md.contains("LEIA-ME.md"), "{md}");
         assert!(md.contains("B2"), "{md}");
+        assert!(md.contains("paste B1 through B7"), "no app id, no B8: {md}");
+        d.input.google_ads.app_id = "com.vinellu.app".into();
+        assert!(render_report(&d).contains("paste B1 through B8"));
         assert!(!md.contains("Upload files 1 to 5"), "{md}");
         assert!(!md.contains('\u{2014}'), "{md}");
     }

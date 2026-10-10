@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use mads_core::google::{
     Account, AdGroup, BidStrategy, BrandKit, Campaign, CampaignKind, Intent, Keyword, MatchType,
-    Rsa, export_drive_layout, read_editor,
+    Rsa, drive_warnings, export_drive_layout, read_editor,
 };
 use mads_core::input::{Budget, Business, ExportConfig, ExportStatus, GoogleAds, Input};
 use mads_core::money::Cents;
@@ -361,6 +361,52 @@ fn readme_is_portuguese_and_lists_the_paste_order_and_the_pending_items() {
         );
     }
     assert!(!readme.contains('\u{2014}'), "no em dash in the readme");
+}
+
+#[test]
+fn only_search_campaigns_are_written_and_the_rest_are_named_in_w11() {
+    let mut acc = account();
+    let mut pmax = acc.campaigns[0].clone();
+    pmax.name = "Vinellu - PMax".into();
+    pmax.slug = "vinellu-pmax".into();
+    pmax.kind = CampaignKind::PerformanceMax;
+    pmax.ad_groups.clear();
+    acc.campaigns.push(pmax);
+    let files = export_drive_layout(&input(filled_ads()), &acc).unwrap();
+    for name in ["B1-campanhas.csv", "B2-status-campanha.csv"] {
+        let rows = rows(file(&files, &format!("{DIR}/{name}")));
+        assert_eq!(rows.len(), 1, "{name}: {rows:?}");
+        assert_eq!(cell(&rows[0], "Campaign"), "Vinellu - Rotulos");
+    }
+    let warnings = drive_warnings(&input(filled_ads()), &acc);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].code, "W12");
+    assert_eq!(warnings[0].path, "campaigns[1]");
+    assert!(
+        warnings[0].message.contains("Vinellu - PMax"),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn w10_fires_whenever_the_customer_id_cell_comes_out_blank() {
+    let codes = |customer_id: &str| -> Vec<String> {
+        let ads = GoogleAds {
+            customer_id: customer_id.into(),
+            ..filled_ads()
+        };
+        drive_warnings(&input(ads), &account())
+            .into_iter()
+            .map(|w| w.code)
+            .collect()
+    };
+    assert_eq!(codes(""), vec!["W11"]);
+    assert_eq!(
+        codes("000-000-0000"),
+        vec!["W11"],
+        "a placeholder from workspace.json"
+    );
+    assert!(codes("123-456-7890").is_empty());
 }
 
 fn decode(bytes: &[u8]) -> String {

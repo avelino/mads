@@ -8,7 +8,7 @@ This page describes every file in a run directory, the events in `events.ndjson`
 
 ```text
 out/20261001-122850-b51417/
-  run.json                       status, provider, model, exit code, totals
+  run.json                       status, provider, model, layout, exit code, totals
   workspace.json                 input, account and mission state
   events.ndjson                  every event
   report.md                      the report
@@ -136,6 +136,7 @@ A short summary written at the end.
   "run_id": "20261001-122850-b51417",
   "provider": "anthropic",
   "model": "<model-id>",
+  "layout": "bulk",
   "status": "success",
   "exit_code": 0,
   "totals": {
@@ -149,6 +150,8 @@ A short summary written at the end.
 ```
 
 `status` is `success` (exit `0`), `invalid` (exit `3`) or `incomplete` (exit `1`).
+
+`layout` is `bulk` or `drive-folders`. `export` and `--resume` read it when `--layout` is not given. A `run.json` without it reads as `bulk`.
 
 ## report.md
 

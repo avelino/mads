@@ -5,7 +5,7 @@ use mads_core::{events::EventSink, run::export_run};
 use mads_providers::WebClient;
 
 use crate::{
-    cli::ExportArgs,
+    cli::{ExportArgs, Layout},
     render::{Format, pump},
 };
 
@@ -18,7 +18,7 @@ pub async fn run(args: ExportArgs, format: Format) -> anyhow::Result<i32> {
         web.as_ref(),
         args.skip_url_check,
         args.max_ad_groups,
-        args.layout.core(),
+        args.layout.map(Layout::core),
         &events,
     )
     .await;

@@ -402,9 +402,9 @@ pub fn export_editor_live(
 }
 
 /// UTF-16 LE with a BOM, tab separated, LF. The same writer `editor_columns` feeds.
-pub(crate) fn editor_sheet(
+pub(crate) fn editor_sheet<S: std::borrow::Borrow<str>>(
     name: &'static str,
-    cols: &[String],
+    cols: &[S],
     rows: impl IntoIterator<Item = Row>,
 ) -> CsvFile {
     let mut text = cols.join("\t");
@@ -412,7 +412,7 @@ pub(crate) fn editor_sheet(
     for row in rows {
         let line: Vec<String> = cols
             .iter()
-            .map(|col| field(row.0.get(col).map_or("", String::as_str)))
+            .map(|col| field(row.0.get(col.borrow()).map_or("", String::as_str)))
             .collect();
         text.push_str(&line.join("\t"));
         text.push('\n');

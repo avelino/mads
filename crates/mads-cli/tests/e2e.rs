@@ -1034,6 +1034,27 @@ fn optimize_refuses_bad_inputs_before_creating_a_run() {
         .arg(p.full_script())
         .assert()
         .code(1);
+
+    let out = p
+        .mads()
+        .arg("optimize")
+        .arg(&base)
+        .arg("--reports")
+        .arg(&empty)
+        .args([
+            "--layout",
+            "drive-folders",
+            "--provider",
+            "replay",
+            "--script",
+        ])
+        .arg(p.full_script())
+        .args(["--out", "out"])
+        .assert()
+        .code(2);
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(stderr.contains("--layout bulk"), "{stderr}");
+    assert_eq!(run_dirs(&p).len(), 1, "no run directory is created");
 }
 
 fn decode_editor(bytes: &[u8]) -> String {
@@ -1096,6 +1117,18 @@ fn generate_with_drive_folders_writes_the_structural_track_locally() {
         .arg("export")
         .arg(&run)
         .arg("--skip-url-check")
+        .assert()
+        .success();
+    assert!(
+        dir.join("B1-campanhas.csv").is_file(),
+        "export without --layout keeps the run's layout"
+    );
+    assert!(!run.join("google-ads/1-campaign.csv").exists());
+
+    p.mads()
+        .arg("export")
+        .arg(&run)
+        .args(["--skip-url-check", "--layout", "bulk"])
         .assert()
         .success();
     assert!(run.join("google-ads/1-campaign.csv").is_file());

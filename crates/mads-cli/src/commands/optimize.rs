@@ -53,5 +53,6 @@ fn summary(p: &Performance) -> String {
             thin.join(", ")
         ));
     }
+    lines.extend(p.findings());
     lines.join("\n")
 }

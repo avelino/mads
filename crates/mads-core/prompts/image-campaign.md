@@ -44,6 +44,7 @@ When `get_brief` has `live` and `performance`, this campaign already runs. `live
 - Keep the asset group names and the image ids of pictures that stay: a kept id reuses its picture and costs nothing.
 - Keep texts Google labels Best or Good, rewrite the ones labeled Low.
 - Read `thin_rule`: with too little data, fix only what is broken, such as an asset group with no ads.
+- A `stalled` campaign with no ads usually lacks its pictures in Google Ads: keep the briefs that ran, unchanged, so the same files come back to attach.
 
 ## Focus
 

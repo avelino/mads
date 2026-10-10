@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     model::*,
+    table::ReportKind,
     table::{AD_GROUP, ASSET, CAMPAIGN, DAY, KEYWORD, MATCH, Row, SEARCH_TERM, Table},
 };
 use crate::{
@@ -54,6 +55,7 @@ pub fn digest(files: &[ReportInput], account: &Account) -> Performance {
     let windows: BTreeSet<_> = p.reports.iter().filter_map(|r| r.window.as_ref()).collect();
     p.mixed_windows = windows.len() > 1;
     let days = p.window.as_ref().map(|w| w.days);
+    let end = p.window.as_ref().and_then(|w| iso_date(&w.end));
     for (i, c) in p.campaigns.iter_mut().enumerate() {
         if !pass.totals.contains(&i)
             && let Some((budget, rank)) = pass.day_lost.get(&i)
@@ -61,9 +63,71 @@ pub fn digest(files: &[ReportInput], account: &Account) -> Performance {
             c.lost_to_budget_pct = mean(budget);
             c.lost_to_rank_pct = mean(rank);
         }
+        c.days_running = pass
+            .first_active
+            .get(&i)
+            .and_then(|first| days_between(iso_date(first)?, end?));
         finish(c, pass.totals.contains(&i), days, p.mixed_windows);
     }
+    mark_untracked(&mut p.campaigns);
+    p.idle_budget = idle_budget(&p.campaigns);
+    p.missing_reports = missing_reports(&p.reports);
     p
+}
+
+/// `2026-10-09`, as day rows and `Window` write a date.
+fn iso_date(text: &str) -> Option<time::Date> {
+    let mut parts = text.trim().splitn(3, '-').map(str::parse::<u32>);
+    let (y, m, d) = (
+        parts.next()?.ok()?,
+        parts.next()?.ok()?,
+        parts.next()?.ok()?,
+    );
+    let month = time::Month::try_from(u8::try_from(m).ok()?).ok()?;
+    time::Date::from_calendar_date(i32::try_from(y).ok()?, month, u8::try_from(d).ok()?).ok()
+}
+
+/// Both days included.
+fn days_between(first: time::Date, last: time::Date) -> Option<u32> {
+    u32::try_from((last - first).whole_days() + 1).ok()
+}
+
+/// Clicks enough to judge and no conversion, while another campaign converts.
+fn mark_untracked(campaigns: &mut [CampaignPerf]) {
+    if !campaigns.iter().any(|c| c.metrics.conversions > 0.0) {
+        return;
+    }
+    for c in campaigns {
+        c.untracked = c.metrics.clicks >= THIN_CLICKS && c.metrics.conversions == 0.0;
+    }
+}
+
+fn idle_budget(campaigns: &[CampaignPerf]) -> Option<f64> {
+    let idle: Vec<f64> = campaigns
+        .iter()
+        .filter(|c| c.live_status == Some(LiveStatus::Enabled))
+        .filter_map(|c| Some((c.budget? - c.avg_daily_cost?).max(0.0)))
+        .collect();
+    (!idle.is_empty()).then(|| round2(idle.iter().sum()))
+}
+
+fn missing_reports(reports: &[ReportFile]) -> Vec<ReportKind> {
+    use ReportKind::*;
+    let has = |kinds: &[ReportKind]| reports.iter().any(|r| kinds.contains(&r.kind));
+    [
+        (Campaigns, has(&[Campaigns, CampaignsByDay])),
+        (Keywords, has(&[Keywords])),
+        (SearchTerms, has(&[SearchTerms])),
+        (Assets, has(&[Assets])),
+    ]
+    .into_iter()
+    .filter(|(_, present)| !present)
+    .map(|(kind, _)| kind)
+    .collect()
+}
+
+fn round2(x: f64) -> f64 {
+    (x * 100.0).round() / 100.0
 }
 
 /// What the rows say beyond the digest itself, kept while the files are read.
@@ -74,6 +138,10 @@ struct Pass {
     totals: BTreeSet<usize>,
     /// Lost impression share of every day row, per campaign: budget, then rank.
     day_lost: BTreeMap<usize, (Vec<f64>, Vec<f64>)>,
+    /// Latest day read per campaign: its row gives the budget and status.
+    latest_day: BTreeMap<usize, String>,
+    /// First day with impressions per campaign.
+    first_active: BTreeMap<usize, String>,
 }
 
 fn mean(values: &[f64]) -> Option<f64> {
@@ -103,8 +171,22 @@ fn read(p: &mut Performance, pass: &mut Pass, t: &Table, account: &Account) {
                 pass.totals.insert(ci);
             }
             CampaignsByDay => {
-                let lost = pass.day_lost.entry(ci).or_default();
-                day_row(c, &row, pass.totals.contains(&ci), lost);
+                let has_totals = pass.totals.contains(&ci);
+                day_row(c, &row, has_totals, pass.day_lost.entry(ci).or_default());
+                let day = row.text(DAY);
+                if day.is_empty() {
+                    continue;
+                }
+                if !has_totals && pass.latest_day.get(&ci).is_none_or(|d| *d <= day) {
+                    status(c, &row);
+                    pass.latest_day.insert(ci, day.clone());
+                }
+                if metrics(&row).impressions > 0 {
+                    let first = pass.first_active.entry(ci).or_insert_with(|| day.clone());
+                    if day < *first {
+                        *first = day;
+                    }
+                }
             }
             Keywords => group(c, &row.text(AD_GROUP)).keywords.push(keyword(&row)),
             SearchTerms => {
@@ -147,12 +229,16 @@ fn metrics(row: &Row) -> Metrics {
 }
 
 fn campaign_row(c: &mut CampaignPerf, row: &Row) {
-    c.live_status = live_status(&row.text(LIVE));
-    c.status_reasons = row.text(REASONS);
-    c.budget = row.number(BUDGET);
+    status(c, row);
     c.metrics = metrics(row);
     c.lost_to_budget_pct = lost_budget(row).or(c.lost_to_budget_pct);
     c.lost_to_rank_pct = lost_rank(row).or(c.lost_to_rank_pct);
+}
+
+fn status(c: &mut CampaignPerf, row: &Row) {
+    c.live_status = live_status(&row.text(LIVE));
+    c.status_reasons = row.text(REASONS);
+    c.budget = row.number(BUDGET);
 }
 
 /// A day row adds to the totals only when no campaign report gave them. Its lost share is kept
@@ -288,6 +374,17 @@ fn asset(row: &Row) -> AssetPerf {
     }
 }
 
+/// Enabled and going nowhere: Google says it has no ads, or a week passed without one impression.
+fn stalled(c: &CampaignPerf, days: Option<u32>) -> bool {
+    if c.live_status != Some(LiveStatus::Enabled) {
+        return false;
+    }
+    let reasons = fold(&c.status_reasons);
+    let no_ads = reasons.contains("nenhum anuncio") || reasons.contains("no ads");
+    let silent = c.metrics.impressions == 0 && days.is_some_and(|d| d >= STALLED_DAYS);
+    no_ads || silent
+}
+
 /// Totals, the thin flag, hidden term cost, and the term list cut to the most expensive.
 fn finish(c: &mut CampaignPerf, has_totals: bool, days: Option<u32>, mixed_windows: bool) {
     let empty = c.metrics.impressions == 0 && c.metrics.clicks == 0 && c.metrics.cost == 0.0;
@@ -298,7 +395,18 @@ fn finish(c: &mut CampaignPerf, has_totals: bool, days: Option<u32>, mixed_windo
         }
         c.metrics = sum;
     }
-    c.thin = days.is_some_and(|d| d < THIN_DAYS) || c.metrics.clicks < THIN_CLICKS;
+    let days = c.days_running.or(days);
+    if let Some(d) = days.filter(|d| *d > 0) {
+        let avg = round2(c.metrics.cost / f64::from(d));
+        c.avg_daily_cost = Some(avg);
+        c.budget_use_pct = c
+            .budget
+            .filter(|b| *b > 0.0)
+            .map(|b| round2(avg / b * 100.0));
+    }
+    c.stalled = stalled(c, days);
+    let short = days.is_some_and(|d| d < THIN_DAYS) || c.metrics.clicks < THIN_CLICKS;
+    c.thin = !c.stalled && c.metrics.conversions < JUDGE_CONVERSIONS && short;
     let listed: f64 = c
         .ad_groups
         .iter()

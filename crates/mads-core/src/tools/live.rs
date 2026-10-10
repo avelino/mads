@@ -10,8 +10,11 @@ use super::{
     schema::schema_for,
 };
 use crate::{
-    google::{Campaign, Keyword, MatchType, normalize},
-    perf::{AdGroupPerf, KeywordPerf, Live, Metrics, Signal, THIN_CLICKS, THIN_DAYS, TermPerf},
+    google::{AdGroup, Campaign, Issue, Keyword, MatchType, normalize},
+    perf::{
+        AdGroupPerf, JUDGE_CONVERSIONS, KeywordPerf, Live, Metrics, Performance, ReportKind,
+        STALLED_DAYS, Signal, THIN_CLICKS, THIN_DAYS, TermPerf,
+    },
 };
 
 // The brief of a live campaign carries a summary per ad group, and `get_ad_group_performance`
@@ -72,8 +75,33 @@ pub(super) async fn call(t: &MissionTools, slug: &str, args: Value) -> ToolOutpu
 
 fn thin_rule() -> String {
     format!(
-        "A campaign marked thin has under {THIN_DAYS} days or under {THIN_CLICKS} clicks: its numbers are noise. Fix structure only (bids under the first page, low quality, no ads, wrong grouping). Do not cut, pause or grow anything because of its results."
+        "A campaign marked thin has under {THIN_DAYS} days running or under {THIN_CLICKS} clicks, and under {JUDGE_CONVERSIONS} conversions: its numbers are noise. Fix structure only (bids under the first page, low quality, no ads, wrong grouping). Do not cut, pause or grow anything because of its results. stalled and untracked win over thin for the budget: cut those even when thin."
     )
+}
+
+/// What the flags beyond `thin` mean, and what the missing reports leave blind.
+fn live_rules(p: &Performance) -> String {
+    let mut rules = vec![
+        format!(
+            "stalled: enabled with no ads, or {STALLED_DAYS} days without one impression. It is broken, not short of data: fix what Google says (no ads, policy) or cut its budget. It never gets more budget (E27)."
+        ),
+        "untracked: clicks enough to judge and no conversion while other campaigns convert. Its result is not measured, or there is none. Do not grow it: no budget increase (E27), no new keywords or groups.".into(),
+        "budget_use_pct is the average daily cost over the daily budget. Under 100 the budget is not what limits the campaign, so cutting it down to its real spend frees money without changing what it gets. At 100 or more a converting campaign is limited by its budget: give it what the others leave unspent, in steps of about 20 percent per run.".into(),
+        "A policy limit (status reasons with 'política' or 'policy') is not lifted by a higher bid.".into(),
+    ];
+    if let Some(idle) = p.idle_budget {
+        rules.push(format!(
+            "idle_budget: {idle:.2} a day of the budget goes unspent. Move it to campaigns that convert at their budget limit."
+        ));
+    }
+    let blind = p.blind_reports();
+    if !blind.is_empty() {
+        rules.push(format!(
+            "No {} report: keyword numbers are unknown. Keep the keywords that ran, change bids and texts only.",
+            blind.join(" or ")
+        ));
+    }
+    rules.join(" ")
 }
 
 /// For the plan: every campaign as it ran, and campaign totals without keyword detail.
@@ -96,7 +124,8 @@ pub fn business_view(live: &Live) -> (Value, Value) {
         })
         .collect();
     let perf = json!({
-        "window": p.window, "thin_rule": thin_rule(),
+        "window": p.window, "thin_rule": thin_rule(), "live_rules": live_rules(p),
+        "idle_budget": p.idle_budget, "missing_reports": p.missing_reports,
         "ignored_campaigns": p.ignored_campaigns, "campaigns": campaigns,
     });
     (account, perf)
@@ -121,6 +150,53 @@ pub(super) fn detail_first(
         );
         ToolOutput::fail("LIVE_DETAIL", msg)
     })
+}
+
+/// What a live ad group may not change: W10 puts back the keywords that ran when the keywords
+/// report that would justify dropping them is missing, E28 refuses a higher bid in an untracked
+/// campaign. One optimize run dropped the keyword with 43% of the Search cost without a keyword
+/// report, and raised every bid of a campaign whose clicks converted into nothing measurable.
+pub(super) fn guard_ran_group(live: &Live, campaign: &str, g: &mut AdGroup) -> Vec<Issue> {
+    let key = normalize(&g.name);
+    let Some(ran) = ran_campaign(live, campaign)
+        .and_then(|c| c.ad_groups.iter().find(|r| normalize(&r.name) == key))
+    else {
+        return Vec::new();
+    };
+    let mut issues = Vec::new();
+    if live
+        .performance
+        .missing_reports
+        .contains(&ReportKind::Keywords)
+    {
+        let back: Vec<Keyword> = ran
+            .keywords
+            .iter()
+            .filter(|k| !g.keywords.contains(k))
+            .cloned()
+            .collect();
+        if !back.is_empty() {
+            let msg = format!(
+                "kept {} keywords that ran, no keywords report to judge them: {}",
+                back.len(),
+                notation(&back[..back.len().min(QUIET_EXAMPLES)]).join(", ")
+            );
+            issues.push(Issue::warning("W10", "keywords", msg));
+            g.keywords.extend(back);
+        }
+    }
+    let untracked = live
+        .performance
+        .campaign(campaign)
+        .is_some_and(|p| p.untracked);
+    if untracked && g.default_cpc > ran.default_cpc {
+        let msg = format!(
+            "this campaign is untracked: its clicks bring no conversion anyone can see, so a higher bid buys more of them. Keep default_cpc at {} or lower",
+            cents_to_f64(ran.default_cpc)
+        );
+        issues.push(Issue::error("E28", "default_cpc", msg));
+    }
+    issues
 }
 
 fn ran_campaign<'a>(live: &'a Live, campaign: &str) -> Option<&'a Campaign> {
@@ -175,6 +251,7 @@ pub fn brief_view(live: &Live, campaign: &str) -> (Value, Value) {
             v["ad_groups"] = c.ad_groups.iter().map(summary).collect::<Vec<_>>().into();
             v["window"] = json!(live.performance.window);
             v["thin_rule"] = json!(thin_rule());
+            v["live_rules"] = json!(live_rules(&live.performance));
             v
         });
     (ran, perf)

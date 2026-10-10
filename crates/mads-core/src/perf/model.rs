@@ -8,6 +8,10 @@ use crate::google::{Account, MatchType};
 /// Below this many days or clicks a campaign's numbers are noise: agents fix structure only.
 pub const THIN_DAYS: u32 = 14;
 pub const THIN_CLICKS: u64 = 100;
+/// This many conversions judge a campaign even before `THIN_DAYS`: they are what bidding learns from.
+pub const JUDGE_CONVERSIONS: f64 = 30.0;
+/// A campaign enabled this long without one impression is broken, not waiting for data.
+pub const STALLED_DAYS: u32 = 7;
 /// Search terms kept per ad group, by cost. The rest are summed, not listed.
 pub const TERMS_PER_GROUP: usize = 30;
 
@@ -32,6 +36,12 @@ pub struct Performance {
     /// The reports cover different dates: totals of one and rows of another do not add up.
     #[serde(default)]
     pub mixed_windows: bool,
+    /// Daily budget the enabled campaigns leave unspent: budget minus average daily cost, summed.
+    #[serde(default)]
+    pub idle_budget: Option<f64>,
+    /// Kinds of report the folder lacks. Without keywords and search terms, keywords are blind.
+    #[serde(default)]
+    pub missing_reports: Vec<ReportKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -74,8 +84,24 @@ pub struct CampaignPerf {
     pub metrics: Metrics,
     pub lost_to_budget_pct: Option<f64>,
     pub lost_to_rank_pct: Option<f64>,
+    /// Days from the first day with impressions to the end of the window. Only day rows know it.
+    #[serde(default)]
+    pub days_running: Option<u32>,
+    /// Cost per day over `days_running`, or over the window without day rows.
+    #[serde(default)]
+    pub avg_daily_cost: Option<f64>,
+    /// `avg_daily_cost` as a share of the daily budget. Over 100 means the budget limits it.
+    #[serde(default)]
+    pub budget_use_pct: Option<f64>,
     /// Too little data to judge performance: fix structure only.
     pub thin: bool,
+    /// Enabled with no ads, or no impressions for `STALLED_DAYS`: broken, not short of data.
+    #[serde(default)]
+    pub stalled: bool,
+    /// Clicks enough to judge and no conversion while another campaign converts: its result is
+    /// not measured, or there is none. Its budget buys nothing anyone can see.
+    #[serde(default)]
+    pub untracked: bool,
     /// Cost Google does not show by search term: the campaign cost minus the listed terms.
     pub hidden_terms_cost: Option<f64>,
     pub ad_groups: Vec<AdGroupPerf>,
@@ -164,6 +190,66 @@ impl Metrics {
 }
 
 impl Performance {
+    /// The missing reports that keyword decisions need.
+    pub fn blind_reports(&self) -> Vec<String> {
+        self.missing_reports
+            .iter()
+            .filter(|k| matches!(k, ReportKind::Keywords | ReportKind::SearchTerms))
+            .map(|k| format!("{k:?}"))
+            .collect()
+    }
+
+    /// What the reports say needs attention, one line each, for the terminal and `report.md`.
+    pub fn findings(&self) -> Vec<String> {
+        let names = |f: fn(&CampaignPerf) -> bool| -> Vec<&str> {
+            self.campaigns
+                .iter()
+                .filter(|c| f(c))
+                .map(|c| c.name.as_str())
+                .collect()
+        };
+        let mut out = Vec::new();
+        let stalled = names(|c| c.stalled);
+        if !stalled.is_empty() {
+            out.push(format!(
+                "stalled, no ads or no impression for {STALLED_DAYS} days, no more budget: {}",
+                stalled.join(", ")
+            ));
+        }
+        let untracked = names(|c| c.untracked);
+        if !untracked.is_empty() {
+            out.push(format!(
+                "clicks without conversions while others convert, no more budget: {}",
+                untracked.join(", ")
+            ));
+        }
+        let limited: Vec<String> = self
+            .campaigns
+            .iter()
+            .filter(|c| c.metrics.conversions > 0.0)
+            .filter_map(|c| Some((c, c.budget_use_pct?)))
+            .filter(|(_, pct)| *pct >= 100.0)
+            .map(|(c, pct)| format!("{} ({pct:.0}%)", c.name))
+            .collect();
+        if !limited.is_empty() {
+            out.push(format!(
+                "converting at the budget limit: {}",
+                limited.join(", ")
+            ));
+        }
+        if let Some(idle) = self.idle_budget.filter(|i| *i > 0.0) {
+            out.push(format!("budget unspent every day: {idle:.2}"));
+        }
+        let blind = self.blind_reports();
+        if !blind.is_empty() {
+            out.push(format!(
+                "missing reports, keywords kept as they ran: {}",
+                blind.join(", ")
+            ));
+        }
+        out
+    }
+
     pub fn campaign(&self, name: &str) -> Option<&CampaignPerf> {
         let key = crate::google::normalize(name);
         self.campaigns

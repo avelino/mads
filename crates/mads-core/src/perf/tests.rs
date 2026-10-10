@@ -163,7 +163,11 @@ fn enough_days_and_clicks_is_not_thin() {
     let p = digest(&files, &account());
     assert_eq!(p.window.as_ref().map(|w| w.days), Some(30));
     assert!(!p.campaigns[0].thin);
-    assert!(p.campaigns[1].thin, "zero clicks stays thin");
+    let brand = &p.campaigns[1];
+    assert!(
+        !brand.thin && brand.stalled,
+        "a month without impressions is broken, not thin"
+    );
 }
 
 const LOST: &str = "Parc. impr. perdidas na rede de pesquisa (orçamento)";
@@ -247,4 +251,148 @@ fn assets_report_gives_each_text_its_label() {
         ("Descubra seu vinho", "Título", "Melhor", 1200)
     );
     assert_eq!(assets[1].label, "Baixo");
+}
+
+/// The by-day campaign report Google exports with `Segment > Day`: one row per campaign per day.
+fn campaigns_by_day(rows: &[(&str, &str, &str, &str, &str, &str, &str)]) -> String {
+    let mut s = String::from(
+        "Relatório de campanha\n25 de setembro de 2026 - 9 de outubro de 2026\nDia,Status da campanha,Campanha,Orçamento,Status,Motivos do status,Custo,Conversões,Impr.,Cliques\n",
+    );
+    for (day, campaign, budget, reasons, cost, conversions, impressions) in rows {
+        let clicks = if *impressions == "0" { "0" } else { "40" };
+        s.push_str(&format!(
+            "{day},Ativada,\"{campaign}\",\"{budget}\",Qualificado,{reasons},\"{cost}\",\"{conversions}\",{impressions},{clicks}\n"
+        ));
+    }
+    s
+}
+
+fn live_by_day() -> Performance {
+    let mut rows = Vec::new();
+    for day in ["2026-09-25", "2026-10-01"] {
+        rows.push((day, "Catálogo: uvas", "70,00", "", "0,00", "0,00", "0"));
+        rows.push((
+            day,
+            "Marca Vinellu",
+            "25,00",
+            "Nenhum anúncio",
+            "0,00",
+            "0,00",
+            "0",
+        ));
+    }
+    for day in ["2026-10-02", "2026-10-05", "2026-10-09"] {
+        rows.push((day, "Catálogo: uvas", "70,00", "", "30,00", "0,00", "900"));
+    }
+    rows.push((
+        "2026-10-09",
+        "Marca Vinellu",
+        "25,00",
+        "Nenhum anúncio",
+        "0,00",
+        "0,00",
+        "0",
+    ));
+    let csv = campaigns_by_day(&rows);
+    digest(&[("d.csv".into(), read_table(csv.as_bytes()))], &account())
+}
+
+#[test]
+fn day_rows_alone_carry_the_budget_and_status_of_the_last_day() {
+    let p = live_by_day();
+    let brand = p.campaign("Marca Vinellu").unwrap();
+    assert_eq!(brand.budget, Some(25.0));
+    assert_eq!(brand.live_status, Some(LiveStatus::Enabled));
+    assert_eq!(brand.status_reasons, "Nenhum anúncio");
+}
+
+#[test]
+fn daily_cost_counts_the_days_since_the_first_impression() {
+    let p = live_by_day();
+    let c = p.campaign("Catálogo: uvas").unwrap();
+    assert_eq!(c.days_running, Some(8), "2 to 9 October");
+    assert_eq!(c.avg_daily_cost, Some(11.25), "90 over 8 days");
+    assert_eq!(c.budget_use_pct, Some(16.07));
+}
+
+#[test]
+fn no_impressions_for_a_week_or_no_ads_is_stalled_not_thin() {
+    let p = live_by_day();
+    let brand = p.campaign("Marca Vinellu").unwrap();
+    assert!(brand.stalled);
+    assert!(!brand.thin, "a broken campaign is not waiting for data");
+    assert!(!p.campaign("Catálogo: uvas").unwrap().stalled);
+
+    // A campaign report with a status reason of no ads is stalled whatever the days.
+    let csv = CAMPAIGNS.replace("Qualificado,,", "Não qualificado,Nenhum anúncio,");
+    let p = digest(&[("c.csv".into(), read_table(csv.as_bytes()))], &account());
+    assert!(p.campaigns[1].stalled);
+}
+
+#[test]
+fn clicks_without_conversions_while_another_campaign_converts_is_untracked() {
+    let csv = CAMPAIGNS.replace(
+        "Marca Vinellu,\"25,00\",Qualificado,,\"0,00\",\"0,00\",0,0",
+        "Marca Vinellu,\"25,00\",Qualificado,,\"80,00\",\"40,00\",900,120",
+    );
+    let p = digest(&[("c.csv".into(), read_table(csv.as_bytes()))], &account());
+    assert!(p.campaign("Catálogo: uvas").unwrap().untracked);
+    assert!(!p.campaign("Marca Vinellu").unwrap().untracked);
+    assert!(
+        !p.campaign("Marca Vinellu").unwrap().thin,
+        "40 conversions are enough to judge in 3 days"
+    );
+
+    // Nothing converts in the account: no campaign is singled out.
+    assert!(!digest_all().campaigns[0].untracked);
+}
+
+#[test]
+fn idle_budget_is_what_enabled_campaigns_leave_unspent() {
+    let p = live_by_day();
+    // Catálogo spends 11.25 of 70, Marca 0 of 25.
+    assert_eq!(p.idle_budget, Some(83.75));
+    assert_eq!(
+        digest_all().idle_budget,
+        Some(35.36),
+        "3 days: 70 - 59.64 and 25 - 0"
+    );
+}
+
+#[test]
+fn missing_reports_are_named() {
+    let p = live_by_day();
+    assert_eq!(
+        p.missing_reports,
+        [
+            ReportKind::Keywords,
+            ReportKind::SearchTerms,
+            ReportKind::Assets
+        ]
+    );
+    assert_eq!(digest_all().missing_reports, [ReportKind::Assets]);
+}
+
+#[test]
+fn findings_name_what_needs_attention() {
+    let f = live_by_day().findings();
+    assert!(
+        f.iter()
+            .any(|l| l.starts_with("stalled") && l.contains("Marca Vinellu")),
+        "{f:?}"
+    );
+    assert!(
+        f.iter().any(|l| l == "budget unspent every day: 83.75"),
+        "{f:?}"
+    );
+    assert!(
+        f.iter().any(|l| l.contains("Keywords, SearchTerms")),
+        "{f:?}"
+    );
+    assert!(
+        digest_all()
+            .findings()
+            .iter()
+            .all(|l| !l.starts_with("missing"))
+    );
 }

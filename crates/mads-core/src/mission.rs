@@ -122,6 +122,9 @@ mod tests {
             "`live`",
             "first_page_bid",
             "thin_rule",
+            "live_rules",
+            "E28",
+            "W10",
             "hidden_terms_cost",
             "get_ad_group_performance",
         ] {
@@ -145,6 +148,9 @@ mod tests {
             "ignored_campaigns",
             "E25",
             "Drop <group>:",
+            "live_rules",
+            "E27",
+            "idle_budget",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }

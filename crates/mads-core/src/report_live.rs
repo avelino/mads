@@ -49,6 +49,14 @@ pub(crate) fn performance(md: &mut String, live: &Live) {
             thin.join(", ")
         );
     }
+    let findings = p.findings();
+    if !findings.is_empty() {
+        md.push_str("What the numbers say:\n\n");
+        for f in findings {
+            let _ = writeln!(md, "- {f}");
+        }
+        md.push('\n');
+    }
 }
 
 /// What the new account changes in the live one. The reasons are in Budget and bids.
@@ -316,6 +324,7 @@ mod tests {
                 ..Default::default()
             }],
             mixed_windows: false,
+            ..Default::default()
         };
         (
             Live {

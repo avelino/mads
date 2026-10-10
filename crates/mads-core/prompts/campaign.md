@@ -66,6 +66,8 @@ Brand terms are cheap only for a brand people already search. A new or little-kn
 When `get_brief` has `live` and `performance`, this campaign already runs in Google Ads. `live` is what ran, `performance` is what it got, both as one line per ad group. Before you rebuild a group that ran, call `get_ad_group_performance` with its name: it returns its keywords, negatives and ad texts, and their numbers. `upsert_ad_group` refuses a group that ran until you did, with `LIVE_DETAIL`. Keep what works and fix what the numbers show.
 
 - Read `thin_rule` first. A thin campaign changes only its structure: bids under the first page, low quality, wrong grouping. Do not add negatives or drop keywords because of its numbers.
+- Read `live_rules`. An `untracked` campaign gets no new keywords, no new ad groups and no higher bid: more of what nobody can measure buys nothing, and `upsert_ad_group` refuses a higher `default_cpc` with `E28`. When the keywords report is missing, the tool puts back every keyword that ran (`W10`): change bids and texts, not the keyword list.
+- A campaign limited by policy (status reasons with "política" or "policy") does not show more with a higher bid. Raise a bid only for `below_first_page` keywords.
 - A keyword marked `below_first_page` or `rarely_shown` gets no traffic. Raise its group's CPC to `first_page_bid` when it is there, or to what the generic groups of the account pay, within `max_cpc`. Drop the keyword only when that price is more than a customer is worth.
 - `low_quality` means the keyword does not fit the group's ad or landing page. Give it a group about it, or drop it.
 - Keep keywords with conversions and ad texts Google labels Best or Good. Rewrite texts labeled Low.

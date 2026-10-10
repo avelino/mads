@@ -271,6 +271,33 @@ fn briefs(args: Vec<BriefArg>) -> Vec<ImageBrief> {
         .collect()
 }
 
+/// Pictures of this asset group in the run that went live, empty outside `mads optimize`.
+fn ran_images(ws: &Workspace, campaign: &str, group: &str) -> Vec<ImageBrief> {
+    let Some(live) = &ws.live else {
+        return Vec::new();
+    };
+    live.baseline
+        .campaigns
+        .iter()
+        .filter(|c| normalize(&c.name) == normalize(campaign))
+        .flat_map(|c| &c.asset_groups)
+        .filter(|g| normalize(&g.name) == normalize(group))
+        .flat_map(|g| g.images.clone())
+        .collect()
+}
+
+/// A brief with the id, ratio and prompt of one that already has a picture keeps that picture.
+/// Without it `mads optimize` drew again 10 pictures it had not changed, and Google Ads still
+/// ran the old ones.
+fn keep_files<'a>(briefs: &mut [ImageBrief], old: impl Iterator<Item = &'a ImageBrief> + Clone) {
+    for b in briefs {
+        b.file = old
+            .clone()
+            .filter(|o| o.id == b.id && o.ratio == b.ratio && o.prompt == b.prompt)
+            .find_map(|o| o.file.clone());
+    }
+}
+
 async fn set_image_briefs(t: &MissionTools, slug: &str, a: SetImageBriefsArgs) -> ToolOutput {
     let mut guard = t.ws.lock().await;
     let ws: &mut Workspace = &mut guard;
@@ -293,8 +320,11 @@ async fn set_image_briefs(t: &MissionTools, slug: &str, a: SetImageBriefsArgs) -
             "set_image_briefs: no asset group",
         );
     };
+    let ran = ran_images(ws, &candidate.name, &candidate.asset_groups[gi].name);
     let group = &mut candidate.asset_groups[gi];
+    let before = std::mem::take(&mut group.images);
     group.images = briefs(a.images);
+    keep_files(&mut group.images, before.iter().chain(&ran));
     let what = format!("{}: {} image briefs", group.name, group.images.len());
     let images_prefix = format!("campaign.asset_groups[{gi}].images");
     let issues = group_issues(ws, t, &candidate, gi)

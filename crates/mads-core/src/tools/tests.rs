@@ -38,6 +38,17 @@ fn error_codes(out: &ToolOutput) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn warning_codes(out: &ToolOutput) -> Vec<String> {
+    out.content["warnings"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|e| e["code"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn texts(prefix: &str, n: usize) -> Vec<String> {
     (1..=n).map(|i| format!("{prefix} numero {i}")).collect()
 }
@@ -1222,6 +1233,12 @@ async fn get_business_shows_the_live_account_and_its_numbers() {
     assert_eq!(c["metrics"]["clicks"], 9);
     assert_eq!(c["thin"], true);
     assert!(
+        r["performance"]["live_rules"]
+            .as_str()
+            .unwrap()
+            .contains("E27")
+    );
+    assert!(
         r["performance"]["thin_rule"]
             .as_str()
             .unwrap()
@@ -1445,6 +1462,178 @@ async fn a_group_with_impressions_is_not_dropped_without_a_reason_e25() {
     assert!(
         !out.is_error,
         "keeping the name needs no reason: {}",
+        out.content
+    );
+}
+
+#[tokio::test]
+async fn a_stalled_or_untracked_campaign_gets_no_more_budget_e27() {
+    let ws = live_planned().await;
+    let t = plan_tools(&ws).await;
+    for flag in ["untracked", "stalled"] {
+        {
+            let mut guard = ws.lock().await;
+            let live = guard.live.as_mut().unwrap();
+            let c = &mut live.performance.campaigns[0];
+            (c.untracked, c.stalled) = (flag == "untracked", flag == "stalled");
+        }
+        let mut more = plan_args();
+        more["campaigns"][0]["daily_budget"] = json!(40.0);
+        more["campaigns"][1]["daily_budget"] = json!(10.0);
+        let out = t.call("set_account_plan", more).await;
+        assert_eq!(error_codes(&out), ["E27"], "{flag}: {}", out.content);
+        assert!(out.content.to_string().contains(flag), "{}", out.content);
+
+        let mut less = plan_args();
+        less["campaigns"][0]["daily_budget"] = json!(20.0);
+        less["campaigns"][1]["daily_budget"] = json!(30.0);
+        let out = t.call("set_account_plan", less).await;
+        assert!(!out.is_error, "cutting is always allowed: {}", out.content);
+    }
+}
+
+#[tokio::test]
+async fn a_brief_that_ran_unchanged_keeps_its_picture() {
+    let ws = image_planned().await;
+    let t = pmax_tools(&ws).await;
+    assert!(
+        !t.call("upsert_asset_group", asset_group_args())
+            .await
+            .is_error
+    );
+    assert!(!t.call("set_image_briefs", briefs_args()).await.is_error);
+    {
+        // The run that went live: every brief has its file.
+        let mut guard = ws.lock().await;
+        let mut baseline = guard.account.clone();
+        let pmax = baseline
+            .campaigns
+            .iter_mut()
+            .find(|c| c.slug == "vinellu-pmax")
+            .unwrap();
+        for b in &mut pmax.asset_groups[0].images {
+            b.file = Some(format!("images/vinellu-pmax/tintos-{}.jpg", b.id));
+        }
+        guard.live = Some(crate::perf::Live {
+            baseline,
+            performance: Default::default(),
+        });
+    }
+    let t = pmax_tools(&ws).await;
+    t.call("get_ad_group_performance", json!({"ad_group": "tintos"}))
+        .await;
+    let mut changed = briefs_args();
+    changed["images"][1]["prompt"] =
+        json!("Photo of a different scene, an adult couple at a table");
+    let out = t.call("set_image_briefs", changed).await;
+    assert!(!out.is_error, "{}", out.content);
+    let guard = ws.lock().await;
+    let pmax = guard
+        .account
+        .campaigns
+        .iter()
+        .find(|c| c.slug == "vinellu-pmax");
+    let images = &pmax.unwrap().asset_groups[0].images;
+    assert_eq!(
+        images[0].file.as_deref(),
+        Some(format!("images/vinellu-pmax/tintos-{}.jpg", images[0].id).as_str()),
+        "same id, ratio and prompt reuse the picture"
+    );
+    assert_eq!(images[1].file, None, "a new prompt is a new picture");
+}
+
+#[tokio::test]
+async fn an_untracked_campaign_is_capped_at_what_it_spends_e27() {
+    let ws = live_planned().await;
+    {
+        let mut guard = ws.lock().await;
+        let c = &mut guard.live.as_mut().unwrap().performance.campaigns[0];
+        (c.untracked, c.avg_daily_cost) = (true, Some(12.4));
+    }
+    let t = plan_tools(&ws).await;
+    let mut kept = plan_args();
+    kept["campaigns"][0]["daily_budget"] = json!(20.0);
+    kept["campaigns"][1]["daily_budget"] = json!(30.0);
+    let out = t.call("set_account_plan", kept).await;
+    assert_eq!(error_codes(&out), ["E27"], "{}", out.content);
+    assert!(out.content.to_string().contains("13"), "{}", out.content);
+
+    let mut cut = plan_args();
+    cut["campaigns"][0]["daily_budget"] = json!(13.0);
+    cut["campaigns"][1]["daily_budget"] = json!(37.0);
+    let out = t.call("set_account_plan", cut).await;
+    assert!(!out.is_error, "{}", out.content);
+}
+
+async fn live_detail(ws: &SharedWorkspace) -> MissionTools {
+    let t = campaign_tools(ws, "vinellu-catalogo").await;
+    t.call("get_ad_group_performance", json!({"ad_group": "alamos"}))
+        .await;
+    t
+}
+
+#[tokio::test]
+async fn without_the_keyword_reports_the_keywords_that_ran_come_back_w10() {
+    let ws = live_planned().await;
+    let ran = ws.lock().await.account.campaigns[0].ad_groups[0]
+        .keywords
+        .clone();
+    async fn missing(ws: &SharedWorkspace, kind: crate::perf::ReportKind) {
+        ws.lock()
+            .await
+            .live
+            .as_mut()
+            .unwrap()
+            .performance
+            .missing_reports = vec![kind];
+    }
+    let fewer = || {
+        let mut a = ad_group_args("alamos");
+        a["keywords"] =
+            json!({"variants": ["alamos malbec"], "modifiers": [], "exact_heads": false});
+        a
+    };
+    // The fixture has a keywords report: take it away.
+    missing(&ws, crate::perf::ReportKind::Keywords).await;
+    let t = live_detail(&ws).await;
+    let out = t.call("upsert_ad_group", fewer()).await;
+    assert!(!out.is_error, "{}", out.content);
+    assert!(
+        warning_codes(&out).contains(&"W10".to_string()),
+        "{}",
+        out.content
+    );
+    {
+        let guard = ws.lock().await;
+        let now = &guard.account.campaigns[0].ad_groups[0].keywords;
+        for k in &ran {
+            assert!(now.contains(k), "{} came back", k.text);
+        }
+    }
+
+    // With the keywords report the agent judges, and a drop stays dropped.
+    missing(&ws, crate::perf::ReportKind::SearchTerms).await;
+    let out = t.call("upsert_ad_group", fewer()).await;
+    assert!(
+        !warning_codes(&out).contains(&"W10".to_string()),
+        "{}",
+        out.content
+    );
+}
+
+#[tokio::test]
+async fn an_untracked_campaign_does_not_bid_higher_e28() {
+    let ws = live_planned().await;
+    ws.lock().await.live.as_mut().unwrap().performance.campaigns[0].untracked = true;
+    let t = live_detail(&ws).await;
+    let mut higher = ad_group_args("alamos");
+    higher["default_cpc"] = json!(2.0);
+    let out = t.call("upsert_ad_group", higher).await;
+    assert_eq!(error_codes(&out), ["E28"], "{}", out.content);
+    let out = t.call("upsert_ad_group", ad_group_args("alamos")).await;
+    assert!(
+        !out.is_error,
+        "the bid it ran with is fine: {}",
         out.content
     );
 }

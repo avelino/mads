@@ -330,7 +330,14 @@ async fn upsert_ad_group(t: &MissionTools, slug: &str, a: UpsertAdGroupArgs) -> 
     }
     let mut issues = Vec::new();
     let (name, url) = (planned.name.clone(), planned.final_url.clone());
-    let ad_group = build_ad_group(a, &name, &url, campaign.intent, &mut issues);
+    let mut ad_group = build_ad_group(a, &name, &url, campaign.intent, &mut issues);
+    if let Some(live) = &ws.live {
+        issues.extend(super::live::guard_ran_group(
+            live,
+            &campaign.name,
+            &mut ad_group,
+        ));
+    }
 
     let mut candidate = campaign.clone();
     candidate

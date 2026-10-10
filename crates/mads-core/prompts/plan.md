@@ -85,7 +85,9 @@ When `get_business` has `live_account` and `performance`, this account already r
 
 - Keep the name of every campaign that continues and of its ad groups. Google Ads Editor matches by name, so a new name is a new group, and its keywords start without the Quality Score data the old ones had. To drop or rename a group that had impressions, add a line `Drop <group>: <reason>` to the campaign `rationale`. Without it the tool refuses the plan with `E25`.
 - A campaign you leave out is paused at import. Leave one out only for a reason in `performance`.
-- Read `thin_rule`. A thin campaign keeps its budget unless it is broken: no impressions because of bids under the first page, no ads, or a policy limit.
+- Read `thin_rule`. A thin campaign keeps its budget unless it is broken: no impressions because of bids under the first page, no ads, or a policy limit. `stalled` and `untracked` win over thin: an untracked campaign gets at most its `avg_daily_cost`, rounded up (`E27`).
+- Read `live_rules`. A `stalled` or `untracked` campaign never gets more budget than it ran with: the tool refuses it with `E27`. Cut it toward its `avg_daily_cost` and give the rest to campaigns that convert.
+- Budget is decided by what campaigns spend, not by what they were given. `budget_use_pct` under 100 means the budget is not the limit: cutting it to the real spend changes nothing it gets. `idle_budget` is money the account leaves unspent every day: move it to a campaign that converts at 100 or more.
 - Move budget toward campaigns that bring customers at a lower cost and away from campaigns that spend without results. A campaign that loses impressions to budget and converts deserves more. One that loses them to rank needs better bids or quality, not more budget.
 - Split an ad group that mixes themes, merge ones that share the same searches.
 - `ignored_campaigns` are campaigns of the account that this run does not manage. Do not plan them.

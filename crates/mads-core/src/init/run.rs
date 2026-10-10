@@ -619,7 +619,7 @@ mod tests {
         );
     }
 
-    const OLD_TOML: &str = "[business]\nname = \"Old\"\n\n[budget]\ndaily = 1.0\ncurrency = \"USD\"\nmax_cpc = 2.5\n\n[export]\nstatus = \"Enabled\"\n\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n\n[app]\nstore = \"app_store\"\nid = \"123\"\n";
+    const OLD_TOML: &str = "[business]\nname = \"Old\"\n\n[budget]\ndaily = 1.0\ncurrency = \"USD\"\nmax_cpc = 2.5\n\n[export]\nstatus = \"Enabled\"\n\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n\n[app]\nstore = \"app_store\"\nid = \"123\"\n\n[google_ads]\ncustomer_id = \"123-456-7890\"\ndevices = \"Mobile\"\n";
 
     #[tokio::test]
     async fn force_keeps_what_a_person_wrote_by_hand() {
@@ -642,6 +642,8 @@ mod tests {
             Some("com.vinellu.app".to_string()),
             "the app the site links to wins over the old one"
         );
+        assert_eq!(input.google_ads.customer_id, "123-456-7890");
+        assert_eq!(input.google_ads.devices, "Mobile");
         assert!(events.iter().any(|e| matches!(e, Event::Step { name, detail } if name == "keep" && detail.contains("[campaigns]"))));
         assert!(
             events.iter().any(|e| matches!(e, Event::Step { detail, .. } if detail.contains("add \"app_installs\""))),

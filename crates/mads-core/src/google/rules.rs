@@ -841,6 +841,7 @@ mod tests {
             design: String::new(),
             focus: None,
             app: None,
+            google_ads: Default::default(),
             business: Business {
                 name: s("Vinellu"),
                 url: s("https://vinellu.com"),

@@ -1034,4 +1034,152 @@ fn optimize_refuses_bad_inputs_before_creating_a_run() {
         .arg(p.full_script())
         .assert()
         .code(1);
+
+    let out = p
+        .mads()
+        .arg("optimize")
+        .arg(&base)
+        .arg("--reports")
+        .arg(&empty)
+        .args([
+            "--layout",
+            "drive-folders",
+            "--provider",
+            "replay",
+            "--script",
+        ])
+        .arg(p.full_script())
+        .args(["--out", "out"])
+        .assert()
+        .code(2);
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(stderr.contains("--layout bulk"), "{stderr}");
+    assert_eq!(run_dirs(&p).len(), 1, "no run directory is created");
+}
+
+fn decode_editor(bytes: &[u8]) -> String {
+    let body = bytes.strip_prefix(&[0xFF, 0xFE]).expect("UTF-16 LE BOM");
+    let (pairs, _) = body.as_chunks::<2>();
+    let units: Vec<u16> = pairs.iter().map(|b| u16::from_le_bytes(*b)).collect();
+    String::from_utf16(&units).expect("utf-16")
+}
+
+#[test]
+fn generate_with_drive_folders_writes_the_structural_track_locally() {
+    let p = Project::new(SITE);
+    p.generate(
+        &p.full_script(),
+        &["--skip-url-check", "--layout", "drive-folders"],
+    )
+    .success();
+    let run = p.run_dir();
+    let dir = run.join("google-ads/drive/B - Estrutural");
+    for name in [
+        "B1-campanhas.csv",
+        "B2-status-campanha.csv",
+        "B3-grupos.csv",
+        "B4-keywords.csv",
+        "B5-anuncios.csv",
+        "B6-utm.csv",
+        "B7-negativas.csv",
+        "LEIA-ME.md",
+    ] {
+        assert!(dir.join(name).is_file(), "{name}");
+    }
+    assert!(
+        !dir.join("B8-extensao-app.csv").exists(),
+        "no app id, no B8"
+    );
+    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    let b1 = decode_editor(&fs::read(dir.join("B1-campanhas.csv")).unwrap());
+    assert!(b1.contains("Paused"), "{b1}");
+    assert!(!b1.contains("000-000-0000"), "{b1}");
+    let b4 = decode_editor(&fs::read(dir.join("B4-keywords.csv")).unwrap());
+    let mut per_group = std::collections::BTreeMap::<&str, usize>::new();
+    for line in b4.lines().skip(1).filter(|l| !l.is_empty()) {
+        let group = line.split('\t').nth(3).unwrap_or("");
+        *per_group.entry(group).or_insert(0) += 1;
+    }
+    assert!(
+        per_group.values().any(|n| *n >= 2),
+        "one ad group keeps several keywords: {per_group:?}"
+    );
+    assert!(b4.contains("\tPaused\t"), "{b4}");
+    let report = fs::read_to_string(run.join("report.md")).unwrap();
+    assert!(report.contains("W11"), "{report}");
+    assert!(
+        report.contains("google-ads/drive/B - Estrutural/"),
+        "{report}"
+    );
+    assert!(!report.contains("Upload files 1 to 5"), "{report}");
+
+    p.mads()
+        .arg("export")
+        .arg(&run)
+        .arg("--skip-url-check")
+        .assert()
+        .success();
+    assert!(
+        dir.join("B1-campanhas.csv").is_file(),
+        "export without --layout keeps the run's layout"
+    );
+    assert!(!run.join("google-ads/1-campaign.csv").exists());
+
+    p.mads()
+        .arg("export")
+        .arg(&run)
+        .args(["--skip-url-check", "--layout", "bulk"])
+        .assert()
+        .success();
+    assert!(run.join("google-ads/1-campaign.csv").is_file());
+    assert!(run.join("google-ads/editor/account.csv").is_file());
+    assert!(!dir.join("B1-campanhas.csv").exists());
+    let bulk = fs::read_to_string(run.join("report.md")).unwrap();
+    assert!(bulk.contains("Upload files 1 to 5"), "{bulk}");
+
+    p.mads()
+        .arg("export")
+        .arg(&run)
+        .args(["--skip-url-check", "--layout", "drive-folders"])
+        .assert()
+        .success();
+    assert!(dir.join("B1-campanhas.csv").is_file());
+    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    assert!(
+        !run.join("google-ads/editor").exists(),
+        "a bulk run re-exported as drive-folders drops the empty editor directory"
+    );
+}
+
+#[test]
+fn drive_folders_still_honors_the_ad_group_limit() {
+    let p = Project::new(SITE);
+    p.generate(
+        &p.full_script(),
+        &["--skip-url-check", "--layout", "drive-folders"],
+    )
+    .success();
+    let run = p.run_dir();
+    assert!(
+        run.join("google-ads/drive/B - Estrutural/B1-campanhas.csv")
+            .is_file()
+    );
+    p.mads()
+        .arg("export")
+        .arg(&run)
+        .args([
+            "--skip-url-check",
+            "--layout",
+            "drive-folders",
+            "--max-ad-groups",
+            "1",
+        ])
+        .assert()
+        .code(3);
+    assert!(
+        !run.join("google-ads/drive/B - Estrutural/B1-campanhas.csv")
+            .exists(),
+        "a failed export removes the structural files"
+    );
+    assert!(!run.join("google-ads/1-campaign.csv").exists());
 }

@@ -79,11 +79,19 @@ You can edit the CSVs by hand before uploading. If you change many things, chang
 
 The order is `1-campaign.csv`, `2-ad-groups.csv`, `3-keywords.csv`, `4-negative-keywords.csv`, `5-responsive-search-ads.csv`.
 
+## Drive folder layout
+
+`mads generate --layout drive-folders` and `mads export --layout drive-folders` write `google-ads/drive/B - Estrutural/` instead of files 1 to 5 and `editor/account.csv`. The files stay on disk. You paste them in Google Ads Editor. mads does not upload them.
+
+B1 creates every campaign paused. B2 sets those campaigns to Enabled, so you can hold B2 until you go live. `export.status` does not change those two files. Ad groups keep the keywords mads planned. One group can hold several keywords.
+
+Read `LEIA-ME.md` in that folder before you paste. The report's How to import section names the same folder. See [Drive folder layout](../howto/google-ads-editor-drive-folders.md).
+
 The files use CRLF line endings, UTF-8 without a BOM, and comma decimals for `pt`, `es`, `fr`, `de` and `it`. If your Google Ads account uses a different number format, set `export.decimal_comma` in `business.toml` and generate again, or edit `input.export` in `workspace.json` and run `mads export`. See [the bulk upload format](../howto/google-ads-bulk-upload-format.md).
 
 ## Paused by default
 
-`export.status` defaults to `Paused`. Campaigns arrive paused, and nothing serves until you enable them. The ad groups, keywords and ads are `Enabled` inside the paused campaign.
+`export.status` defaults to `Paused`. Campaigns arrive paused, and nothing serves until you enable them. The ad groups, keywords and ads are `Enabled` inside the paused campaign. With `--layout drive-folders`, B1 is paused even when `export.status` is `Enabled`, and B2 is the file that enables the campaigns. In that layout the ad groups stay Enabled, and the keywords and ads in B4 and B5 are Paused.
 
 Keep `Paused` for your first runs. Open the campaigns, check settings and enable one at a time.
 

@@ -118,10 +118,11 @@ pub struct KeptByHand {
     export: Option<toml::Value>,
     campaigns: Option<toml::Value>,
     app: Option<crate::input::App>,
+    google_ads: Option<toml::Value>,
 }
 
 impl KeptByHand {
-    /// Reads `[export]`, `[campaigns]` and `budget.max_cpc` from an earlier file. Unparsable text keeps nothing.
+    /// Reads `[export]`, `[campaigns]`, `[google_ads]` and `budget.max_cpc` from an earlier file. Unparsable text keeps nothing.
     pub fn from_toml(text: &str) -> Self {
         let Ok(old) = text.parse::<toml::Table>() else {
             return Self::default();
@@ -131,6 +132,7 @@ impl KeptByHand {
             export: old.get("export").cloned(),
             campaigns: old.get("campaigns").cloned(),
             app: old.get("app").cloned().and_then(|v| v.try_into().ok()),
+            google_ads: old.get("google_ads").cloned(),
         }
     }
 
@@ -141,6 +143,7 @@ impl KeptByHand {
             ("[export]", self.export.is_some()),
             ("[campaigns]", self.campaigns.is_some()),
             ("[app]", self.app.is_some()),
+            ("[google_ads]", self.google_ads.is_some()),
         ]
         .into_iter()
         .filter_map(|(n, kept)| kept.then_some(n))
@@ -178,6 +181,8 @@ struct OutFile<'a> {
     export: Option<&'a toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     campaigns: Option<&'a toml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    google_ads: Option<&'a toml::Value>,
 }
 
 /// The files `init` writes. `csv` and `research` are absent when there is nothing to put in them.
@@ -493,6 +498,7 @@ impl InitState {
             app: self.app.as_ref().or(kept.app.as_ref()).filter(|_| complete),
             export: kept.export.as_ref().filter(|_| complete),
             campaigns: kept.campaigns.as_ref().filter(|_| complete),
+            google_ads: kept.google_ads.as_ref().filter(|_| complete),
         };
         toml::to_string(&file).map_err(|e| e.to_string())
     }

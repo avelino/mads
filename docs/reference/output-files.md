@@ -8,7 +8,7 @@ This page describes every file in a run directory, the events in `events.ndjson`
 
 ```text
 out/20261001-122850-b51417/
-  run.json                       status, provider, model, exit code, totals
+  run.json                       status, provider, model, layout, exit code, totals
   workspace.json                 input, account and mission state
   events.ndjson                  every event
   report.md                      the report
@@ -27,11 +27,23 @@ out/20261001-122850-b51417/
       images/
         logo.png
         <campaign>/<asset-group>-<image-id>.jpg
+    drive/                       only with --layout drive-folders
+      B - Estrutural/
+        B1-campanhas.csv
+        B2-status-campanha.csv
+        B3-grupos.csv
+        B4-keywords.csv
+        B5-anuncios.csv
+        B6-utm.csv
+        B7-negativas.csv
+        B8-extensao-app.csv      omitted when google_ads.app_id is empty
+        LEIA-ME.md               UTF-8, Portuguese paste order
   transcripts/                   one file per mission
 ```
 
-- `google-ads/` has no CSV when the run exits `1` or `3`. Pictures in `editor/images/` stay: they cost money and the next `--resume` or `export` reuses them.
+- `google-ads/` has no CSV when the run exits `1` or `3`. That includes `drive/`. Pictures in `editor/images/` stay: they cost money and the next `--resume` or `export` reuses them.
 - Files 1 to 5 hold Search campaigns only, for the web bulk upload, and are not written when the account has none. `editor/account.csv` holds every campaign. Import one or the other, never both. `editor/images/` exists only when the account has an image or App campaign, and its files are attached by hand in Editor. See [Image campaigns](../guides/image-campaigns.md#import).
+- `--layout drive-folders` writes `drive/B - Estrutural/` and does not write files 1 to 5 or `editor/account.csv`. Re-exporting a bulk run with this layout removes an empty `google-ads/editor/` directory. The directory stays when `editor/images/` still holds pictures. The CSVs are UTF-16 LE with a BOM and tab separators, the same encoding as `editor/account.csv`. `LEIA-ME.md` is UTF-8. A later export with the bulk layout removes the drive folder. See [Drive folder layout](../howto/google-ads-editor-drive-folders.md).
 - `workspace.json` points `input.logo` at the copy in `input/`, so the run does not depend on where the logo was. Each ad platform gets its own folder, so other platforms will not mix with these files.
 - `input/` is a record. `export` and `--resume` read `workspace.json`, not `input/`.
 - `transcripts/` has one file per mission: `<mission>.jsonl` for API providers (every message) and `<mission>.cli.jsonl` for agent CLIs (the raw stream). A `:` in a mission id becomes `-`, so `campaign:vinellu-catalogo` is `campaign-vinellu-catalogo.jsonl`.
@@ -124,6 +136,7 @@ A short summary written at the end.
   "run_id": "20261001-122850-b51417",
   "provider": "anthropic",
   "model": "<model-id>",
+  "layout": "bulk",
   "status": "success",
   "exit_code": 0,
   "totals": {
@@ -137,6 +150,8 @@ A short summary written at the end.
 ```
 
 `status` is `success` (exit `0`), `invalid` (exit `3`) or `incomplete` (exit `1`).
+
+`layout` is `bulk` or `drive-folders`. `export` and `--resume` read it when `--layout` is not given. A `run.json` without it reads as `bulk`.
 
 ## report.md
 

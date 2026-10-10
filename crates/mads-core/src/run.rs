@@ -15,7 +15,8 @@ use tokio::{
 use crate::{
     agent::{Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget},
     events::{Event, EventSink, Totals},
-    finalize::{Finalized, finalize},
+    finalize::{ExportOpts, Finalized, finalize},
+    google::ExportLayout,
     images::{EDITOR_DIR, ImageModel, ImageStepConfig, ImageStepResult, run_image_step},
     input::Input,
     mission::{PLAN_ID, campaign_id, campaign_mission, plan_mission},
@@ -49,6 +50,8 @@ pub struct RunConfig {
     pub mission_retries: u32,
     pub max_ad_groups: usize,
     pub skip_url_check: bool,
+    /// `bulk` or the local drive-folder Editor set. `None` keeps the layout in `run.json`, else `bulk`.
+    pub layout: Option<ExportLayout>,
     /// New images allowed in one run.
     pub max_images: usize,
     pub provider: String,
@@ -67,6 +70,7 @@ impl RunConfig {
             mission_retries: 1,
             max_ad_groups: 50,
             skip_url_check: false,
+            layout: None,
             max_images: 40,
             provider: String::new(),
             model: None,
@@ -346,9 +350,17 @@ struct RunJson<'a> {
     run_id: &'a str,
     provider: &'a str,
     model: &'a Option<String>,
+    layout: ExportLayout,
     status: &'static str,
     exit_code: i32,
     totals: &'a Totals,
+}
+
+/// The layout the last export of this run wrote. A run from before `--layout` has none.
+fn saved_layout(run: &RunDir) -> Option<ExportLayout> {
+    let bytes = std::fs::read(run.run_json_path()).ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    serde_json::from_value(json.get("layout")?.clone()).ok()
 }
 
 fn totals_of(ws: &Workspace) -> Totals {
@@ -425,6 +437,7 @@ pub async fn export_run(
     web: &dyn Web,
     skip_url_check: bool,
     max_ad_groups: usize,
+    layout: Option<ExportLayout>,
     events: &EventSink,
 ) -> Result<RunResult, RunError> {
     let run = RunDir::open(run_dir)?;
@@ -453,6 +466,7 @@ pub async fn export_run(
     cfg.model = text("model");
     cfg.skip_url_check = skip_url_check;
     cfg.max_ad_groups = max_ad_groups;
+    cfg.layout = layout;
     events.emit(Event::RunStarted {
         run_id: run.id(),
         run_dir: run.root().display().to_string(),
@@ -468,10 +482,16 @@ pub async fn export_run(
 }
 
 /// A failed export must not leave CSVs from an earlier, different account next to the new report.
-/// Images stay: they cost money and the next export reuses them.
+/// Images stay: they cost money and the next export reuses them. An `editor/` directory that
+/// only held `account.csv` is removed, so a bulk run re-exported as drive-folders does not
+/// leave an empty folder behind.
 fn remove_stale_csvs(dir: &Path) {
     remove_csvs_in(dir);
-    remove_csvs_in(&dir.join(EDITOR_DIR));
+    let editor = dir.join(EDITOR_DIR);
+    remove_csvs_in(&editor);
+    // `remove_dir` refuses a non-empty directory, so `editor/images/` keeps it alive.
+    let _ = std::fs::remove_dir(&editor);
+    let _ = std::fs::remove_dir_all(dir.join("drive"));
 }
 
 fn remove_csvs_in(dir: &Path) {
@@ -519,6 +539,7 @@ async fn conclude(
     events: &EventSink,
     finish: Conclusion,
 ) -> Result<RunResult, RunError> {
+    let layout = cfg.layout.or_else(|| saved_layout(run)).unwrap_or_default();
     let mut notes = Vec::new();
     let mut images = ImageStepResult::default();
     let fin = if finish.missions_ok {
@@ -543,8 +564,11 @@ async fn conclude(
             &account,
             live.as_ref(),
             web,
-            cfg.skip_url_check,
-            cfg.max_ad_groups,
+            ExportOpts {
+                skip_url_check: cfg.skip_url_check,
+                max_ad_groups: cfg.max_ad_groups,
+                layout,
+            },
             events,
         )
         .await
@@ -558,9 +582,7 @@ async fn conclude(
         }
     };
 
-    if fin.exit_code != 0 {
-        remove_stale_csvs(&run.platform_dir());
-    }
+    remove_stale_csvs(&run.platform_dir());
     for file in &fin.csv {
         let path = run.platform_dir().join(file.name);
         if let Some(parent) = path.parent() {
@@ -595,6 +617,7 @@ async fn conclude(
         status,
         images,
         live: guard.live.clone(),
+        layout,
     };
     std::fs::write(run.report_path(), render_report(&report))?;
     events.emit(Event::ArtifactWritten {
@@ -610,6 +633,7 @@ async fn conclude(
         run_id: &report.run_id,
         provider: &cfg.provider,
         model: &cfg.model,
+        layout,
         status: status_name,
         exit_code: fin.exit_code,
         totals: &totals,
@@ -641,6 +665,7 @@ mod tests {
     use crate::{
         agent::{DriverCtx, MissionOutcome, MissionReport, MissionSpec, ScriptedDriver},
         events::Event,
+        google::ExportLayout,
         testutil,
         tools::ToolHost,
         usage::Usage,
@@ -995,6 +1020,7 @@ mod tests {
             web(&["https://vinellu.com/w/alamos"]).as_ref(),
             true,
             50,
+            Some(ExportLayout::Bulk),
             &events,
         )
         .await
@@ -1014,6 +1040,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn export_run_without_a_layout_keeps_the_one_the_run_was_written_with() {
+        let dir = tempfile::tempdir().unwrap();
+        let ok = web(&[]);
+        let (first, _) = run(cfg(&dir), full_script(), ok.clone()).await;
+        let (events, _rx) = EventSink::channel();
+        let drive = export_run(
+            &first.run_dir,
+            ok.as_ref(),
+            true,
+            50,
+            Some(ExportLayout::DriveFolders),
+            &events,
+        )
+        .await
+        .unwrap();
+        assert_eq!(drive.exit_code, 0);
+        let b1 = first
+            .run_dir
+            .join("google-ads/drive/B - Estrutural/B1-campanhas.csv");
+        assert!(b1.is_file());
+
+        let again = export_run(&first.run_dir, ok.as_ref(), true, 50, None, &events)
+            .await
+            .unwrap();
+        assert_eq!(again.exit_code, 0);
+        assert!(
+            b1.is_file(),
+            "no --layout keeps drive-folders from run.json"
+        );
+        assert!(!first.run_dir.join("google-ads/1-campaign.csv").exists());
+
+        let bulk = export_run(
+            &first.run_dir,
+            ok.as_ref(),
+            true,
+            50,
+            Some(ExportLayout::Bulk),
+            &events,
+        )
+        .await
+        .unwrap();
+        assert_eq!(bulk.exit_code, 0);
+        assert!(!b1.exists(), "an explicit --layout wins over run.json");
+        assert!(first.run_dir.join("google-ads/1-campaign.csv").is_file());
+    }
+
+    #[tokio::test]
     async fn export_run_refuses_a_run_with_unfinished_missions() {
         let dir = tempfile::tempdir().unwrap();
         let partial = driver(
@@ -1021,9 +1094,16 @@ mod tests {
         );
         let (first, _) = run(cfg(&dir), partial, web(&[])).await;
         let (events, _rx) = EventSink::channel();
-        let err = export_run(&first.run_dir, web(&[]).as_ref(), true, 50, &events)
-            .await
-            .unwrap_err();
+        let err = export_run(
+            &first.run_dir,
+            web(&[]).as_ref(),
+            true,
+            50,
+            Some(ExportLayout::Bulk),
+            &events,
+        )
+        .await
+        .unwrap_err();
         assert!(
             err.to_string().contains("unfinished") && err.to_string().contains("--resume"),
             "{err}"
@@ -1039,6 +1119,7 @@ mod tests {
                 web(&[]).as_ref(),
                 true,
                 50,
+                Some(ExportLayout::Bulk),
                 &events
             )
             .await
@@ -1057,9 +1138,16 @@ mod tests {
         ws.account.campaigns[0].daily_budget = crate::money::Cents(100);
         ws.save(&ws_path).unwrap();
         let (events, _rx) = EventSink::channel();
-        let again = export_run(&first.run_dir, web(&[]).as_ref(), true, 50, &events)
-            .await
-            .unwrap();
+        let again = export_run(
+            &first.run_dir,
+            web(&[]).as_ref(),
+            true,
+            50,
+            Some(ExportLayout::Bulk),
+            &events,
+        )
+        .await
+        .unwrap();
         assert_eq!(again.exit_code, 3);
         for f in ["1-campaign.csv", "5-responsive-search-ads.csv"] {
             assert!(
@@ -1074,9 +1162,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (first, _) = run(cfg(&dir), full_script(), web(&[])).await;
         let (events, _rx) = EventSink::channel();
-        let limited = export_run(&first.run_dir, web(&[]).as_ref(), true, 1, &events)
-            .await
-            .unwrap();
+        let limited = export_run(
+            &first.run_dir,
+            web(&[]).as_ref(),
+            true,
+            1,
+            Some(ExportLayout::Bulk),
+            &events,
+        )
+        .await
+        .unwrap();
         assert_eq!(limited.exit_code, 3, "3 ad groups exceed a limit of 1");
     }
 
@@ -1250,9 +1345,16 @@ mod image_tests {
         let dir = tempfile::tempdir().unwrap();
         let (r, _) = generate_images(&dir, 40).await;
         let (events, _rx) = EventSink::channel();
-        let again = export_run(&r.run_dir, &OkWeb, true, 50, &events)
-            .await
-            .unwrap();
+        let again = export_run(
+            &r.run_dir,
+            &OkWeb,
+            true,
+            50,
+            Some(ExportLayout::Bulk),
+            &events,
+        )
+        .await
+        .unwrap();
         assert_eq!(again.exit_code, 0);
         let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
         assert!(
@@ -1265,9 +1367,16 @@ mod image_tests {
                 .join("google-ads/editor/images/vinellu-feed/tintos-jantar.jpg"),
         )
         .unwrap();
-        let broken = export_run(&r.run_dir, &OkWeb, true, 50, &events)
-            .await
-            .unwrap();
+        let broken = export_run(
+            &r.run_dir,
+            &OkWeb,
+            true,
+            50,
+            Some(ExportLayout::Bulk),
+            &events,
+        )
+        .await
+        .unwrap();
         assert_eq!(broken.exit_code, 3);
         assert!(
             !r.run_dir.join("google-ads/editor/account.csv").exists(),
@@ -1314,5 +1423,28 @@ mod image_tests {
             "{report}"
         );
         assert!(report.contains("E20"));
+    }
+
+    #[test]
+    fn remove_stale_csvs_drops_an_empty_editor_dir_and_keeps_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let platform = dir.path().join("google-ads");
+        let editor = platform.join("editor");
+        std::fs::create_dir_all(&editor).unwrap();
+        std::fs::write(editor.join("account.csv"), b"x").unwrap();
+        remove_stale_csvs(&platform);
+        assert!(
+            !editor.exists(),
+            "an editor directory that only held the csv is removed"
+        );
+
+        let image = editor.join("images/vinellu-feed/tintos-story.jpg");
+        std::fs::create_dir_all(image.parent().unwrap()).unwrap();
+        std::fs::write(editor.join("account.csv"), b"x").unwrap();
+        std::fs::write(&image, b"jpg").unwrap();
+        remove_stale_csvs(&platform);
+        assert!(!editor.join("account.csv").exists());
+        assert!(image.is_file(), "pictures stay");
+        assert!(editor.is_dir());
     }
 }

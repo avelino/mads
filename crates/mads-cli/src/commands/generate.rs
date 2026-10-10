@@ -10,7 +10,7 @@ use mads_core::{
 use mads_providers::{WebClient, build_drivers, build_image_model, preflight};
 
 use crate::{
-    cli::{CliError, GenerateArgs, RunArgs, usage},
+    cli::{CliError, GenerateArgs, Layout, RunArgs, usage},
     render::{Format, pump},
 };
 
@@ -117,6 +117,7 @@ pub(crate) async fn execute(
     cfg.mission_retries = args.agent.mission_retries;
     cfg.max_ad_groups = args.max_ad_groups;
     cfg.skip_url_check = args.skip_url_check;
+    cfg.layout = args.layout.map(Layout::core);
     cfg.max_images = args.max_images;
     cfg.provider = selection.provider;
     cfg.model = selection.model;

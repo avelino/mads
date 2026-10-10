@@ -142,7 +142,20 @@ decimal_comma = true
 - `status` is `Paused` or `Enabled` (exact case) and applies to campaigns. Keep `Paused`.
 - `url_suffix` is written to every campaign. `{mads_campaign}` becomes the campaign slug, for example `vinellu-marca`. Any other `{...}` is a Google ValueTrack parameter and stays as written.
 - `eu_political_ads` writes `Yes` or `No`.
-- `decimal_comma` controls how CPCs and budgets print (`1,50` or `1.50`). It defaults to `true` for the languages `pt`, `es`, `fr`, `de` and `it`, and `false` otherwise. Set it to match the number format of the Google Ads account you upload to.
+- `decimal_comma` controls how CPCs and budgets print (`1,50` or `1.50`). It defaults to `true` for the languages `pt`, `es`, `fr`, `de` and `it`, and `false` otherwise. Set it to match the number format of the Google Ads account you upload to. The drive-folder files always use a dot.
+
+## Google Ads account details
+
+```toml
+[google_ads]
+customer_id = "123-456-7890"
+devices = "Mobile;Desktop;Tablet"
+labels = ["estrutural"]
+app_id = "com.vinellu.app"
+tracking_template = "{lpurl}?utm_campaign={mads_campaign}&utm_term={keyword}"
+```
+
+Leave this table out unless you export with `--layout drive-folders`. An empty `customer_id` is a warning, not an error. Do not paste `000-000-0000`. See [Drive folder layout](../howto/google-ads-editor-drive-folders.md).
 
 ## Catalog
 

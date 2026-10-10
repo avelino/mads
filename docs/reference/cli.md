@@ -80,6 +80,7 @@ Builds the account and writes the run directory.
 | `--image-provider <IMAGE_PROVIDER>` | `MADS_IMAGE_PROVIDER` | `auto` | Image model for Performance Max and Demand Gen: `auto`, `gemini`, `openai` or `none`. `auto` picks gemini when `GEMINI_API_KEY` is set, then openai when `OPENAI_API_KEY` is set, else none. An unknown name exits `2`. |
 | `--image-model <IMAGE_MODEL>` | `MADS_IMAGE_MODEL` | | Image model name. Defaults `gemini-2.5-flash-image` and `gpt-image-1`. |
 | `--max-images <MAX_IMAGES>` | | `40` | New pictures allowed in one run. See [Image campaigns](../guides/image-campaigns.md). |
+| `--layout <LAYOUT>` | | the run's layout, else `bulk` | CSV set to write. `bulk` is files 1 to 5 plus `editor/account.csv`. `drive-folders` is `google-ads/drive/B - Estrutural/`, saved locally for a hand import. `run.json` keeps the layout, so `--resume` without the flag writes the same set. See [Drive folder layout](../howto/google-ads-editor-drive-folders.md). |
 
 Agent flags:
 
@@ -120,7 +121,7 @@ Starts a new run from a finished one and the CSV reports of its live account, an
 | `<RUN_DIR>` | | Finished run directory whose account is live in Google Ads. Required. |
 | `--reports <REPORTS>` | | Folder with the CSV reports exported from Google Ads. Required. |
 
-It takes every flag of `mads generate` except `[BUSINESS]` and `--resume`: `--out`, `--parallel`, `--skip-url-check`, `--max-ad-groups`, the image flags and the agent flags, with the same defaults.
+It takes every flag of `mads generate` except `[BUSINESS]` and `--resume`: `--out`, `--parallel`, `--skip-url-check`, `--max-ad-groups`, `--layout`, the image flags and the agent flags, with the same defaults. A new optimize run is `bulk`. `--layout drive-folders` is a usage error (exit `2`). The drive files only add, and a live account needs the pause rows that only bulk writes.
 
 ```bash
 mads optimize out/<run-id> --reports perf/2026-10-17 --provider anthropic --model <model-id>
@@ -141,8 +142,9 @@ Reruns cross negatives, validation, the URL check and the CSV export on `workspa
 | `<RUN_DIR>` | | Run directory with a finished run. Required. |
 | `--skip-url-check` | off | Skip the URL check. |
 | `--max-ad-groups <MAX_AD_GROUPS>` | `50` | Ad groups allowed in the whole account. |
+| `--layout <LAYOUT>` | the run's layout, else `bulk` | Same values as `generate`. `drive-folders` writes the structural folder and does not write files 1 to 5 or `editor/account.csv`. Without the flag, `export` reads the layout from `run.json`. A run from `mads optimize` fails with exit `3` under `drive-folders`. |
 
-`export` fails with exit code `1` when the directory does not exist or a mission is unfinished. A failed export (exit `3`) removes the CSV files an earlier export left in `google-ads/`.
+`export` fails with exit code `1` when the directory does not exist or a mission is unfinished. A failed export (exit `3`) removes the CSV files an earlier export left in `google-ads/`, and the `google-ads/drive/` folder. A successful export of one layout also removes the other layout's files, so the folder matches the report. Pictures in `editor/images/` stay.
 
 ## mads providers
 

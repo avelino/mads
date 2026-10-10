@@ -122,8 +122,30 @@ pub struct RunArgs {
     /// New images allowed in one run. Every image costs money.
     #[arg(long, default_value_t = 40)]
     pub max_images: usize,
+    /// CSV set to write. `bulk` is files 1 to 5 plus the Editor file. `drive-folders` is the local structural folder.
+    /// Without it a run keeps the layout it was last written with, and a new run is `bulk`.
+    #[arg(long, value_enum)]
+    pub layout: Option<Layout>,
     #[command(flatten)]
     pub agent: AgentArgs,
+}
+
+/// Which Google Ads CSV set `generate`, `optimize` and `export` write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Layout {
+    /// Files 1 to 5 and `editor/account.csv`.
+    Bulk,
+    /// `google-ads/drive/B - Estrutural/`, saved locally for a hand import.
+    DriveFolders,
+}
+
+impl Layout {
+    pub fn core(self) -> mads_core::google::ExportLayout {
+        match self {
+            Layout::Bulk => mads_core::google::ExportLayout::Bulk,
+            Layout::DriveFolders => mads_core::google::ExportLayout::DriveFolders,
+        }
+    }
 }
 
 #[derive(Args)]
@@ -135,6 +157,10 @@ pub struct ExportArgs {
     /// Ad groups allowed in the whole account.
     #[arg(long, default_value_t = 50)]
     pub max_ad_groups: usize,
+    /// CSV set to write. `bulk` is files 1 to 5 plus the Editor file. `drive-folders` is the local structural folder.
+    /// Without it a run keeps the layout it was last written with, and a new run is `bulk`.
+    #[arg(long, value_enum)]
+    pub layout: Option<Layout>,
 }
 
 #[derive(Args)]
@@ -323,6 +349,33 @@ mod tests {
         assert_eq!(o.run_dir, std::path::PathBuf::from("out/x"));
         assert_eq!(o.reports, std::path::PathBuf::from("perf"));
         assert_eq!((o.run.parallel, o.run.max_ad_groups), (4, 50));
+    }
+
+    #[test]
+    fn layout_is_optional_and_accepts_drive_folders() {
+        let cli = Cli::try_parse_from(["mads", "generate", "b.toml"]).unwrap();
+        let Command::Generate(g) = cli.command else {
+            panic!("expected generate")
+        };
+        assert_eq!(g.run.layout, None);
+        let cli = Cli::try_parse_from(["mads", "generate", "b.toml", "--layout", "drive-folders"])
+            .unwrap();
+        let Command::Generate(g) = cli.command else {
+            panic!("expected generate")
+        };
+        assert_eq!(g.run.layout, Some(Layout::DriveFolders));
+        assert!(Cli::try_parse_from(["mads", "export", "out/x", "--layout", "nope"]).is_err());
+        let cli =
+            Cli::try_parse_from(["mads", "export", "out/x", "--layout", "drive-folders"]).unwrap();
+        let Command::Export(e) = cli.command else {
+            panic!("expected export")
+        };
+        assert_eq!(e.layout, Some(Layout::DriveFolders));
+        let cli = Cli::try_parse_from(["mads", "export", "out/x"]).unwrap();
+        let Command::Export(e) = cli.command else {
+            panic!("expected export")
+        };
+        assert_eq!(e.layout, None);
     }
 
     #[test]

@@ -123,8 +123,9 @@ pub struct RunArgs {
     #[arg(long, default_value_t = 40)]
     pub max_images: usize,
     /// CSV set to write. `bulk` is files 1 to 5 plus the Editor file. `drive-folders` is the local structural folder.
-    #[arg(long, value_enum, default_value = "bulk")]
-    pub layout: Layout,
+    /// Without it a run keeps the layout it was last written with, and a new run is `bulk`.
+    #[arg(long, value_enum)]
+    pub layout: Option<Layout>,
     #[command(flatten)]
     pub agent: AgentArgs,
 }
@@ -157,8 +158,9 @@ pub struct ExportArgs {
     #[arg(long, default_value_t = 50)]
     pub max_ad_groups: usize,
     /// CSV set to write. `bulk` is files 1 to 5 plus the Editor file. `drive-folders` is the local structural folder.
-    #[arg(long, value_enum, default_value = "bulk")]
-    pub layout: Layout,
+    /// Without it a run keeps the layout it was last written with, and a new run is `bulk`.
+    #[arg(long, value_enum)]
+    pub layout: Option<Layout>,
 }
 
 #[derive(Args)]
@@ -350,30 +352,30 @@ mod tests {
     }
 
     #[test]
-    fn layout_defaults_to_bulk_and_accepts_drive_folders() {
+    fn layout_is_optional_and_accepts_drive_folders() {
         let cli = Cli::try_parse_from(["mads", "generate", "b.toml"]).unwrap();
         let Command::Generate(g) = cli.command else {
             panic!("expected generate")
         };
-        assert_eq!(g.run.layout, Layout::Bulk);
+        assert_eq!(g.run.layout, None);
         let cli = Cli::try_parse_from(["mads", "generate", "b.toml", "--layout", "drive-folders"])
             .unwrap();
         let Command::Generate(g) = cli.command else {
             panic!("expected generate")
         };
-        assert_eq!(g.run.layout, Layout::DriveFolders);
+        assert_eq!(g.run.layout, Some(Layout::DriveFolders));
         assert!(Cli::try_parse_from(["mads", "export", "out/x", "--layout", "nope"]).is_err());
         let cli =
             Cli::try_parse_from(["mads", "export", "out/x", "--layout", "drive-folders"]).unwrap();
         let Command::Export(e) = cli.command else {
             panic!("expected export")
         };
-        assert_eq!(e.layout, Layout::DriveFolders);
+        assert_eq!(e.layout, Some(Layout::DriveFolders));
         let cli = Cli::try_parse_from(["mads", "export", "out/x"]).unwrap();
         let Command::Export(e) = cli.command else {
             panic!("expected export")
         };
-        assert_eq!(e.layout, Layout::Bulk);
+        assert_eq!(e.layout, None);
     }
 
     #[test]

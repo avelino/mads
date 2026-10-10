@@ -1,12 +1,17 @@
 use mads_core::{optimize::prepare, perf::Performance, workspace::Workspace};
 
 use crate::{
-    cli::{CliError, OptimizeArgs},
+    cli::{CliError, Layout, OptimizeArgs, usage},
     commands::generate::{drivers_for, execute},
     render::Format,
 };
 
 pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
+    if args.run.layout == Some(Layout::DriveFolders) {
+        return Err(usage(
+            "--layout drive-folders creates a new account and cannot pause or edit a live one: optimize with --layout bulk",
+        ));
+    }
     let base = Workspace::load(&args.run_dir.join("workspace.json")).map_err(|e| CliError {
         code: 1,
         message: format!("cannot read run {}: {e}", args.run_dir.display()),

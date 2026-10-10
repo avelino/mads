@@ -605,6 +605,13 @@ fn check_google_ads(raw: RawGoogleAds) -> Result<GoogleAds, InputError> {
         check_len("google_ads.devices", &devices, 1, 80)?;
     }
     check_list("google_ads.labels", &raw.labels)?;
+    let labels: Vec<String> = raw.labels.iter().map(|l| l.trim().to_string()).collect();
+    if let Some(i) = labels.iter().position(|l| l.contains(';')) {
+        return Err(invalid(
+            &format!("google_ads.labels[{i}]"),
+            "Editor separates labels with ';', so one label cannot hold it",
+        ));
+    }
     let app_id = raw.app_id.trim().to_string();
     if !app_id.is_empty() {
         check_drive_app_id(&app_id)?;
@@ -613,7 +620,7 @@ fn check_google_ads(raw: RawGoogleAds) -> Result<GoogleAds, InputError> {
         customer_id,
         tracking_template,
         devices,
-        labels: raw.labels,
+        labels,
         app_id,
     })
 }
@@ -621,19 +628,16 @@ fn check_google_ads(raw: RawGoogleAds) -> Result<GoogleAds, InputError> {
 /// 10 digits, or `123-456-7890`. All zeros is the placeholder Vaz's sheet used.
 fn check_customer_id(id: &str) -> Result<(), InputError> {
     let key = "google_ads.customer_id";
-    let digits: String = id.chars().filter(|c| c.is_ascii_digit()).collect();
     let dashed = id.len() == 12
-        && id.as_bytes().get(3) == Some(&b'-')
-        && id.as_bytes().get(7) == Some(&b'-')
-        && id
-            .chars()
-            .enumerate()
-            .all(|(i, c)| (i == 3 || i == 7) == (c == '-'));
+        && id.chars().enumerate().all(|(i, c)| match i {
+            3 | 7 => c == '-',
+            _ => c.is_ascii_digit(),
+        });
     let plain = id.len() == 10 && id.chars().all(|c| c.is_ascii_digit());
-    if !(dashed && digits.len() == 10 || plain) {
+    if !(dashed || plain) {
         return Err(invalid(key, "use 10 digits or 123-456-7890"));
     }
-    if digits.chars().all(|c| c == '0') {
+    if id.chars().all(|c| c == '0' || c == '-') {
         return Err(invalid(
             key,
             "000-000-0000 is a placeholder: leave customer_id empty or set the real account id",
@@ -911,6 +915,40 @@ currency = "BRL"
         assert_eq!(f.google_ads.app_id, "com.vinellu.app");
         let placeholder = format!("{MINIMAL}\n[google_ads]\ncustomer_id = \"000-000-0000\"\n");
         assert_eq!(err_key(&placeholder), "google_ads.customer_id");
+        let joined = format!("{MINIMAL}\n[google_ads]\nlabels = [\"ok\", \"a;b\"]\n");
+        assert_eq!(
+            err_key(&joined),
+            "google_ads.labels[1]",
+            "Editor splits labels on ';'"
+        );
+        let padded = format!("{MINIMAL}\n[google_ads]\nlabels = [\"  estrutural \"]\n");
+        assert_eq!(
+            parse_input_toml(&padded).unwrap().google_ads.labels,
+            vec!["estrutural"]
+        );
+    }
+
+    #[test]
+    fn customer_id_takes_ten_digits_plain_or_dashed() {
+        for ok in ["1234567890", "123-456-7890"] {
+            assert!(check_customer_id(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "123456789",
+            "12345678901",
+            "123-456-789a",
+            "12-3456-7890",
+            "1234-56-7890",
+            "123-456-78900",
+            "123--456-789",
+            "abc-def-ghij",
+            "123 456 7890",
+            "0000000000",
+            "000-000-0000",
+            "１２３-456-7890",
+        ] {
+            assert!(check_customer_id(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

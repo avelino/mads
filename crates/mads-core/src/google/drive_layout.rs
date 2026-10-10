@@ -10,11 +10,13 @@
 
 use super::editor::{Row, editor_sheet, money};
 use super::export::effective_negatives;
-use super::{Account, Campaign, CampaignKind, CsvFile, ExportError, MatchType, merge_rsa};
+use super::{Account, Campaign, CampaignKind, CsvFile, ExportError, Issue, MatchType, merge_rsa};
 use crate::{google::char_len, input::Input};
+use serde::{Deserialize, Serialize};
 
-/// Which CSV set `generate` and `export` write. `Bulk` is the default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Which CSV set `generate` and `export` write. `Bulk` is the default. Saved in `run.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ExportLayout {
     #[default]
     Bulk,
@@ -55,7 +57,11 @@ pub fn export_drive_layout(input: &Input, account: &Account) -> Result<Vec<CsvFi
     let mut negatives = Vec::new();
     let mut apps = Vec::new();
 
-    for c in &account.campaigns {
+    for c in account
+        .campaigns
+        .iter()
+        .filter(|c| c.kind == CampaignKind::Search)
+    {
         let template = tracking_template(input, &c.slug);
         campaigns.push(campaign_row(c, input, id, devices, &labels, &template));
         statuses.push(
@@ -65,9 +71,6 @@ pub fn export_drive_layout(input: &Input, account: &Account) -> Result<Vec<CsvFi
                 .set("Campaign", &c.name)
                 .set("Campaign status", "Enabled"),
         );
-        if c.kind != CampaignKind::Search {
-            continue;
-        }
         for ag in &c.ad_groups {
             groups.push(
                 Row::default()
@@ -147,22 +150,49 @@ pub fn export_drive_layout(input: &Input, account: &Account) -> Result<Vec<CsvFi
     }
 
     let mut files = vec![
-        editor_sheet(B1, &cols(B1_HEADER), campaigns),
-        editor_sheet(B2, &cols(B2_HEADER), statuses),
-        editor_sheet(B3, &cols(B3_HEADER), groups),
-        editor_sheet(B4, &cols(B4_HEADER), keywords),
+        editor_sheet(B1, B1_HEADER, campaigns),
+        editor_sheet(B2, B2_HEADER, statuses),
+        editor_sheet(B3, B3_HEADER, groups),
+        editor_sheet(B4, B4_HEADER, keywords),
         editor_sheet(B5, &b5_columns(), ads),
-        editor_sheet(B6, &cols(B6_HEADER), utm),
-        editor_sheet(B7, &cols(B7_HEADER), negatives),
+        editor_sheet(B6, B6_HEADER, utm),
+        editor_sheet(B7, B7_HEADER, negatives),
     ];
     if !app_id.is_empty() {
-        files.push(editor_sheet(B8, &cols(B8_HEADER), apps));
+        files.push(editor_sheet(B8, B8_HEADER, apps));
     }
     files.push(CsvFile {
         name: README,
         bytes: readme(app_id.is_empty()).into_bytes(),
     });
     Ok(files)
+}
+
+/// What the drive files leave out: a blank Customer ID (W11) and every campaign that is not
+/// Search (W12). The files hold the Search structure only.
+pub fn drive_warnings(input: &Input, account: &Account) -> Vec<Issue> {
+    let mut out = Vec::new();
+    if customer_cell(&input.google_ads.customer_id).is_empty() {
+        out.push(Issue::warning(
+            "W11",
+            "google_ads.customer_id",
+            "Customer ID is empty or the 000-000-0000 placeholder, so the drive files leave that column blank. Set google_ads.customer_id to the real account id before import.",
+        ));
+    }
+    for (i, c) in account.campaigns.iter().enumerate() {
+        if c.kind != CampaignKind::Search {
+            out.push(Issue::warning(
+                "W12",
+                format!("campaigns[{i}]"),
+                format!(
+                    "{} campaign '{}' is not in the drive files, which hold Search only. Export it with --layout bulk.",
+                    c.kind.label(),
+                    c.name
+                ),
+            ));
+        }
+    }
+    out
 }
 
 const B1_HEADER: &[&str] = &[
@@ -265,10 +295,6 @@ fn b5_columns() -> Vec<String> {
     cols
 }
 
-fn cols(header: &[&str]) -> Vec<String> {
-    header.iter().map(|c| (*c).to_string()).collect()
-}
-
 fn campaign_row(
     c: &Campaign,
     input: &Input,
@@ -314,17 +340,13 @@ fn customer_cell(id: &str) -> &str {
 /// `google_ads.tracking_template` when set. Otherwise `{lpurl}?` plus `export.url_suffix`.
 fn tracking_template(input: &Input, slug: &str) -> String {
     let explicit = input.google_ads.tracking_template.trim();
+    let suffix = input.export.url_suffix.trim();
     let raw = if !explicit.is_empty() {
         explicit.to_string()
+    } else if suffix.is_empty() || suffix.starts_with("{lpurl}") {
+        suffix.to_string()
     } else {
-        let suffix = input.export.url_suffix.trim();
-        if suffix.is_empty() {
-            String::new()
-        } else if suffix.starts_with("{lpurl}") {
-            suffix.to_string()
-        } else {
-            format!("{{lpurl}}?{suffix}")
-        }
+        format!("{{lpurl}}?{suffix}")
     };
     raw.replace("{mads_campaign}", slug)
 }

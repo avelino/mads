@@ -2,7 +2,9 @@
 
 This page shows how to write the structural Google Ads Editor files on disk and paste them by hand.
 
-`mads generate` and `mads export` take `--layout`. The default is `bulk`, the five web files plus `editor/account.csv`. `drive-folders` writes a different folder and does not write those files. `mads optimize` takes the same flag.
+`mads generate` and `mads export` take `--layout`. The default is `bulk`, the five web files plus `editor/account.csv`. `drive-folders` writes a different folder and does not write those files. Without the flag, `export` and `--resume` keep the layout the run was written with. `mads optimize` refuses `drive-folders`, because these files only add and a live account needs pause rows.
+
+The folder holds Search campaigns only. A Performance Max, Demand Gen or app install campaign is left out of every file, B1 and B2 included, and warning `W12` names it. Export that run with `--layout bulk` to get those campaigns.
 
 ```bash
 mads generate business.toml --provider anthropic --model <model-id> --layout drive-folders
@@ -87,7 +89,7 @@ Every key is optional. See the [business.toml reference](../reference/business-t
 
 - An empty `customer_id` leaves the column blank and adds warning `W11`. The export still succeeds. mads does not write the placeholder `000-000-0000`. That value is rejected when you put it in the file.
 - `tracking_template` replaces `{mads_campaign}` with the campaign slug. When the key is empty, the template is `{lpurl}?` plus `export.url_suffix`.
-- `devices` and `labels` are written when set. Labels are joined with `;`.
+- `devices` and `labels` are written when set. Labels are joined with `;`, so a label cannot contain `;`.
 - `app_id` is a Google Play package or a numeric App Store id. Without it, B8 is not written.
 
 ## Before you go live

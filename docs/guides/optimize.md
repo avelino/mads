@@ -66,6 +66,18 @@ What the file does to the live account:
 
 The `Changes` section of `report.md` lists each of these per campaign, so you know what to check in the Editor preview.
 
+### With the automation package
+
+`--layout drive-folders` writes the ads automation package in `google-ads/automation/` instead of `editor/account.csv`. Without the flag, the new run keeps the layout of the run it started from, and a run without a layout is `bulk`.
+
+```bash
+mads optimize out/<run-id> --reports perf/2026-10-17 --provider anthropic --model <model-id> --layout drive-folders
+```
+
+S1 edits the campaigns that are live and leaves their status as it is. New campaigns come in paused, and S2 enables only those. Campaigns the new run dropped come in S1 as `Paused`. S3 and S4 do the same for fixed ad groups and keywords. An item dropped from a live automated campaign stays in `Catalog` as inactive, so the daily track pauses its ad group.
+
+`setupImageCampaigns` updates the budget of a live image campaign and changes nothing else in it. A new image campaign is created paused. One the new run dropped is paused. See [Over a live account](../howto/google-ads-editor-drive-folders.md#over-a-live-account).
+
 ## Errors
 
 ```text

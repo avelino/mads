@@ -101,6 +101,7 @@ pub struct RunDir {
 /// Files for each ad platform live in their own folder, so a run can hold more than one later.
 pub const PLATFORM_DIR: &str = "google-ads";
 
+const RUN_JSON: &str = "run.json";
 const SUBDIRS: [&str; 3] = ["input", "transcripts", PLATFORM_DIR];
 
 impl RunDir {
@@ -161,7 +162,7 @@ impl RunDir {
     }
 
     pub fn run_json_path(&self) -> PathBuf {
-        self.root.join("run.json")
+        self.root.join(RUN_JSON)
     }
 }
 
@@ -356,9 +357,9 @@ struct RunJson<'a> {
     totals: &'a Totals,
 }
 
-/// The layout the last export of this run wrote. A run from before `--layout` has none.
-fn saved_layout(run: &RunDir) -> Option<ExportLayout> {
-    let bytes = std::fs::read(run.run_json_path()).ok()?;
+/// The layout the last export of the run in `run_dir` wrote. A run from before `--layout` has none.
+pub fn saved_layout(run_dir: &Path) -> Option<ExportLayout> {
+    let bytes = std::fs::read(run_dir.join(RUN_JSON)).ok()?;
     let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     serde_json::from_value(json.get("layout")?.clone()).ok()
 }
@@ -484,14 +485,39 @@ pub async fn export_run(
 /// A failed export must not leave CSVs from an earlier, different account next to the new report.
 /// Images stay: they cost money and the next export reuses them. An `editor/` directory that
 /// only held `account.csv` is removed, so a bulk run re-exported as drive-folders does not
-/// leave an empty folder behind.
+/// leave an empty folder behind. The automation package goes whole.
 fn remove_stale_csvs(dir: &Path) {
     remove_csvs_in(dir);
     let editor = dir.join(EDITOR_DIR);
     remove_csvs_in(&editor);
     // `remove_dir` refuses a non-empty directory, so `editor/images/` keeps it alive.
     let _ = std::fs::remove_dir(&editor);
-    let _ = std::fs::remove_dir_all(dir.join("drive"));
+    let _ = std::fs::remove_dir_all(dir.join("automation"));
+}
+
+/// Copies every `(from, to)` pair inside `dir`, creating the parent directories.
+///
+/// A missing source is a `RunError::Io` naming both paths, like a failed write above, not an
+/// error issue: the image step already turns a picture that is gone into `E20` before the export,
+/// so reaching this with a missing file means it vanished during the run. Skipping it would ship
+/// a package whose script fails on that campaign in Google Ads.
+fn copy_files(dir: &Path, copies: &[(String, String)], events: &EventSink) -> io::Result<()> {
+    for (from, to) in copies {
+        let (src, dst) = (dir.join(from), dir.join(to));
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&src, &dst).map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("cannot copy {} to {}: {e}", src.display(), dst.display()),
+            )
+        })?;
+        events.emit(Event::ArtifactWritten {
+            path: dst.display().to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn remove_csvs_in(dir: &Path) {
@@ -539,7 +565,10 @@ async fn conclude(
     events: &EventSink,
     finish: Conclusion,
 ) -> Result<RunResult, RunError> {
-    let layout = cfg.layout.or_else(|| saved_layout(run)).unwrap_or_default();
+    let layout = cfg
+        .layout
+        .or_else(|| saved_layout(run.root()))
+        .unwrap_or_default();
     let mut notes = Vec::new();
     let mut images = ImageStepResult::default();
     let fin = if finish.missions_ok {
@@ -579,12 +608,13 @@ async fn conclude(
             warnings: Vec::new(),
             urls: None,
             csv: Vec::new(),
+            copies: Vec::new(),
         }
     };
 
     remove_stale_csvs(&run.platform_dir());
     for file in &fin.csv {
-        let path = run.platform_dir().join(file.name);
+        let path = run.platform_dir().join(&file.name);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -593,6 +623,7 @@ async fn conclude(
             path: path.display().to_string(),
         });
     }
+    copy_files(&run.platform_dir(), &fin.copies, events)?;
     let guard = ws.lock().await;
     guard.save(&run.workspace_path())?;
     let totals = totals_of(&guard);
@@ -1058,7 +1089,7 @@ mod tests {
         assert_eq!(drive.exit_code, 0);
         let b1 = first
             .run_dir
-            .join("google-ads/drive/B - Estrutural/B1-campanhas.csv");
+            .join("google-ads/automation/Vinellu Ads Automation/Structure/S1. New Campaigns.xlsx");
         assert!(b1.is_file());
 
         let again = export_run(&first.run_dir, ok.as_ref(), true, 50, None, &events)
@@ -1277,10 +1308,19 @@ mod image_tests {
         dir: &tempfile::TempDir,
         max_images: usize,
     ) -> (RunResult, Vec<Event>) {
+        generate_images_as(dir, max_images, None).await
+    }
+
+    async fn generate_images_as(
+        dir: &tempfile::TempDir,
+        max_images: usize,
+        layout: Option<ExportLayout>,
+    ) -> (RunResult, Vec<Event>) {
         let mut cfg = RunConfig::new(dir.path().join("out"));
         cfg.provider = "replay".into();
         cfg.mission_retries = 0;
         cfg.max_images = max_images;
+        cfg.layout = layout;
         let d = script();
         let drivers = Drivers {
             plan: d.clone(),
@@ -1425,6 +1465,53 @@ mod image_tests {
         assert!(report.contains("E20"));
     }
 
+    #[tokio::test]
+    async fn a_drive_folders_export_copies_the_pictures_into_the_package() {
+        let dir = tempfile::tempdir().unwrap();
+        let (r, events) = generate_images_as(&dir, 40, Some(ExportLayout::DriveFolders)).await;
+        assert_eq!(r.exit_code, 0, "{events:#?}");
+        let platform = r.run_dir.join("google-ads");
+        let images = platform.join("automation/Vinellu Ads Automation/Images");
+        for f in [
+            "logo.png",
+            "vinellu-feed/tintos-jantar.jpg",
+            "vinellu-feed/tintos-garrafa.jpg",
+            "vinellu-feed/tintos-story.jpg",
+        ] {
+            assert!(images.join(f).is_file(), "missing Images/{f}");
+        }
+        assert_eq!(
+            std::fs::read(images.join("logo.png")).unwrap(),
+            std::fs::read(platform.join("editor/images/logo.png")).unwrap()
+        );
+        assert!(
+            platform
+                .join("editor/images/vinellu-feed/tintos-story.jpg")
+                .is_file(),
+            "the pictures stay in editor/images too"
+        );
+    }
+
+    #[test]
+    fn a_missing_picture_fails_the_copy_and_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (events, _rx) = EventSink::channel();
+        let copies = [(
+            "editor/images/gone.jpg".to_string(),
+            "automation/X/Images/gone.jpg".to_string(),
+        )];
+        let err = copy_files(dir.path(), &copies, &events).unwrap_err();
+        assert!(err.to_string().contains("editor/images/gone.jpg"), "{err}");
+
+        std::fs::create_dir_all(dir.path().join("editor/images")).unwrap();
+        std::fs::write(dir.path().join("editor/images/gone.jpg"), b"jpg").unwrap();
+        copy_files(dir.path(), &copies, &events).unwrap();
+        assert_eq!(
+            std::fs::read(dir.path().join("automation/X/Images/gone.jpg")).unwrap(),
+            b"jpg"
+        );
+    }
+
     #[test]
     fn remove_stale_csvs_drops_an_empty_editor_dir_and_keeps_images() {
         let dir = tempfile::tempdir().unwrap();
@@ -1446,5 +1533,16 @@ mod image_tests {
         assert!(!editor.join("account.csv").exists());
         assert!(image.is_file(), "pictures stay");
         assert!(editor.is_dir());
+    }
+
+    #[test]
+    fn remove_stale_csvs_drops_the_automation_package() {
+        let dir = tempfile::tempdir().unwrap();
+        let platform = dir.path().join("google-ads");
+        let daily = platform.join("automation/Vinellu Ads Automation/Daily");
+        std::fs::create_dir_all(&daily).unwrap();
+        std::fs::write(daily.join("D1. New Ad Groups.xlsx"), b"x").unwrap();
+        remove_stale_csvs(&platform);
+        assert!(!platform.join("automation").exists());
     }
 }

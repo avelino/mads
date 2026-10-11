@@ -139,7 +139,11 @@ Pictures cannot travel in a file. The web bulk upload takes no image files, and 
 4. For every ad and asset group in the Images table of `report.md`, open its Images field and pick the files listed there. Demand Gen ads and Performance Max asset groups also take `logo.png`. Do it before posting: an App or Demand Gen ad without its pictures fails to post, and its ad group goes up empty, with no active ads.
 5. Post the changes. If an ad failed, filter Ads by errors in Editor, attach what is missing and post again. See [Troubleshooting](../howto/troubleshooting.md#an-app-or-demand-gen-ad-group-has-no-ads).
 
-`account.csv` holds the Search campaigns too, so do not also upload files 1 to 5 on the web: that creates every Search campaign twice. Files 1 to 5 are for an account with Search only and no Editor. See [Review and import](review-and-import.md).
+`account.csv` holds the Search campaigns too, so do not also upload files 1 to 5 on the web: that creates every Search campaign twice. Files 1 to 5 are for an account that has only Search campaigns and no Editor. See [Review and import](review-and-import.md).
+
+### Without Google Ads Editor
+
+`--layout drive-folders` writes the ads automation package instead. Its Google Ads script creates the image campaigns, with their pictures, through the Google Ads API. You upload the package folder to Drive, run `setupImageCampaigns` in Preview, read the log, then run it. Each campaign is created paused, and you enable it after review. You attach no picture by hand. See [Image campaigns by script](../howto/google-ads-editor-drive-folders.md#image-campaigns-by-script).
 
 > A file with Search, App and Demand Gen campaigns imported into Google Ads Editor 2.13.3 with no error, and every count in the preview matched the file. Performance Max rows follow Google's documented headers and have not gone through a real import yet. Check the import preview.
 

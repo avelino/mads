@@ -3,7 +3,7 @@ use crate::input::Input;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CsvFile {
-    pub name: &'static str,
+    pub name: String,
     pub bytes: Vec<u8>,
 }
 
@@ -15,10 +15,10 @@ pub enum ExportError {
     PendingTemplate(String),
     #[error("csv write failed: {0}")]
     Csv(String),
-    #[error(
-        "--layout drive-folders creates a new account and cannot pause or edit a live one: export this run with --layout bulk"
-    )]
-    DriveFoldersOnLive,
+    #[error("xlsx write failed: {0}")]
+    Xlsx(String),
+    #[error("automation package over capacity: {0}")]
+    Capacity(String),
 }
 
 impl From<csv::Error> for ExportError {
@@ -98,7 +98,10 @@ impl Sheet {
             .writer
             .into_inner()
             .map_err(|e| ExportError::Csv(e.to_string()))?;
-        Ok(CsvFile { name, bytes })
+        Ok(CsvFile {
+            name: name.to_string(),
+            bytes,
+        })
     }
 }
 

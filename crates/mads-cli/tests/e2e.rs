@@ -894,17 +894,10 @@ fn reports_dir(p: &Project) -> PathBuf {
     dir
 }
 
-#[test]
-fn optimize_writes_a_new_run_that_pauses_what_it_dropped() {
-    let p = Project::new(SITE);
-    p.generate(&p.full_script(), &["--skip-url-check"])
-        .success();
-    let base = p.run_dir();
-    let base_ws = fs::read_to_string(base.join("workspace.json")).unwrap();
-
+fn optimize_script(p: &Project) -> PathBuf {
     let mut marca = ad_group("marca", &["vinellu", "vinellu app"]);
     marca["default_cpc"] = json!(2.5);
-    let script = p.script(
+    p.script(
         "optimize.json",
         json!({
             "plan": [optimize_plan()],
@@ -922,15 +915,18 @@ fn optimize_writes_a_new_run_that_pauses_what_it_dropped() {
                 ("finish", json!({})),
             ])],
         }),
-    );
-    let out = p
-        .mads()
+    )
+}
+
+/// `mads optimize <base> --reports perf` with the replay script above, plus `extra` flags.
+fn optimize(p: &Project, base: &Path, extra: &[&str]) -> assert_cmd::assert::Assert {
+    p.mads()
         .arg("optimize")
-        .arg(&base)
+        .arg(base)
         .arg("--reports")
-        .arg(reports_dir(&p))
+        .arg(reports_dir(p))
         .args(["--provider", "replay", "--script"])
-        .arg(&script)
+        .arg(optimize_script(p))
         .args([
             "--out",
             "out",
@@ -940,8 +936,19 @@ fn optimize_writes_a_new_run_that_pauses_what_it_dropped() {
             "--format",
             "plain",
         ])
+        .args(extra)
         .assert()
+}
+
+#[test]
+fn optimize_writes_a_new_run_that_pauses_what_it_dropped() {
+    let p = Project::new(SITE);
+    p.generate(&p.full_script(), &["--skip-url-check"])
         .success();
+    let base = p.run_dir();
+    let base_ws = fs::read_to_string(base.join("workspace.json")).unwrap();
+
+    let out = optimize(&p, &base, &[]).success();
     let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
     assert!(
         stderr.contains("reports: 2 read (2026-10-03 to 2026-10-05, 3 days)"),
@@ -1034,38 +1041,71 @@ fn optimize_refuses_bad_inputs_before_creating_a_run() {
         .arg(p.full_script())
         .assert()
         .code(1);
-
-    let out = p
-        .mads()
-        .arg("optimize")
-        .arg(&base)
-        .arg("--reports")
-        .arg(&empty)
-        .args([
-            "--layout",
-            "drive-folders",
-            "--provider",
-            "replay",
-            "--script",
-        ])
-        .arg(p.full_script())
-        .args(["--out", "out"])
-        .assert()
-        .code(2);
-    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
-    assert!(stderr.contains("--layout bulk"), "{stderr}");
-    assert_eq!(run_dirs(&p).len(), 1, "no run directory is created");
 }
 
-fn decode_editor(bytes: &[u8]) -> String {
-    let body = bytes.strip_prefix(&[0xFF, 0xFE]).expect("UTF-16 LE BOM");
-    let (pairs, _) = body.as_chunks::<2>();
-    let units: Vec<u16> = pairs.iter().map(|b| u16::from_le_bytes(*b)).collect();
-    String::from_utf16(&units).expect("utf-16")
+fn new_run(p: &Project, base: &Path) -> PathBuf {
+    run_dirs(p)
+        .into_iter()
+        .find(|d| d != base)
+        .expect("optimize created a run")
+}
+
+const PACKAGE: &str = "google-ads/automation/Vinellu Ads Automation";
+
+fn assert_drive_run(run: &Path) {
+    let feed = run.join(PACKAGE).join("0. Feed.xlsx");
+    assert!(feed.is_file(), "{}", feed.display());
+    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    let json: Value =
+        serde_json::from_str(&fs::read_to_string(run.join("run.json")).unwrap()).unwrap();
+    assert_eq!(json["layout"], "drive-folders", "{json}");
+}
+
+/// Data rows (Excel row 5 onward) of `tab` in the workbook at `path`, as text.
+fn xlsx_rows(path: &Path, tab: &str) -> Vec<Vec<String>> {
+    use calamine::{Reader, Xlsx, open_workbook};
+    let mut book: Xlsx<_> = open_workbook(path).expect("xlsx opens");
+    let range = book.worksheet_range(tab).expect("tab");
+    range
+        .rows()
+        .skip(4)
+        .map(|r| r.iter().map(ToString::to_string).collect())
+        .collect()
 }
 
 #[test]
-fn generate_with_drive_folders_writes_the_structural_track_locally() {
+fn optimize_writes_drive_folders_that_edit_the_live_account() {
+    let p = Project::new(SITE);
+    p.generate(&p.full_script(), &["--skip-url-check"])
+        .success();
+    let base = p.run_dir();
+    optimize(&p, &base, &["--layout", "drive-folders"]).code(0);
+    let new = new_run(&p, &base);
+    assert_drive_run(&new);
+    let campaigns = xlsx_rows(&new.join(PACKAGE).join("0. Feed.xlsx"), "Campaigns");
+    assert!(
+        campaigns
+            .iter()
+            .any(|r| r.last().map(String::as_str) == Some("Edit")),
+        "a campaign live in the reports is edited: {campaigns:?}"
+    );
+}
+
+#[test]
+fn optimize_keeps_the_base_runs_layout_without_the_flag() {
+    let p = Project::new(SITE);
+    p.generate(
+        &p.full_script(),
+        &["--skip-url-check", "--layout", "drive-folders"],
+    )
+    .success();
+    let base = p.run_dir();
+    optimize(&p, &base, &[]).code(0);
+    assert_drive_run(&new_run(&p, &base));
+}
+
+#[test]
+fn generate_with_drive_folders_writes_the_automation_package_locally() {
     let p = Project::new(SITE);
     p.generate(
         &p.full_script(),
@@ -1073,44 +1113,46 @@ fn generate_with_drive_folders_writes_the_structural_track_locally() {
     )
     .success();
     let run = p.run_dir();
-    let dir = run.join("google-ads/drive/B - Estrutural");
+    let dir = run.join(PACKAGE);
     for name in [
-        "B1-campanhas.csv",
-        "B2-status-campanha.csv",
-        "B3-grupos.csv",
-        "B4-keywords.csv",
-        "B5-anuncios.csv",
-        "B6-utm.csv",
-        "B7-negativas.csv",
-        "LEIA-ME.md",
+        "0. Feed.xlsx",
+        "README.xlsx",
+        "daily-sync.js",
+        "Daily/D1. New Ad Groups.xlsx",
+        "Daily/D7. Ad Group Negatives.xlsx",
+        "Structure/S1. New Campaigns.xlsx",
+        "Structure/S7. Negatives.xlsx",
     ] {
         assert!(dir.join(name).is_file(), "{name}");
     }
     assert!(
-        !dir.join("B8-extensao-app.csv").exists(),
-        "no app id, no B8"
+        !dir.join("Structure/S8. App Extension.xlsx").exists(),
+        "no app id, no S8"
     );
     assert!(!run.join("google-ads/1-campaign.csv").exists());
-    let b1 = decode_editor(&fs::read(dir.join("B1-campanhas.csv")).unwrap());
-    assert!(b1.contains("Paused"), "{b1}");
-    assert!(!b1.contains("000-000-0000"), "{b1}");
-    let b4 = decode_editor(&fs::read(dir.join("B4-keywords.csv")).unwrap());
-    let mut per_group = std::collections::BTreeMap::<&str, usize>::new();
-    for line in b4.lines().skip(1).filter(|l| !l.is_empty()) {
-        let group = line.split('\t').nth(3).unwrap_or("");
-        *per_group.entry(group).or_insert(0) += 1;
-    }
+    let feed = dir.join("0. Feed.xlsx");
+    let campaigns = xlsx_rows(&feed, "Campaigns");
     assert!(
-        per_group.values().any(|n| *n >= 2),
-        "one ad group keeps several keywords: {per_group:?}"
+        campaigns
+            .iter()
+            .any(|r| r.last().map(String::as_str) == Some("Add")),
+        "{campaigns:?}"
     );
-    assert!(b4.contains("\tPaused\t"), "{b4}");
+    let settings = xlsx_rows(&feed, "Settings");
+    assert!(
+        settings.iter().flatten().all(|c| c != "000-000-0000"),
+        "{settings:?}"
+    );
+    let fixed = xlsx_rows(&feed, "Fixed Keywords");
+    assert!(
+        fixed
+            .iter()
+            .any(|r| r.first().map(String::as_str) == Some("Add")),
+        "the brand campaign is fixed: {fixed:?}"
+    );
     let report = fs::read_to_string(run.join("report.md")).unwrap();
     assert!(report.contains("W11"), "{report}");
-    assert!(
-        report.contains("google-ads/drive/B - Estrutural/"),
-        "{report}"
-    );
+    assert!(report.contains(PACKAGE), "{report}");
     assert!(!report.contains("Upload files 1 to 5"), "{report}");
 
     p.mads()
@@ -1120,7 +1162,7 @@ fn generate_with_drive_folders_writes_the_structural_track_locally() {
         .assert()
         .success();
     assert!(
-        dir.join("B1-campanhas.csv").is_file(),
+        feed.is_file(),
         "export without --layout keeps the run's layout"
     );
     assert!(!run.join("google-ads/1-campaign.csv").exists());
@@ -1133,7 +1175,7 @@ fn generate_with_drive_folders_writes_the_structural_track_locally() {
         .success();
     assert!(run.join("google-ads/1-campaign.csv").is_file());
     assert!(run.join("google-ads/editor/account.csv").is_file());
-    assert!(!dir.join("B1-campanhas.csv").exists());
+    assert!(!run.join("google-ads/automation").exists());
     let bulk = fs::read_to_string(run.join("report.md")).unwrap();
     assert!(bulk.contains("Upload files 1 to 5"), "{bulk}");
 
@@ -1143,7 +1185,7 @@ fn generate_with_drive_folders_writes_the_structural_track_locally() {
         .args(["--skip-url-check", "--layout", "drive-folders"])
         .assert()
         .success();
-    assert!(dir.join("B1-campanhas.csv").is_file());
+    assert!(feed.is_file());
     assert!(!run.join("google-ads/1-campaign.csv").exists());
     assert!(
         !run.join("google-ads/editor").exists(),
@@ -1160,10 +1202,7 @@ fn drive_folders_still_honors_the_ad_group_limit() {
     )
     .success();
     let run = p.run_dir();
-    assert!(
-        run.join("google-ads/drive/B - Estrutural/B1-campanhas.csv")
-            .is_file()
-    );
+    assert!(run.join(PACKAGE).join("0. Feed.xlsx").is_file());
     p.mads()
         .arg("export")
         .arg(&run)
@@ -1177,9 +1216,51 @@ fn drive_folders_still_honors_the_ad_group_limit() {
         .assert()
         .code(3);
     assert!(
-        !run.join("google-ads/drive/B - Estrutural/B1-campanhas.csv")
-            .exists(),
-        "a failed export removes the structural files"
+        !run.join("google-ads/automation").exists(),
+        "a failed export removes the package"
     );
     assert!(!run.join("google-ads/1-campaign.csv").exists());
+}
+
+#[test]
+fn drive_folders_with_images_puts_the_image_campaign_and_its_pictures_in_the_package() {
+    let p = Project::new(SITE).with_logo();
+    p.generate(
+        &p.image_script(),
+        &[
+            "--skip-url-check",
+            "--image-provider",
+            "solid",
+            "--layout",
+            "drive-folders",
+        ],
+    )
+    .code(0);
+    let run = p.run_dir();
+    let dir = run.join(PACKAGE);
+    for f in [
+        "logo.png",
+        "vinellu-feed/tintos-jantar.jpg",
+        "vinellu-feed/tintos-taca.jpg",
+        "vinellu-feed/tintos-story.jpg",
+    ] {
+        assert!(dir.join("Images").join(f).is_file(), "missing Images/{f}");
+    }
+    assert!(
+        run.join("google-ads/editor/images/vinellu-feed/tintos-story.jpg")
+            .is_file(),
+        "the pictures stay in editor/images"
+    );
+    let feed = dir.join("0. Feed.xlsx");
+    let campaigns = xlsx_rows(&feed, "Image Campaigns");
+    assert_eq!(campaigns.len(), 1, "{campaigns:?}");
+    assert_eq!(campaigns[0][2], "Demand Gen", "{campaigns:?}");
+    assert_eq!(campaigns[0].last().map(String::as_str), Some("Add"));
+    let assets = xlsx_rows(&feed, "Image Assets");
+    assert!(
+        assets.iter().any(|r| r[2] == "LOGO" && r[4] == "logo.png"),
+        "{assets:?}"
+    );
+    let report = fs::read_to_string(run.join("report.md")).unwrap();
+    assert!(!report.contains("W12"), "{report}");
 }

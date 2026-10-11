@@ -3,6 +3,7 @@ use std::{path::Path, sync::Arc};
 use anyhow::Context;
 use mads_core::{
     events::EventSink,
+    google::ExportLayout,
     input::{Input, load_input, parse_input_toml},
     run::{Drivers, RunConfig, RunDir, generate},
     workspace::Workspace,
@@ -100,8 +101,10 @@ pub(crate) async fn drivers_for(args: &RunArgs, input: &Input) -> anyhow::Result
 }
 
 /// Runs the missions in `run_dir` and prints progress. Returns the exit code.
+/// `layout` is the CSV set to write, already resolved by the caller (`None` is bulk).
 pub(crate) async fn execute(
     args: &RunArgs,
+    layout: Option<ExportLayout>,
     input: Input,
     drivers: Drivers,
     run_dir: std::path::PathBuf,
@@ -117,7 +120,7 @@ pub(crate) async fn execute(
     cfg.mission_retries = args.agent.mission_retries;
     cfg.max_ad_groups = args.max_ad_groups;
     cfg.skip_url_check = args.skip_url_check;
-    cfg.layout = args.layout.map(Layout::core);
+    cfg.layout = layout;
     cfg.max_images = args.max_images;
     cfg.provider = selection.provider;
     cfg.model = selection.model;
@@ -148,5 +151,13 @@ pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
     if args.resume.is_none() {
         snapshot_logo(&run_dir, &mut input)?;
     }
-    execute(&args.run, input, drivers, run_dir, format).await
+    execute(
+        &args.run,
+        args.run.layout.map(Layout::core),
+        input,
+        drivers,
+        run_dir,
+        format,
+    )
+    .await
 }

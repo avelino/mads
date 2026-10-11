@@ -1,17 +1,12 @@
-use mads_core::{optimize::prepare, perf::Performance, workspace::Workspace};
+use mads_core::{optimize::prepare, perf::Performance, run::saved_layout, workspace::Workspace};
 
 use crate::{
-    cli::{CliError, Layout, OptimizeArgs, usage},
+    cli::{CliError, Layout, OptimizeArgs},
     commands::generate::{drivers_for, execute},
     render::Format,
 };
 
 pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
-    if args.run.layout == Some(Layout::DriveFolders) {
-        return Err(usage(
-            "--layout drive-folders creates a new account and cannot pause or edit a live one: optimize with --layout bulk",
-        ));
-    }
     let base = Workspace::load(&args.run_dir.join("workspace.json")).map_err(|e| CliError {
         code: 1,
         message: format!("cannot read run {}: {e}", args.run_dir.display()),
@@ -23,7 +18,21 @@ pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
     })?;
     eprintln!("{}", summary(&prepared.performance));
     let ws = Workspace::load(&prepared.run_dir.join("workspace.json"))?;
-    execute(&args.run, ws.input, drivers, prepared.run_dir, format).await
+    // An explicit --layout wins; without it the new run keeps the base run's layout.
+    let layout = args
+        .run
+        .layout
+        .map(Layout::core)
+        .or_else(|| saved_layout(&args.run_dir));
+    execute(
+        &args.run,
+        layout,
+        ws.input,
+        drivers,
+        prepared.run_dir,
+        format,
+    )
+    .await
 }
 
 /// One line per thing the reports told, before the missions start.

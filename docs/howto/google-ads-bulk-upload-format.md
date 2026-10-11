@@ -2,7 +2,7 @@
 
 This page describes the five CSV files mads writes by default, column by column, so you can check them, edit them or build tooling around them.
 
-`--layout drive-folders` writes a different set. See [Drive folder layout](google-ads-editor-drive-folders.md).
+`--layout drive-folders` writes a different set. See [Ads automation package](google-ads-editor-drive-folders.md).
 
 These files hold Search campaigns only. Performance Max and Demand Gen campaigns go to a Google Ads Editor file, see [Image campaigns](../guides/image-campaigns.md).
 

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, fmt::Write};
 
 use crate::{
     events::Totals,
-    google::{Account, CampaignKind, EDITOR_FILE, ExportLayout, Issue},
+    google::{Account, CampaignKind, EDITOR_FILE, ExportLayout, Issue, folder_name},
     images::ImageStepResult,
     input::{ExportStatus, Input},
     perf::Live,
@@ -111,9 +111,14 @@ fn images(md: &mut String, d: &ReportData) {
         return;
     }
     let model = d.images.model.as_deref().unwrap_or("none");
+    let attach = if d.layout == ExportLayout::DriveFolders {
+        "The package copies each file to its `Images/` folder and `setupImageCampaigns` attaches it, see How to import."
+    } else {
+        "Attach each file to its ad or asset group in Google Ads Editor, see How to import."
+    };
     let _ = writeln!(
         md,
-        "## Images\n\nModel {model}: {} generated in this run, {} reused. Attach each file to its ad or asset group in Google Ads Editor, see How to import.\n",
+        "## Images\n\nModel {model}: {} generated in this run, {} reused. {attach}\n",
         d.images.generated, d.images.reused
     );
     md.push_str("| Campaign | Asset group | Image | Ratio | Reference | File |\n|---|---|---|---|---|---|\n");
@@ -285,24 +290,61 @@ fn usage(md: &mut String, d: &ReportData) {
     );
 }
 
+/// The automation package: where it is, the one-time setup and the morning routine.
+fn drive_folders_steps(md: &mut String, d: &ReportData) {
+    let last = if d.input.google_ads.app_id.trim().is_empty() {
+        "S7"
+    } else {
+        "S8"
+    };
+    let structure = if d.live.is_some() {
+        "S1 edits the campaigns already in the account and keeps their status, adds new ones paused, and pauses the ones this run dropped. S3 and S4 do the same for the fixed ad groups and keywords. S2 enables only the new campaigns, so hold S2 until you are ready to run them. S5 writes a paused ad only where the first fixed keyword of an ad group is new."
+    } else {
+        "S1 creates the campaigns paused. S2 sets them to Enabled, so hold S2 until you are ready to go live."
+    };
+    let setup = image_setup_step(d);
+    let n = if setup.is_empty() { 4 } else { 5 };
+    let _ = writeln!(
+        md,
+        "## How to import\n\n\
+         The package is in `google-ads/automation/{folder}/` on this computer. Nothing was sent to Drive or to Google Ads. `README.xlsx` in that folder has the same steps.\n\n\
+         ### Once, to set it up\n\n\
+         1. In Google Drive settings, turn on Convert uploads. Upload the whole folder without renaming it.\n\
+         2. In Google Ads, Tools, Scripts, create a script and paste `daily-sync.js`.\n\
+         3. Run `linkSheets` once. It points every file in `Daily/` and `Structure/` at `0. Feed`.\n\
+         {setup}\
+         {n}. Open each of those files once and click Allow access.\n\
+         {}. In Google Ads Editor, get the recent changes of the account. Paste the output tab of S1 through {last} from `Structure/`, in that order. {structure}\n\
+         {}. Before you post, fill what the `Pending` tab of `README.xlsx` lists, such as Customer ID and Max CPC. Review the preview, then post.\n\
+         {}. Schedule `main` in the script to run daily, at night.\n\n\
+         ### Every morning\n\n\
+         Open the files in `Daily/`. Paste into Editor only the ones whose output tab has rows. Most days none do.\n",
+        n + 1,
+        n + 2,
+        n + 3,
+        folder = folder_name(&d.input.business.name),
+    );
+}
+
+/// The account ends this run with an image campaign to create, budget or pause.
+fn has_image_campaigns(d: &ReportData) -> bool {
+    has_images(d)
+        || d.live
+            .as_ref()
+            .is_some_and(|l| l.baseline.campaigns.iter().any(|c| c.kind.has_images()))
+}
+
+/// Step 4 of the drive-folders setup, or nothing without image campaigns.
+fn image_setup_step(d: &ReportData) -> &'static str {
+    if !has_image_campaigns(d) {
+        return "";
+    }
+    "4. In the script, select `setupImageCampaigns` and click Preview. It reads the `Image Campaigns` and `Image Assets` tabs of `0. Feed` and the pictures in `Images/`, and changes nothing. Read the log: one line per campaign, `created`, `budget updated`, `paused`, `unchanged` or `FAILED` with the Google Ads error. Then click Run. New image campaigns are created paused. A campaign already in the account only gets its budget updated, and one this run dropped is paused.\n"
+}
+
 fn import_steps(md: &mut String, d: &ReportData) {
     if d.layout == ExportLayout::DriveFolders {
-        let last = if d.input.google_ads.app_id.trim().is_empty() {
-            "B7"
-        } else {
-            "B8"
-        };
-        let _ = writeln!(
-            md,
-            "## How to import\n\n\
-             The files are in `google-ads/drive/B - Estrutural/` on this computer. Nothing was sent to Drive. A person pastes them in Google Ads Editor.\n\n\
-             1. Open Google Ads Editor and get the recent changes of the account.\n\
-             2. Read `LEIA-ME.md` in that folder. Account, Import, From file, and paste B1 through {last} once, in that order.\n\
-             3. B1 creates the campaigns paused. B2 sets them to Enabled, so hold B2 until you are ready to go live.\n\
-             4. Editor matches campaigns and ad groups by name. These files leave the ids blank.\n\
-             5. Before you post, fill Customer ID, Max CPC (Manual CPC needs a bid), budgets, final URLs, and the app id and store URL when B8 is present.\n\
-             6. Review the preview, then post.\n"
-        );
+        drive_folders_steps(md, d);
         return;
     }
     let last = match d.input.export.status {
@@ -736,16 +778,74 @@ mod tests {
     }
 
     #[test]
-    fn drive_folders_import_steps_name_the_structural_folder() {
+    fn drive_folders_import_steps_name_the_package_folder() {
         let mut d = data(&testutil::input(), &account());
         d.layout = ExportLayout::DriveFolders;
         let md = render_report(&d);
-        assert!(md.contains("google-ads/drive/B - Estrutural/"), "{md}");
-        assert!(md.contains("LEIA-ME.md"), "{md}");
-        assert!(md.contains("B2"), "{md}");
-        assert!(md.contains("paste B1 through B7"), "no app id, no B8: {md}");
+        for needle in [
+            "google-ads/automation/Vinellu Ads Automation/",
+            "Convert uploads",
+            "paste `daily-sync.js`",
+            "Run `linkSheets` once",
+            "Allow access",
+            "S1 through S7",
+            "Schedule `main`",
+            "Every morning",
+            "Paste into Editor only the ones whose output tab has rows",
+        ] {
+            assert!(md.contains(needle), "missing {needle}: {md}");
+        }
         d.input.google_ads.app_id = "com.vinellu.app".into();
-        assert!(render_report(&d).contains("paste B1 through B8"));
+        assert!(render_report(&d).contains("S1 through S8"));
+        assert!(!md.contains("Upload files 1 to 5"), "{md}");
+        assert!(!md.contains("Estrutural"), "{md}");
+        assert!(!md.contains('\u{2014}'), "{md}");
+    }
+
+    #[test]
+    fn drive_folders_import_steps_run_setup_image_campaigns_in_preview_first() {
+        let mut input = testutil::input();
+        input.logo = Some("logo.png".into());
+        let mut d = data(&input, &with_demand_gen(account()));
+        d.layout = ExportLayout::DriveFolders;
+        let md = render_report(&d);
+        let steps = &md[md.find("## How to import").expect("import section")..];
+        let link = steps
+            .find("Run `linkSheets` once")
+            .expect("linkSheets step");
+        let setup = steps.find("`setupImageCampaigns`").expect("setup step");
+        assert!(link < setup, "{md}");
+        for needle in ["Preview", "created paused", "Images/"] {
+            assert!(md.contains(needle), "missing {needle}: {md}");
+        }
+        assert!(!md.contains("Image assets from files"), "{md}");
+        assert!(!md.contains("Attach each file"), "{md}");
+        let search_only = data(&input, &account());
+        let mut search_only = search_only;
+        search_only.layout = ExportLayout::DriveFolders;
+        assert!(!render_report(&search_only).contains("setupImageCampaigns"));
+    }
+
+    #[test]
+    fn drive_folders_import_steps_over_a_live_account_edit_instead_of_create() {
+        let mut d = data(&testutil::input(), &account());
+        d.layout = ExportLayout::DriveFolders;
+        let fresh = render_report(&d);
+        assert!(fresh.contains("S1 creates the campaigns paused"), "{fresh}");
+        d.live = Some(Live {
+            baseline: account(),
+            performance: Default::default(),
+        });
+        let md = render_report(&d);
+        for needle in [
+            "google-ads/automation/Vinellu Ads Automation/",
+            "S1 edits the campaigns already in the account",
+            "pauses the ones this run dropped",
+            "S2 enables only the new campaigns",
+        ] {
+            assert!(md.contains(needle), "missing {needle}: {md}");
+        }
+        assert!(!md.contains("S1 creates the campaigns paused"), "{md}");
         assert!(!md.contains("Upload files 1 to 5"), "{md}");
         assert!(!md.contains('\u{2014}'), "{md}");
     }

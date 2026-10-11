@@ -27,23 +27,20 @@ out/20261001-122850-b51417/
       images/
         logo.png
         <campaign>/<asset-group>-<image-id>.jpg
-    drive/                       only with --layout drive-folders
-      B - Estrutural/
-        B1-campanhas.csv
-        B2-status-campanha.csv
-        B3-grupos.csv
-        B4-keywords.csv
-        B5-anuncios.csv
-        B6-utm.csv
-        B7-negativas.csv
-        B8-extensao-app.csv      omitted when google_ads.app_id is empty
-        LEIA-ME.md               UTF-8, Portuguese paste order
+    automation/                  only with --layout drive-folders
+      <Business> Ads Automation/
+        Images/                  pictures and logo of the image campaigns
+        0. Feed.xlsx             the feed every other file reads
+        README.xlsx              routine, linking steps, what is pending
+        daily-sync.js            the Google Ads script
+        Daily/                   D1 to D7
+        Structure/               S1 to S7, S8 when google_ads.app_id is set
   transcripts/                   one file per mission
 ```
 
-- `google-ads/` has no CSV when the run exits `1` or `3`. That includes `drive/`. Pictures in `editor/images/` stay: they cost money and the next `--resume` or `export` reuses them.
-- Files 1 to 5 hold Search campaigns only, for the web bulk upload, and are not written when the account has none. `editor/account.csv` holds every campaign. Import one or the other, never both. `editor/images/` exists only when the account has an image or App campaign, and its files are attached by hand in Editor. See [Image campaigns](../guides/image-campaigns.md#import).
-- `--layout drive-folders` writes `drive/B - Estrutural/` and does not write files 1 to 5 or `editor/account.csv`. Re-exporting a bulk run with this layout removes an empty `google-ads/editor/` directory. The directory stays when `editor/images/` still holds pictures. The CSVs are UTF-16 LE with a BOM and tab separators, the same encoding as `editor/account.csv`. `LEIA-ME.md` is UTF-8. A later export with the bulk layout removes the drive folder. See [Drive folder layout](../howto/google-ads-editor-drive-folders.md).
+- `google-ads/` has no CSV when the run exits `1` or `3`. That includes `automation/`. Pictures in `editor/images/` stay: they cost money and the next `--resume` or `export` reuses them.
+- Files 1 to 5 hold Search campaigns only, for the web bulk upload, and are not written when the account has none. `editor/account.csv` holds every campaign. Import one or the other, never both. `editor/images/` exists only when the account has an image or App campaign, and with the bulk layout its files are attached by hand in Editor. See [Image campaigns](../guides/image-campaigns.md#import).
+- `--layout drive-folders` writes `automation/<Business> Ads Automation/` and does not write files 1 to 5 or `editor/account.csv`. `<Business>` is `business.name` without the characters a file name cannot hold. The workbooks are `.xlsx` files for upload to Google Drive with conversion on. `0. Feed` has the tabs `Image Campaigns` and `Image Assets`, which the script's `setupImageCampaigns` reads to create the Performance Max, Demand Gen and App campaigns. `Images/` holds a copy of each picture under `<campaign_key>/<file>` and the logo as `logo.<ext>`. The pictures stay in `editor/images/` too. Re-exporting a bulk run with this layout removes an empty `google-ads/editor/` directory. The directory stays when `editor/images/` still holds pictures. A later export with the bulk layout removes `automation/`. See [Ads automation package](../howto/google-ads-editor-drive-folders.md).
 - `workspace.json` points `input.logo` at the copy in `input/`, so the run does not depend on where the logo was. Each ad platform gets its own folder, so other platforms will not mix with these files.
 - `input/` is a record. `export` and `--resume` read `workspace.json`, not `input/`.
 - `transcripts/` has one file per mission: `<mission>.jsonl` for API providers (every message) and `<mission>.cli.jsonl` for agent CLIs (the raw stream). A `:` in a mission id becomes `-`, so `campaign:vinellu-catalogo` is `campaign-vinellu-catalogo.jsonl`.

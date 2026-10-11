@@ -1,4 +1,4 @@
-mod drive_layout;
+mod automation;
 mod editor;
 mod expand;
 mod export;
@@ -8,7 +8,9 @@ mod rsa;
 mod rules;
 mod text;
 
-pub use drive_layout::{ExportLayout, drive_warnings, export_drive_layout};
+pub use automation::{
+    AutomationExport, ExportLayout, automation_warnings, export_automation, folder_name,
+};
 pub use editor::*;
 pub use expand::*;
 pub use export::*;

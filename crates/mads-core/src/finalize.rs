@@ -1,8 +1,8 @@
 use crate::{
     events::{Event, EventSink},
     google::{
-        Account, CsvFile, ExportError, ExportLayout, Issue, Rules, drive_warnings, export_csvs,
-        export_drive_layout, export_editor_live,
+        Account, CsvFile, ExportError, ExportLayout, Issue, Rules, automation_warnings,
+        export_automation, export_csvs, export_editor_live,
     },
     input::Input,
     perf::Live,
@@ -19,6 +19,10 @@ pub struct Finalized {
     pub warnings: Vec<Issue>,
     pub urls: Option<Vec<UrlResult>>,
     pub csv: Vec<CsvFile>,
+    /// `(from, to)` copies of existing files, both relative to the platform directory, made
+    /// after `csv` is written: the pictures of the automation package. Empty for `bulk` and on
+    /// failure.
+    pub copies: Vec<(String, String)>,
 }
 
 fn step(events: &EventSink, name: &str, detail: &str) {
@@ -35,6 +39,7 @@ fn invalid(errors: Vec<Issue>, warnings: Vec<Issue>, urls: Option<Vec<UrlResult>
         warnings,
         urls,
         csv: Vec::new(),
+        copies: Vec::new(),
     }
 }
 
@@ -71,7 +76,7 @@ pub async fn finalize(
         .into_iter()
         .partition(Issue::is_error);
     if opts.layout == ExportLayout::DriveFolders {
-        warnings.extend(drive_warnings(input, account));
+        warnings.extend(automation_warnings(input, account));
     }
     events.emit(Event::Validation {
         errors: errors.clone(),
@@ -98,27 +103,33 @@ pub async fn finalize(
         return invalid(url_errors, warnings, urls);
     }
 
-    step(events, "export", "writing CSV files");
+    step(events, "export", "writing files");
     let exported = match opts.layout {
-        ExportLayout::Bulk => export_all(input, account, live),
-        // The drive files only add. Bulk writes the pause rows a live account needs.
-        ExportLayout::DriveFolders if live.is_some() => Err(ExportError::DriveFoldersOnLive),
-        ExportLayout::DriveFolders => export_drive_layout(input, account),
+        ExportLayout::Bulk => export_all(input, account, live).map(|files| (files, Vec::new())),
+        ExportLayout::DriveFolders => {
+            export_automation(input, account, live).map(|out| (out.files, out.pictures))
+        }
     };
     match exported {
-        Ok(csv) => Finalized {
+        Ok((csv, copies)) => Finalized {
             exit_code: 0,
             errors: Vec::new(),
             warnings,
             urls,
             csv,
+            copies,
         },
-        Err(e) => invalid(
-            vec![Issue::error("EXPORT", "", e.to_string())],
-            warnings,
-            urls,
-        ),
+        Err(e) => invalid(vec![export_issue(&e)], warnings, urls),
     }
+}
+
+/// `E29` when the automation package is over capacity, `EXPORT` for any other failure.
+fn export_issue(e: &ExportError) -> Issue {
+    let code = match e {
+        ExportError::Capacity(_) => "E29",
+        _ => "EXPORT",
+    };
+    Issue::error(code, "", e.to_string())
 }
 
 #[cfg(test)]
@@ -218,7 +229,7 @@ mod tests {
         )
         .await;
         assert_eq!(out.exit_code, 0, "{:?}", out.errors);
-        let names: Vec<&str> = out.csv.iter().map(|f| f.name).collect();
+        let names: Vec<&str> = out.csv.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(
             names,
             [
@@ -232,6 +243,7 @@ mod tests {
             "the web files for Search, and the whole account for Editor"
         );
         assert_eq!(out.urls.as_ref().map(Vec::len), Some(12));
+        assert!(out.copies.is_empty(), "bulk copies nothing");
     }
 
     #[tokio::test]
@@ -321,12 +333,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn drive_layout_refuses_a_live_account() {
+    async fn drive_layout_edits_a_live_account() {
         let account = reference_account();
         let input = reference_input(&account);
+        let name = account.campaigns[0].name.clone();
+        let mut performance = crate::perf::Performance::default();
+        performance.campaigns.push(crate::perf::CampaignPerf {
+            name: name.clone(),
+            live_status: Some(crate::perf::LiveStatus::Enabled),
+            ..Default::default()
+        });
         let live = Live {
             baseline: account.clone(),
-            performance: Default::default(),
+            performance,
         };
         let (events, _rx) = EventSink::channel();
         let out = finalize(
@@ -338,15 +357,74 @@ mod tests {
             &events,
         )
         .await;
+        assert_eq!(out.exit_code, 0, "{:?}", out.errors);
+        let feed = out
+            .csv
+            .iter()
+            .find(|f| f.name == "automation/Vinellu Ads Automation/0. Feed.xlsx")
+            .expect("feed");
+        let rows = campaign_rows(&feed.bytes);
+        let row = rows
+            .iter()
+            .find(|r| r[2] == name)
+            .expect("live campaign row");
+        assert_eq!(row.last().map(String::as_str), Some("Edit"));
+    }
+
+    /// Data rows of the `Campaigns` tab of `0. Feed.xlsx`, as text.
+    fn campaign_rows(bytes: &[u8]) -> Vec<Vec<String>> {
+        use calamine::{Reader, Xlsx, open_workbook_from_rs};
+        let mut book: Xlsx<_> =
+            open_workbook_from_rs(std::io::Cursor::new(bytes.to_vec())).expect("xlsx");
+        let range = book.worksheet_range("Campaigns").expect("Campaigns tab");
+        range
+            .rows()
+            .skip(4)
+            .map(|r| r.iter().map(ToString::to_string).collect())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn an_over_capacity_package_is_an_e29_error_and_nothing_is_exported() {
+        let mut account = reference_account();
+        let mut input = reference_input(&account);
+        input.catalog = (0..700)
+            .map(|i| crate::input::CatalogItem {
+                id: format!("w{i}"),
+                name: format!("Wine {i}"),
+                url: format!("https://vinellu.com/w/{i}"),
+                category: "red".into(),
+                aliases: vec![],
+                third_party: false,
+                notes: String::new(),
+                image: None,
+            })
+            .collect();
+        account.campaigns[0].planned_ad_groups[0].entity_ids =
+            input.catalog.iter().map(|c| c.id.clone()).collect();
+        let (events, _rx) = EventSink::channel();
+        let out = finalize(
+            &input,
+            &account,
+            None,
+            &FakeWeb(HashMap::new()),
+            opts(true, 50, ExportLayout::DriveFolders),
+            &events,
+        )
+        .await;
         assert_eq!(out.exit_code, 3);
-        assert!(out.csv.is_empty());
         assert!(
-            out.errors
-                .iter()
-                .any(|e| e.code == "EXPORT" && e.message.contains("--layout bulk")),
+            out.errors.iter().any(|e| e.code == "E29"),
             "{:?}",
             out.errors
         );
+        assert!(out.csv.is_empty());
+    }
+
+    #[test]
+    fn other_export_failures_keep_the_export_code() {
+        assert_eq!(export_issue(&ExportError::MissingBrandKit).code, "EXPORT");
+        assert_eq!(export_issue(&ExportError::Capacity("x".into())).code, "E29");
     }
 
     #[tokio::test]
@@ -381,7 +459,11 @@ mod tests {
         )
         .await;
         assert_eq!(out.exit_code, 0, "{:?}", out.errors);
-        assert!(out.csv.iter().any(|f| f.name.ends_with("B1-campanhas.csv")));
+        assert!(
+            out.csv
+                .iter()
+                .any(|f| f.name.ends_with("Structure/S1. New Campaigns.xlsx"))
+        );
         assert!(out.csv.iter().all(|f| !f.name.ends_with("1-campaign.csv")));
         assert!(
             out.warnings

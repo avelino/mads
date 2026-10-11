@@ -109,7 +109,7 @@ struct Ctx<'a> {
 
 /// The reports show the campaign in the account and not removed. A campaign of the baseline that
 /// was never imported, or that the advertiser removed, gets no row: Editor would create it.
-fn is_live(live: &Live, name: &str) -> bool {
+pub(crate) fn is_live(live: &Live, name: &str) -> bool {
     live.performance
         .campaign(name)
         .is_some_and(|p| match p.live_status {
@@ -118,8 +118,84 @@ fn is_live(live: &Live, name: &str) -> bool {
         })
 }
 
-fn same_name(a: &str, b: &str) -> bool {
+pub(crate) fn same_name(a: &str, b: &str) -> bool {
     normalize(a) == normalize(b)
+}
+
+/// Something the live account serves that the new account dropped. Names come from the live
+/// account. `campaign` and `group` are the kept ones of the new account.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Dropped<'a> {
+    /// A whole campaign, any kind.
+    Campaign { name: &'a str },
+    /// An ad group of a kept campaign.
+    AdGroup {
+        campaign: &'a Campaign,
+        name: &'a str,
+    },
+    /// A keyword of a kept ad group.
+    Keyword {
+        campaign: &'a Campaign,
+        group: &'a AdGroup,
+        text: &'a str,
+        match_type: MatchType,
+    },
+    /// An asset group of a kept campaign.
+    AssetGroup {
+        campaign: &'a Campaign,
+        name: &'a str,
+    },
+}
+
+/// The single owner of "what did the new plan drop": every live campaign, ad group, keyword and
+/// asset group with no match by name in `new`. A dropped group hides its keywords: pausing the
+/// group is enough.
+pub(crate) fn dropped_items<'a>(live: &'a Live, new: &'a Account) -> Vec<Dropped<'a>> {
+    let mut out = Vec::new();
+    for old in live
+        .baseline
+        .campaigns
+        .iter()
+        .filter(|c| is_live(live, &c.name))
+    {
+        match new.campaigns.iter().find(|c| same_name(&c.name, &old.name)) {
+            None => out.push(Dropped::Campaign { name: &old.name }),
+            Some(c) => dropped_in(old, c, &mut out),
+        }
+    }
+    out
+}
+
+fn dropped_in<'a>(old: &'a Campaign, c: &'a Campaign, out: &mut Vec<Dropped<'a>>) {
+    for g in &old.ad_groups {
+        let Some(kept) = c.ad_groups.iter().find(|n| same_name(&n.name, &g.name)) else {
+            out.push(Dropped::AdGroup {
+                campaign: c,
+                name: &g.name,
+            });
+            continue;
+        };
+        let gone = g.keywords.iter().filter(|k| {
+            !kept
+                .keywords
+                .iter()
+                .any(|n| n.match_type == k.match_type && same_name(&n.text, &k.text))
+        });
+        out.extend(gone.map(|k| Dropped::Keyword {
+            campaign: c,
+            group: kept,
+            text: &k.text,
+            match_type: k.match_type,
+        }));
+    }
+    for g in &old.asset_groups {
+        if !c.asset_groups.iter().any(|n| same_name(&n.name, &g.name)) {
+            out.push(Dropped::AssetGroup {
+                campaign: c,
+                name: &g.name,
+            });
+        }
+    }
 }
 
 impl Ctx<'_> {
@@ -146,60 +222,37 @@ impl Ctx<'_> {
         let Some(live) = self.live else {
             return Vec::new();
         };
-        let mut out = Vec::new();
-        for old in live
-            .baseline
-            .campaigns
-            .iter()
-            .filter(|c| is_live(live, &c.name))
-        {
-            match new.campaigns.iter().find(|c| same_name(&c.name, &old.name)) {
-                None => out.push(
-                    Row::default()
-                        .set("Campaign", &old.name)
-                        .set("Campaign Status", PAUSED),
-                ),
-                Some(c) => self.dropped_in(old, c, &mut out),
-            }
-        }
-        out
-    }
-
-    fn dropped_in(&self, old: &Campaign, c: &Campaign, out: &mut Vec<Row>) {
-        for g in &old.ad_groups {
-            let Some(kept) = c.ad_groups.iter().find(|n| same_name(&n.name, &g.name)) else {
-                out.push(
-                    self.under(c)
-                        .set("Ad Group", &g.name)
-                        .set("Ad Group Status", PAUSED),
-                );
-                continue;
-            };
-            let gone = g.keywords.iter().filter(|k| {
-                !kept
-                    .keywords
-                    .iter()
-                    .any(|n| n.match_type == k.match_type && same_name(&n.text, &k.text))
-            });
-            for k in gone {
-                let kind = criterion(k.match_type, false);
-                out.push(self.keyword(c, kept, &k.text, kind).set("Status", PAUSED));
-            }
-        }
-        for g in &old.asset_groups {
-            if c.asset_groups.iter().any(|n| same_name(&n.name, &g.name)) {
-                continue;
-            }
-            out.push(if c.kind == CampaignKind::PerformanceMax {
-                self.under(c)
-                    .set("Asset Group", &g.name)
-                    .set("Asset Group Status", PAUSED)
-            } else {
-                self.under(c)
-                    .set("Ad Group", &g.name)
-                    .set("Ad Group Status", PAUSED)
-            });
-        }
+        dropped_items(live, new)
+            .into_iter()
+            .map(|d| match d {
+                Dropped::Campaign { name } => Row::default()
+                    .set("Campaign", name)
+                    .set("Campaign Status", PAUSED),
+                Dropped::AdGroup { campaign, name } => self
+                    .under(campaign)
+                    .set("Ad Group", name)
+                    .set("Ad Group Status", PAUSED),
+                Dropped::Keyword {
+                    campaign,
+                    group,
+                    text,
+                    match_type,
+                } => self
+                    .keyword(campaign, group, text, criterion(match_type, false))
+                    .set("Status", PAUSED),
+                Dropped::AssetGroup { campaign, name }
+                    if campaign.kind == CampaignKind::PerformanceMax =>
+                {
+                    self.under(campaign)
+                        .set("Asset Group", name)
+                        .set("Asset Group Status", PAUSED)
+                }
+                Dropped::AssetGroup { campaign, name } => self
+                    .under(campaign)
+                    .set("Ad Group", name)
+                    .set("Ad Group Status", PAUSED),
+            })
+            .collect()
     }
 
     fn in_group(&self, c: &Campaign, group: &str) -> Row {
@@ -418,7 +471,7 @@ pub(crate) fn editor_sheet<S: std::borrow::Borrow<str>>(
         text.push('\n');
     }
     CsvFile {
-        name,
+        name: name.to_string(),
         bytes: utf16le(&text),
     }
 }

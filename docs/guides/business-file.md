@@ -155,7 +155,7 @@ app_id = "com.vinellu.app"
 tracking_template = "{lpurl}?utm_campaign={mads_campaign}&utm_term={keyword}"
 ```
 
-Leave this table out unless you export with `--layout drive-folders`. An empty `customer_id` is a warning, not an error. Do not paste `000-000-0000`. See [Drive folder layout](../howto/google-ads-editor-drive-folders.md).
+Leave this table out unless you export with `--layout drive-folders`. An empty `customer_id` is a warning, not an error. Do not paste `000-000-0000`. See [Ads automation package](../howto/google-ads-editor-drive-folders.md).
 
 ## Catalog
 

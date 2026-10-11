@@ -122,20 +122,20 @@ pub struct RunArgs {
     /// New images allowed in one run. Every image costs money.
     #[arg(long, default_value_t = 40)]
     pub max_images: usize,
-    /// CSV set to write. `bulk` is files 1 to 5 plus the Editor file. `drive-folders` is the local structural folder.
-    /// Without it a run keeps the layout it was last written with, and a new run is `bulk`.
+    /// File set to write. `bulk` is files 1 to 5 plus the Editor file. `drive-folders` is the local Search automation package.
+    /// Without it `generate` writes `bulk` and `optimize` keeps the base run's layout.
     #[arg(long, value_enum)]
     pub layout: Option<Layout>,
     #[command(flatten)]
     pub agent: AgentArgs,
 }
 
-/// Which Google Ads CSV set `generate`, `optimize` and `export` write.
+/// Which Google Ads file set `generate`, `optimize` and `export` write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Layout {
     /// Files 1 to 5 and `editor/account.csv`.
     Bulk,
-    /// `google-ads/drive/B - Estrutural/`, saved locally for a hand import.
+    /// The Search automation package in `google-ads/automation/`, saved locally for Google Sheets.
     DriveFolders,
 }
 
@@ -157,7 +157,7 @@ pub struct ExportArgs {
     /// Ad groups allowed in the whole account.
     #[arg(long, default_value_t = 50)]
     pub max_ad_groups: usize,
-    /// CSV set to write. `bulk` is files 1 to 5 plus the Editor file. `drive-folders` is the local structural folder.
+    /// File set to write. `bulk` is files 1 to 5 plus the Editor file. `drive-folders` is the local Search automation package.
     /// Without it a run keeps the layout it was last written with, and a new run is `bulk`.
     #[arg(long, value_enum)]
     pub layout: Option<Layout>,

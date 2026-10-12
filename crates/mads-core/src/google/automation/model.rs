@@ -9,7 +9,7 @@ mod tests;
 use std::collections::BTreeSet;
 
 pub(crate) use cells::{customer_cell, match_label, store_of, tracking_template};
-pub(crate) use images::image_campaign_gaps;
+pub use images::image_campaign_gaps;
 
 use super::folder_name;
 use crate::google::editor::{money, same_name};
@@ -164,7 +164,11 @@ pub(crate) struct CatalogRow {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FixedRow {
+    /// Keyword-level action (S4). Distinct from `group_action`.
     pub action: StructAction,
+    /// Ad-group-level action for S3/S5/S6. Edit when the live group exists, even if the first
+    /// keyword is new.
+    pub group_action: StructAction,
     pub campaign_key: String,
     pub campaign: String,
     pub ad_group: String,
@@ -473,6 +477,7 @@ impl Plan<'_> {
             .iter()
             .map(|k| FixedRow {
                 action: live::keyword_action(self.live, c, ag, k),
+                group_action: live::ad_group_action(self.live, c, ag),
                 campaign_key: c.slug.clone(),
                 campaign: c.name.clone(),
                 ad_group: ag.name.clone(),
@@ -497,6 +502,7 @@ mod types_tests {
     fn fixed_row() -> FixedRow {
         FixedRow {
             action: StructAction::Add,
+            group_action: StructAction::Add,
             campaign_key: "brand".into(),
             campaign: "Brand".into(),
             ad_group: "Brand".into(),

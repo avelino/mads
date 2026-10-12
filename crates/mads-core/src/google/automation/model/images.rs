@@ -14,7 +14,7 @@ const NO_APP_ID: &str = "no app id (google_ads.app_id or [app])";
 
 /// Image campaigns the package leaves out: their index in `account.campaigns` and what they
 /// miss, as one sentence. Warning W12 reads it.
-pub(crate) fn image_campaign_gaps(input: &Input, account: &Account) -> Vec<(usize, String)> {
+pub fn image_campaign_gaps(input: &Input, account: &Account) -> Vec<(usize, String)> {
     account
         .campaigns
         .iter()

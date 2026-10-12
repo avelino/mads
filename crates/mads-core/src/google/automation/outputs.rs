@@ -216,8 +216,9 @@ impl Kind {
         );
         let fixed = format!("{}<>{}", x.feed(FeedColumn::Automated), lit(FIXED));
         let feed_action = x.feed(FeedColumn::Action);
+        let group_action = x.feed(FeedColumn::AdGroupAction);
         let new_fixed_group = format!(
-            "OR({fixed},{feed_action}<>{},{})",
+            "OR({fixed},{group_action}<>{},{})",
             lit(add),
             x.repeated_group()
         );
@@ -283,7 +284,7 @@ impl Kind {
             },
             Kind::S3 => Output {
                 skip: format!("OR({fixed},{})", x.repeated_group()),
-                cols: x.ad_group_cols(struct_action(&feed_action), x.fixed_group_status()),
+                cols: x.ad_group_cols(struct_action(&group_action), x.fixed_group_status()),
             },
             Kind::S4 => Output {
                 skip: format!("OR({fixed},{}=\"\")", x.feed(FeedColumn::Keyword)),
@@ -847,6 +848,28 @@ mod tests {
     }
 
     #[test]
+    fn s3_and_s5_use_ad_group_action_not_keyword_action() {
+        let s3 = formula("Structure/S3. Ad Groups.xlsx", "Ad Groups", 5, 0);
+        assert!(
+            s3.contains("Feed!$AM5"),
+            "S3 action reads ad_group_action: {s3}"
+        );
+        assert!(
+            !s3.contains("Feed!$A5"),
+            "S3 must not use keyword action: {s3}"
+        );
+        let s5 = formula("Structure/S5. Ads.xlsx", "Ads", 5, 0);
+        assert!(
+            s5.contains("Feed!$AM5<>\"Add\""),
+            "S5 skips unless group is Add: {s5}"
+        );
+        assert!(
+            !s5.contains("Feed!$A5<>\"Add\""),
+            "S5 must not use keyword action: {s5}"
+        );
+    }
+
+    #[test]
     fn s7_blanks_the_ad_group_of_a_campaign_negative() {
         let f = formula("Structure/S7. Negatives.xlsx", "Negative Keywords", 5, 3);
         assert!(f.contains("IF(Negatives!$A5=\"Campaign\",\"\""), "{f}");
@@ -897,7 +920,7 @@ mod tests {
         assert_eq!(
             feed.get_value((4, 0)).cloned().unwrap_or_default(),
             format!(
-                "IMPORTRANGE(\"FEED_ID\",\"Feed!A5:AL{}\")",
+                "IMPORTRANGE(\"FEED_ID\",\"Feed!A5:AM{}\")",
                 4 + p.feed_rows()
             )
         );

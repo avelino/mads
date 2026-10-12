@@ -99,7 +99,7 @@ mod tests {
     use std::process::Command;
 
     fn mirrors() -> Vec<(&'static str, &'static str, String)> {
-        vec![("Daily/D1. New Ad Groups", "Feed", "Feed!A5:AL156".into())]
+        vec![("Daily/D1. New Ad Groups", "Feed", "Feed!A5:AM156".into())]
     }
 
     fn node_available() -> bool {
@@ -144,7 +144,7 @@ mod tests {
         assert!(js.contains(r#"var FOLDER_NAME = "Don \"Melchor\" Ads Automation";"#));
         assert!(js.contains(r#"var AUTOMATED_CAMPAIGNS = ["Catalog - \"Wines\""];"#));
         assert!(
-            js.contains(r#"var MIRRORS = [["Daily/D1. New Ad Groups","Feed","Feed!A5:AL156"]];"#)
+            js.contains(r#"var MIRRORS = [["Daily/D1. New Ad Groups","Feed","Feed!A5:AM156"]];"#)
         );
     }
 

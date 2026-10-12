@@ -231,6 +231,12 @@ function stripAccents(s) {
   return out;
 }
 
+/** Same form Rust uses for campaign names: NFC, lowercase, trim, collapse whitespace. */
+function normalizeName(s) {
+  var nfc = String(s).normalize ? String(s).normalize('NFC') : String(s);
+  return nfc.toLowerCase().split(/\s+/).filter(function(p) { return p.length > 0; }).join(' ');
+}
+
 function requireSheet(spreadsheet, name) {
   var sheet = spreadsheet.getSheetByName(name);
   if (!sheet) {
@@ -372,7 +378,7 @@ function linkTab(spreadsheet, tab, range, feedId) {
   sheet.getRange(FIRST_ROW, 1).setFormula('=IMPORTRANGE("' + feedId + '","' + range + '")');
 }
 
-/** Rows and columns a range like "Feed!A5:AL156" returns. */
+/** Rows and columns a range like "Feed!A5:AM156" returns. */
 function rangeSize(range) {
   var m = String(range).match(/([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
   if (!m) throw new Error('cannot read range "' + range + '"');
@@ -430,7 +436,7 @@ function setupImageCampaigns() {
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     try {
-      var outcome = syncImageCampaign(row, assets[row.key] || [], live[row.name], env);
+      var outcome = syncImageCampaign(row, assets[row.key] || [], live[normalizeName(row.name)], env);
       Logger.log(outcome + ' ' + row.name);
       counts[outcome]++;
     } catch (e) {
@@ -543,7 +549,7 @@ function liveCampaigns() {
   var rows = AdsApp.search(CAMPAIGN_QUERY);
   while (rows.hasNext()) {
     var r = rows.next();
-    out[r.campaign.name] = {
+    out[normalizeName(r.campaign.name)] = {
       status: r.campaign.status,
       resourceName: r.campaign.resourceName ||
           'customers/' + customerId() + '/campaigns/' + r.campaign.id,

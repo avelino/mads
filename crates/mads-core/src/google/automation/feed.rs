@@ -470,6 +470,7 @@ fn fixed_row(f: &FixedRow, row: usize, width: usize) -> Vec<Cell> {
     use FeedColumn as F;
     let mut cells = vec![
         (F::Action, text(f.action.label())),
+        (F::AdGroupAction, text(f.group_action.label())),
         (F::CampaignKey, text(&f.campaign_key)),
         (F::Automated, text("No")),
         (F::Structure, text("Thematic")),

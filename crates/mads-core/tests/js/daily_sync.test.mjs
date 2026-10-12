@@ -312,14 +312,14 @@ test('linkSheets writes IMPORTRANGE into every mirror and keeps going after a fa
   context.FOLDER_NAME = 'Test Folder';
   context.MIRRORS = [
     ['Daily/D1. New Ad Groups', 'Settings', 'Settings!A5:C11'],
-    ['Daily/D1. New Ad Groups', 'Feed', 'Feed!A5:AL156'],
-    ['Daily/D2. Pause Ad Groups', 'Feed', 'Feed!A5:AL156'],
+    ['Daily/D1. New Ad Groups', 'Feed', 'Feed!A5:AM156'],
+    ['Daily/D2. Pause Ad Groups', 'Feed', 'Feed!A5:AM156'],
     ['Structure/S1. New Campaigns', 'Campaigns', 'Campaigns!A5:N6'],
   ];
   context.linkSheets();
 
   const d1Feed = d1.getSheetByName('Feed');
-  assert.equal(d1Feed.formula(5, 1), '=IMPORTRANGE("feed-id","Feed!A5:AL156")');
+  assert.equal(d1Feed.formula(5, 1), '=IMPORTRANGE("feed-id","Feed!A5:AM156")');
   assert.ok(d1Feed.getMaxRows() >= 156);
   assert.ok(d1Feed.getMaxColumns() >= 38);
   assert.equal(d1Feed.value(7, 2), '');
@@ -341,10 +341,10 @@ test('linkSheets is safe to run twice', () => {
   const folder = feedFolder('Test Folder', [new Folder('Daily', [new DriveFile('d1-id', 'D1. New Ad Groups')])]);
   const { context } = load({ folders: [folder], spreadsheets: [feedSpreadsheet(), d1] });
   context.FOLDER_NAME = 'Test Folder';
-  context.MIRRORS = [['Daily/D1. New Ad Groups', 'Feed', 'Feed!A5:AL156']];
+  context.MIRRORS = [['Daily/D1. New Ad Groups', 'Feed', 'Feed!A5:AM156']];
   context.linkSheets();
   context.linkSheets();
-  assert.equal(d1.getSheetByName('Feed').formula(5, 1), '=IMPORTRANGE("feed-id","Feed!A5:AL156")');
+  assert.equal(d1.getSheetByName('Feed').formula(5, 1), '=IMPORTRANGE("feed-id","Feed!A5:AM156")');
 });
 
 test('linkSheets fails loudly when two folders share the name', () => {

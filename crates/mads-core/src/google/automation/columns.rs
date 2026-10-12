@@ -29,6 +29,8 @@ pub(crate) enum FeedColumn {
     Status,
     CurrentStatus,
     NextStep,
+    /// Structural action for the ad group (S3/S5/S6). Distinct from `Action`, which is the keyword.
+    AdGroupAction,
 }
 
 pub(crate) const HEADLINES: u8 = 15;
@@ -56,7 +58,7 @@ impl FeedColumn {
         ];
         out.extend((1..=HEADLINES).map(Headline));
         out.extend((1..=DESCRIPTIONS).map(Description));
-        out.extend([Label, Status, CurrentStatus, NextStep]);
+        out.extend([Label, Status, CurrentStatus, NextStep, AdGroupAction]);
         out
     }
 
@@ -88,6 +90,7 @@ impl FeedColumn {
             Status => 16 + h + d,
             CurrentStatus => 17 + h + d,
             NextStep => 18 + h + d,
+            AdGroupAction => 19 + h + d,
         }
     }
 
@@ -119,6 +122,7 @@ impl FeedColumn {
             Status => "Status".into(),
             CurrentStatus => "current_status".into(),
             NextStep => "next_step".into(),
+            AdGroupAction => "ad_group_action".into(),
         }
     }
 }
@@ -353,7 +357,7 @@ pub(crate) mod image_assets {
 mod tests {
     use super::*;
 
-    const SPEC_ORDER: [&str; 38] = [
+    const SPEC_ORDER: [&str; 39] = [
         "action",
         "campaign_key",
         "automated",
@@ -392,6 +396,7 @@ mod tests {
         "Status",
         "current_status",
         "next_step",
+        "ad_group_action",
     ];
 
     #[test]
@@ -402,7 +407,7 @@ mod tests {
         for (i, c) in all.iter().enumerate() {
             assert_eq!(c.index(), i, "{c:?}");
         }
-        assert_eq!(FeedColumn::NextStep.index(), all.len() - 1);
+        assert_eq!(FeedColumn::AdGroupAction.index(), all.len() - 1);
     }
 
     #[test]
@@ -415,6 +420,7 @@ mod tests {
         assert_eq!(FeedColumn::Description(4).letter(), "AH");
         assert_eq!(FeedColumn::CurrentStatus.letter(), "AK");
         assert_eq!(FeedColumn::NextStep.letter(), "AL");
+        assert_eq!(FeedColumn::AdGroupAction.letter(), "AM");
     }
 
     #[test]

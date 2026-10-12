@@ -33,6 +33,7 @@ fn campaign(key: &str, name: &str, automated: bool) -> CampaignRow {
 fn fixed(keyword: &str) -> FixedRow {
     FixedRow {
         action: StructAction::Add,
+        group_action: StructAction::Add,
         campaign_key: "brand".into(),
         campaign: "Brand".into(),
         ad_group: "Brand terms".into(),

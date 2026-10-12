@@ -71,11 +71,14 @@ pub async fn finalize(
     events: &EventSink,
 ) -> Finalized {
     step(events, "validate", "checking limits and policies");
-    let (errors, mut warnings): (Vec<_>, Vec<_>) = Rules::new(input, opts.max_ad_groups)
+    let (mut errors, mut warnings): (Vec<_>, Vec<_>) = Rules::new(input, opts.max_ad_groups)
         .account(account, true)
         .into_iter()
         .partition(Issue::is_error);
     if opts.layout == ExportLayout::DriveFolders {
+        // Package-specific gaps become W12 omissions instead of blocking E16/E18/E20/E24.
+        // google_ads.app_id also satisfies the App campaign requirement that Rules checks via [app].
+        drop_drive_layout_blockers(input, account, &mut errors);
         warnings.extend(automation_warnings(input, account));
     }
     events.emit(Event::Validation {
@@ -123,6 +126,39 @@ pub async fn finalize(
     }
 }
 
+/// Removes errors that `--layout drive-folders` turns into W12 omissions (or that
+/// `google_ads.app_id` already covers for App campaigns). Bulk keeps them as hard errors.
+fn drop_drive_layout_blockers(input: &Input, account: &Account, errors: &mut Vec<Issue>) {
+    use crate::google::image_campaign_gaps;
+    use std::collections::BTreeSet;
+
+    let gaps: BTreeSet<usize> = image_campaign_gaps(input, account)
+        .into_iter()
+        .map(|(i, _)| i)
+        .collect();
+    let has_app_fallback = !input.google_ads.app_id.trim().is_empty();
+    errors.retain(|e| !drive_layout_omittable(e, &gaps, has_app_fallback));
+}
+
+fn drive_layout_omittable(
+    e: &Issue,
+    gaps: &std::collections::BTreeSet<usize>,
+    has_app_fallback: bool,
+) -> bool {
+    match e.code.as_str() {
+        "E16" | "E18" | "E20" => campaign_index(&e.path).is_some_and(|i| gaps.contains(&i)),
+        "E24" => has_app_fallback || campaign_index(&e.path).is_some_and(|i| gaps.contains(&i)),
+        _ => false,
+    }
+}
+
+/// `campaigns[N]` or `campaigns[N].…` → N.
+fn campaign_index(path: &str) -> Option<usize> {
+    let rest = path.strip_prefix("campaigns[")?;
+    let (n, _) = rest.split_once(']')?;
+    n.parse().ok()
+}
+
 /// `E29` when the automation package is over capacity, `EXPORT` for any other failure.
 fn export_issue(e: &ExportError) -> Issue {
     let code = match e {
@@ -141,7 +177,10 @@ mod tests {
     use super::*;
     use crate::{
         events::{Event, EventSink},
-        google::Account,
+        google::{
+            Account, AspectRatio, AssetGroup, BidStrategy, Campaign, CampaignKind, ImageBrief,
+            Intent,
+        },
         input::{Budget, Business, ExportConfig, ExportStatus, Input, Page},
         money::Cents,
     };
@@ -483,5 +522,157 @@ mod tests {
         assert_eq!(limited.exit_code, 3);
         assert!(limited.errors.iter().any(|e| e.code == "E13"));
         assert!(limited.csv.is_empty());
+    }
+
+    fn empty_asset_group(name: &str) -> AssetGroup {
+        AssetGroup {
+            name: name.into(),
+            final_url: "https://vinellu.com".into(),
+            business_name: "Vinellu".into(),
+            headlines: vec![
+                "Reviews reais".into(),
+                "Escaneie o rotulo".into(),
+                "Notas de quem bebeu".into(),
+            ],
+            long_headlines: vec!["Veja a nota antes de abrir a garrafa".into()],
+            descriptions: vec!["Notas de quem bebeu.".into(), "Reviews reais.".into()],
+            search_themes: vec![],
+            images: vec![],
+        }
+    }
+
+    fn image_campaign(kind: CampaignKind, name: &str, slug: &str) -> Campaign {
+        let group = empty_asset_group("group");
+        Campaign {
+            name: name.into(),
+            slug: slug.into(),
+            kind,
+            intent: Intent::Generic,
+            daily_budget: Cents(1000),
+            bid_strategy: BidStrategy::MaximizeConversions,
+            rationale: String::new(),
+            planned_ad_groups: vec![crate::google::PlannedAdGroup {
+                name: group.name.clone(),
+                theme: String::new(),
+                entity_ids: vec![],
+                final_url: String::new(),
+            }],
+            ad_groups: vec![],
+            asset_groups: vec![group],
+            negatives: vec![],
+            assets: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn drive_layout_omits_incomplete_image_campaigns_with_w12() {
+        let mut account = reference_account();
+        account.campaigns[0].daily_budget = Cents(4000);
+        account
+            .campaigns
+            .push(image_campaign(CampaignKind::PerformanceMax, "PMax", "pmax"));
+        let mut input = reference_input(&account);
+        input.budget.daily = Cents(5000);
+        input.business.conversion_tracking = true;
+        let (events, _rx) = EventSink::channel();
+
+        let bulk = finalize(
+            &input,
+            &account,
+            None,
+            &FakeWeb(HashMap::new()),
+            opts(true, 50, ExportLayout::Bulk),
+            &events,
+        )
+        .await;
+        assert_eq!(bulk.exit_code, 3, "{:?}", bulk.errors);
+        assert!(
+            bulk.errors
+                .iter()
+                .any(|e| e.code == "E18" || e.code == "E16"),
+            "{:?}",
+            bulk.errors
+        );
+
+        let drive = finalize(
+            &input,
+            &account,
+            None,
+            &FakeWeb(HashMap::new()),
+            opts(true, 50, ExportLayout::DriveFolders),
+            &events,
+        )
+        .await;
+        assert_eq!(drive.exit_code, 0, "{:?}", drive.errors);
+        assert!(
+            drive.warnings.iter().any(|w| w.code == "W12"),
+            "{:?}",
+            drive.warnings
+        );
+        assert!(
+            drive.csv.iter().any(|f| f.name.ends_with("0. Feed.xlsx")),
+            "package still exports"
+        );
+    }
+
+    #[tokio::test]
+    async fn drive_layout_accepts_google_ads_app_id_without_app_table() {
+        let mut account = reference_account();
+        account.campaigns[0].daily_budget = Cents(4000);
+        let mut app = image_campaign(CampaignKind::AppInstalls, "App", "app");
+        app.asset_groups[0].images = vec![ImageBrief {
+            id: "shot".into(),
+            ratio: AspectRatio::Landscape,
+            prompt: "A phone showing a wine label scan".into(),
+            reference: None,
+            file: Some("images/app/shot.jpg".into()),
+        }];
+        app.asset_groups[0].business_name = String::new();
+        app.asset_groups[0].long_headlines.clear();
+        app.asset_groups[0].final_url =
+            "https://play.google.com/store/apps/details?id=com.vinellu.app".into();
+        account.campaigns.push(app);
+
+        let mut input = reference_input(&account);
+        input.budget.daily = Cents(5000);
+        input.app = None;
+        input.google_ads.app_id = "com.vinellu.app".into();
+        let (events, _rx) = EventSink::channel();
+
+        let bulk = finalize(
+            &input,
+            &account,
+            None,
+            &FakeWeb(HashMap::new()),
+            opts(true, 50, ExportLayout::Bulk),
+            &events,
+        )
+        .await;
+        assert_eq!(bulk.exit_code, 3, "{:?}", bulk.errors);
+        assert!(
+            bulk.errors.iter().any(|e| e.code == "E24"),
+            "{:?}",
+            bulk.errors
+        );
+
+        let drive = finalize(
+            &input,
+            &account,
+            None,
+            &FakeWeb(HashMap::new()),
+            opts(true, 50, ExportLayout::DriveFolders),
+            &events,
+        )
+        .await;
+        assert_eq!(drive.exit_code, 0, "{:?}", drive.errors);
+        assert!(
+            drive
+                .warnings
+                .iter()
+                .filter(|w| w.code == "W12")
+                .all(|w| !w.message.contains("App campaign")),
+            "app_id fallback should keep the App campaign: {:?}",
+            drive.warnings
+        );
     }
 }

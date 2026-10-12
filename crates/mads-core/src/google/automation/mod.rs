@@ -21,6 +21,8 @@ use super::{Account, CsvFile, ExportError, Issue};
 use crate::{input::Input, perf::Live};
 use model::customer_cell;
 
+pub use model::image_campaign_gaps;
+
 /// Which file set `generate` and `export` write. `Bulk` is the default. Saved in `run.json`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

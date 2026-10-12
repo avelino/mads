@@ -296,6 +296,7 @@ fn fixed_rows_are_one_per_keyword_of_fixed_campaigns() {
         p.fixed[0],
         FixedRow {
             action: StructAction::Add,
+            group_action: StructAction::Add,
             campaign_key: "brand".into(),
             campaign: "Brand".into(),
             ad_group: "Brand terms".into(),
@@ -537,7 +538,7 @@ fn live_campaigns_are_edited_added_or_paused() {
 #[test]
 fn live_fixed_keywords_are_edited_added_or_paused() {
     let p = build_live();
-    let got: Vec<(&str, &str, &str, StructAction)> = p
+    let got: Vec<(&str, &str, &str, StructAction, StructAction)> = p
         .fixed
         .iter()
         .map(|f| {
@@ -546,17 +547,43 @@ fn live_fixed_keywords_are_edited_added_or_paused() {
                 f.ad_group.as_str(),
                 f.keyword.as_str(),
                 f.action,
+                f.group_action,
             )
         })
         .collect();
     assert_eq!(
         got,
         [
-            ("Brand", "Brand terms", "vinellu", StructAction::Edit),
-            ("Brand", "Brand terms", "vinellu app", StructAction::Add),
-            ("Nova", "nova", "nova", StructAction::Add),
-            ("Brand", "Brand terms", "vinellu old", StructAction::Pause),
-            ("Brand", "Old group", "", StructAction::Pause),
+            // Existing group: keyword Edit/Add, group stays Edit so S3/S5/S6 do not re-add it.
+            (
+                "Brand",
+                "Brand terms",
+                "vinellu",
+                StructAction::Edit,
+                StructAction::Edit
+            ),
+            (
+                "Brand",
+                "Brand terms",
+                "vinellu app",
+                StructAction::Add,
+                StructAction::Edit
+            ),
+            ("Nova", "nova", "nova", StructAction::Add, StructAction::Add),
+            (
+                "Brand",
+                "Brand terms",
+                "vinellu old",
+                StructAction::Pause,
+                StructAction::Edit
+            ),
+            (
+                "Brand",
+                "Old group",
+                "",
+                StructAction::Pause,
+                StructAction::Pause
+            ),
         ]
     );
     let dropped_keyword = &p.fixed[3];
@@ -566,6 +593,36 @@ fn live_fixed_keywords_are_edited_added_or_paused() {
     assert_eq!(dropped_keyword.descriptions, strings(&[], 4));
     let dropped_group = &p.fixed[4];
     assert_eq!(dropped_group.match_type, "");
+}
+
+#[test]
+fn live_existing_group_keeps_edit_when_its_first_keyword_is_new() {
+    // Reorder so the first planned keyword is new: keyword_action is Add, group_action must stay
+    // Edit or the structural import tries to add the existing group and its ad.
+    let mut plan = new_plan();
+    let brand_camp = plan
+        .campaigns
+        .iter_mut()
+        .find(|c| c.name == "Brand")
+        .expect("Brand");
+    brand_camp.ad_groups[0].keywords = vec![
+        kw("vinellu app", MatchType::Phrase),
+        kw("vinellu", MatchType::Exact),
+    ];
+    let p = package(&input(), &plan, Some(&live())).expect("package");
+    let brand: Vec<_> = p
+        .fixed
+        .iter()
+        .filter(|f| {
+            f.ad_group == "Brand terms" && !f.keyword.is_empty() && f.action != StructAction::Pause
+        })
+        .collect();
+    assert_eq!(brand[0].keyword, "vinellu app");
+    assert_eq!(brand[0].action, StructAction::Add);
+    assert_eq!(brand[0].group_action, StructAction::Edit);
+    assert_eq!(brand[1].keyword, "vinellu");
+    assert_eq!(brand[1].action, StructAction::Edit);
+    assert_eq!(brand[1].group_action, StructAction::Edit);
 }
 
 #[test]

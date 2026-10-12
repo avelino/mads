@@ -20,6 +20,15 @@ pub(super) fn campaign_action(live: Option<&Live>, c: &Campaign) -> StructAction
     }
 }
 
+/// `Edit` when the live account already has this ad group, `Add` otherwise.
+pub(super) fn ad_group_action(live: Option<&Live>, c: &Campaign, ag: &AdGroup) -> StructAction {
+    if live.and_then(|l| live_group(l, c, ag)).is_some() {
+        StructAction::Edit
+    } else {
+        StructAction::Add
+    }
+}
+
 /// `Edit` when the live ad group already has the keyword with that match type, `Add` otherwise.
 pub(super) fn keyword_action(
     live: Option<&Live>,
@@ -124,8 +133,16 @@ fn paused_campaign(live: &Live, name: &str) -> CampaignRow {
 
 /// An empty `keyword` pauses the whole ad group.
 fn paused_fixed(c: &Campaign, ad_group: &str, keyword: &str, match_type: &str) -> FixedRow {
+    // A pause of the whole group (empty keyword) pauses the group; a pause of one keyword keeps
+    // the group as Edit so S3 does not try to re-add it.
+    let group_action = if keyword.is_empty() {
+        StructAction::Pause
+    } else {
+        StructAction::Edit
+    };
     FixedRow {
         action: StructAction::Pause,
+        group_action,
         campaign_key: c.slug.clone(),
         campaign: c.name.clone(),
         ad_group: ad_group.into(),

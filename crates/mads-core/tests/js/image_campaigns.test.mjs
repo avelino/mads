@@ -450,6 +450,19 @@ test('an existing campaign gets one budget update and no create', () => {
   assert.ok(logs.includes('budget updated PMax - Wines'), logs.join('\n'));
 });
 
+test('an existing campaign matches live by normalized name', () => {
+  // Feed spelling differs only by case and whitespace: must update, not create a duplicate.
+  const { context, logs, calls } = setup({
+    campaigns: [{ ...PMAX, name: '  pmax  -  wines ', action: 'Edit', budget: '50.00' }],
+    assets: pmaxAssets(PMAX.key), pictures: PMAX_PICTURES,
+    live: [{ id: 77, name: 'PMax - Wines', micros: 40000000 }],
+  });
+  context.setupImageCampaigns();
+  assert.equal(calls.mutateAll.length, 0, 'must not create a duplicate');
+  assert.equal(calls.mutate.length, 1);
+  assert.ok(logs.some((l) => l.startsWith('budget updated')), logs.join('\n'));
+});
+
 test('an existing campaign with the same budget is unchanged', () => {
   const { context, logs, calls } = setup({
     campaigns: [PMAX], assets: pmaxAssets(PMAX.key), pictures: PMAX_PICTURES,

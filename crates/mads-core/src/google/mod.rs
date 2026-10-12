@@ -10,6 +10,7 @@ mod text;
 
 pub use automation::{
     AutomationExport, ExportLayout, automation_warnings, export_automation, folder_name,
+    image_campaign_gaps,
 };
 pub use editor::*;
 pub use expand::*;

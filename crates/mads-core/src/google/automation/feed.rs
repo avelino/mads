@@ -6,7 +6,7 @@ use super::columns::{
 };
 use super::model::{FixedRow, Package, StructAction};
 use super::next_step;
-use super::sheet::{Cell, FIRST_ROW, Sheet, col_letter, workbook};
+use super::sheet::{Cell, FIRST_ROW, Sheet, cell_ref, col_letter, quote_tab, workbook};
 use crate::google::ExportError;
 
 const SETTINGS: &str = "Settings";
@@ -73,34 +73,11 @@ fn row_of(width: usize, cells: Vec<(usize, Cell)>) -> Vec<Cell> {
     row
 }
 
-/// A tab name as a formula reference: quoted when it holds a space.
-fn tab_ref(tab: &str) -> String {
-    if tab.contains(' ') {
-        format!("'{tab}'")
-    } else {
-        tab.to_string()
-    }
-}
-
-/// Absolute reference to a `Settings` value.
-fn setting(offset: usize) -> String {
-    format!(
-        "{SETTINGS}!${}${}",
-        col_letter(settings::VALUE),
-        FIRST_ROW + offset
-    )
-}
-
-/// Reference to column `col` of tab `tab` on Excel row `row`, row relative.
-fn cell_ref(tab: &str, col: usize, row: usize) -> String {
-    format!("{}!${}{row}", tab_ref(tab), col_letter(col))
-}
-
 /// `$X$5:$X$1004` of column `col` in tab `tab`.
 fn lookup_range(tab: &str, col: usize) -> String {
     let c = col_letter(col);
     let last = FIRST_ROW + LOOKUP_ROWS - 1;
-    format!("{}!${c}${FIRST_ROW}:${c}${last}", tab_ref(tab))
+    format!("{}!${c}${FIRST_ROW}:${c}${last}", quote_tab(tab))
 }
 
 /// The value in column `value` of the row of `tab` whose column `key` equals `key_expr`, or
@@ -404,11 +381,14 @@ fn automated_row(row: usize, width: usize) -> Vec<Cell> {
         (F::Keyword, passthrough(catalog::KEYWORD)),
         (
             F::MatchType,
-            when_item(format!("{}&\"\"", setting(settings::MATCH_TYPE))),
+            when_item(format!("{}&\"\"", settings::cell(settings::MATCH_TYPE))),
         ),
         (
             F::MaxCpc,
-            when_item(format!("{}&\"\"", setting(settings::DEFAULT_MAX_CPC))),
+            when_item(format!(
+                "{}&\"\"",
+                settings::cell(settings::DEFAULT_MAX_CPC)
+            )),
         ),
         (F::FinalUrl, passthrough(catalog::FINAL_URL)),
         (F::Headline(1), headline_1),

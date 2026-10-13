@@ -6,7 +6,7 @@ use super::{
     CampaignRow, CatalogRow, DESCRIPTIONS, FixedRow, HEADLINES, Package, StructAction, catalog_row,
     headline_1, is_automated, match_label,
 };
-use crate::google::editor::{Dropped, dropped_items, is_live, same_name};
+use crate::google::editor::{Dropped, baseline_campaign, dropped_items, is_live, same_name};
 use crate::google::{Account, AdGroup, Campaign, CampaignKind, Keyword};
 use crate::input::Input;
 use crate::perf::Live;
@@ -53,10 +53,7 @@ fn live_group<'a>(live: &'a Live, c: &Campaign, ag: &AdGroup) -> Option<&'a AdGr
     if !is_live(live, &c.name) {
         return None;
     }
-    live.baseline
-        .campaigns
-        .iter()
-        .find(|o| same_name(&o.name, &c.name))?
+    baseline_campaign(live, &c.name)?
         .ad_groups
         .iter()
         .find(|g| same_name(&g.name, &ag.name))
@@ -106,28 +103,14 @@ pub(super) fn dropped(live: &Live, account: &Account, input: &Input, p: &mut Pac
 
 /// Only the key and the name: the row pauses the campaign and changes nothing else.
 fn paused_campaign(live: &Live, name: &str) -> CampaignRow {
-    let key = live
-        .baseline
-        .campaigns
-        .iter()
-        .find(|c| same_name(&c.name, name))
+    let key = baseline_campaign(live, name)
         .map(|c| c.slug.clone())
         .unwrap_or_default();
     CampaignRow {
         key,
-        automated: false,
         name: name.into(),
-        campaign_type: String::new(),
-        networks: String::new(),
-        budget: String::new(),
-        budget_type: String::new(),
-        bid_strategy: String::new(),
-        language: String::new(),
-        location: String::new(),
-        devices: String::new(),
-        tracking_template: String::new(),
-        label: String::new(),
         action: StructAction::Pause,
+        ..CampaignRow::default()
     }
 }
 

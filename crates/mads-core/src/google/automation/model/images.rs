@@ -2,7 +2,7 @@
 //! the `Image Campaigns` and `Image Assets` tabs and the pictures they name.
 
 use super::{ImageAssetRow, ImageCampaignRow, Package, PictureCopy, StructAction, store_of};
-use crate::google::editor::{Dropped, dropped_items, is_live, money, same_name};
+use crate::google::editor::{Dropped, baseline_campaign, dropped_items, money};
 use crate::google::{Account, AspectRatio, AssetGroup, BidStrategy, Campaign, CampaignKind};
 use crate::images::logo_rel_path;
 use crate::input::{AppStore, Input};
@@ -46,14 +46,13 @@ fn missing(input: &Input, c: &Campaign) -> Vec<&'static str> {
 /// Fills the two tabs and the picture copies. With `live`, a campaign the account serves is
 /// `Edit`, and an image campaign the new plan dropped gets a `Pause` row.
 pub(super) fn add(input: &Input, account: &Account, live: Option<&Live>, p: &mut Package) {
-    let gaps = image_campaign_gaps(input, account);
     let logo = logo_rel_path(input);
     let mut needs_logo = false;
-    for (i, c) in account.campaigns.iter().enumerate() {
+    for c in &account.campaigns {
         let Some(kind) = campaign_type(c.kind) else {
             continue;
         };
-        if gaps.iter().any(|(g, _)| *g == i) {
+        if !missing(input, c).is_empty() {
             continue;
         }
         p.image_campaigns.push(row(input, live, c, kind));
@@ -111,7 +110,7 @@ fn app(input: &Input) -> Option<(String, &'static str)> {
         return (!id.is_empty()).then(|| (id.to_string(), store));
     }
     let id = input.google_ads.app_id.trim();
-    (!id.is_empty()).then(|| (id.to_string(), store_of(id).0))
+    (!id.is_empty()).then(|| (id.to_string(), store_of(id)))
 }
 
 /// `value` unless blank, else `fallback`.
@@ -148,11 +147,7 @@ fn row(input: &Input, live: Option<&Live>, c: &Campaign, kind: &str) -> ImageCam
         business_name: or(first.map(|g| &g.business_name), &business.name),
         app_id,
         app_store: app_store.into(),
-        action: if live.is_some_and(|l| is_live(l, &c.name)) {
-            StructAction::Edit
-        } else {
-            StructAction::Add
-        },
+        action: super::live::campaign_action(live, c),
     }
 }
 
@@ -246,35 +241,19 @@ fn paused(live: &Live, account: &Account) -> Vec<ImageCampaignRow> {
 
 /// None for a campaign the baseline lacks or a Search campaign: `live::dropped` owns those.
 fn paused_row(live: &Live, name: &str) -> Option<ImageCampaignRow> {
-    let old = live
-        .baseline
-        .campaigns
-        .iter()
-        .find(|c| same_name(&c.name, name))?;
+    let old = baseline_campaign(live, name)?;
     Some(ImageCampaignRow {
         key: old.slug.clone(),
         name: name.into(),
         campaign_type: campaign_type(old.kind)?.into(),
-        budget: String::new(),
-        bid_strategy: String::new(),
-        max_cpc: String::new(),
-        language: String::new(),
-        location: String::new(),
-        final_url: String::new(),
-        business_name: String::new(),
-        app_id: String::new(),
-        app_store: String::new(),
         action: StructAction::Pause,
+        ..ImageCampaignRow::default()
     })
 }
 
 /// True when the live baseline holds `name` as an image campaign.
 pub(super) fn is_image_campaign(live: &Live, name: &str) -> bool {
-    live.baseline
-        .campaigns
-        .iter()
-        .find(|c| same_name(&c.name, name))
-        .is_some_and(|c| campaign_type(c.kind).is_some())
+    baseline_campaign(live, name).is_some_and(|c| campaign_type(c.kind).is_some())
 }
 
 #[cfg(test)]

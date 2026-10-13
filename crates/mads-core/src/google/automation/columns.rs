@@ -130,6 +130,15 @@ impl FeedColumn {
 /// `Settings` tab: one row per setting, label in column A, value in column B, note in C.
 /// The constants are row offsets from the first data row.
 pub(crate) mod settings {
+    /// Absolute reference to the value of the `Settings` row at `offset`.
+    pub fn cell(offset: usize) -> String {
+        format!(
+            "Settings!${}${}",
+            super::super::sheet::col_letter(VALUE),
+            super::super::sheet::FIRST_ROW + offset
+        )
+    }
+
     pub const HEADER: [&str; 3] = ["Setting", "Value", "Note"];
     pub const CUSTOMER_ID: usize = 0;
     pub const DOMAIN: usize = 1;

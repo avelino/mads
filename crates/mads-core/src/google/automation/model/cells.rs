@@ -37,17 +37,11 @@ pub(crate) fn match_label(m: MatchType) -> &'static str {
 }
 
 /// A package name goes to Google Play. Digits only go to the Apple App Store.
-pub(crate) fn store_of(app_id: &str) -> (&'static str, String) {
+pub(crate) fn store_of(app_id: &str) -> &'static str {
     if app_id.chars().all(|c| c.is_ascii_digit()) {
-        (
-            "Apple App Store",
-            format!("https://apps.apple.com/app/id{app_id}"),
-        )
+        "Apple App Store"
     } else {
-        (
-            "Google Play",
-            format!("https://play.google.com/store/apps/details?id={app_id}"),
-        )
+        "Google Play"
     }
 }
 
@@ -64,14 +58,8 @@ mod tests {
 
     #[test]
     fn store_of_tells_apple_from_google_play() {
-        assert_eq!(store_of("123456").0, "Apple App Store");
-        assert_eq!(
-            store_of("com.vinellu.app"),
-            (
-                "Google Play",
-                "https://play.google.com/store/apps/details?id=com.vinellu.app".to_string()
-            )
-        );
+        assert_eq!(store_of("123456"), "Apple App Store");
+        assert_eq!(store_of("com.vinellu.app"), "Google Play");
     }
 
     #[test]

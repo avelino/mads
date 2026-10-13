@@ -11,6 +11,20 @@ use crate::google::ExportError;
 /// Excel row (1-based) of the first data row, below the header on row 4.
 pub(crate) const FIRST_ROW: usize = 5;
 
+/// A tab name as a formula reference: quoted when it holds a space.
+pub(crate) fn quote_tab(tab: &str) -> String {
+    if tab.contains(' ') {
+        format!("'{tab}'")
+    } else {
+        tab.to_string()
+    }
+}
+
+/// Reference to column `col` of tab `tab` on Excel row `row`, row relative.
+pub(crate) fn cell_ref(tab: &str, col: usize, row: usize) -> String {
+    format!("{}!${}{row}", quote_tab(tab), col_letter(col))
+}
+
 /// Zero-based worksheet row of the header.
 const HEADER_ROW: usize = FIRST_ROW - 2;
 

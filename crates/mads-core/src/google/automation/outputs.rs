@@ -3,7 +3,7 @@
 use super::columns::{FeedColumn, auto_negatives, campaigns, negatives, settings};
 use super::model::{Package, StructAction};
 use super::next_step::NextStep;
-use super::sheet::{Cell, FIRST_ROW, Sheet, col_letter, workbook};
+use super::sheet::{Cell, FIRST_ROW, Sheet, cell_ref, col_letter, quote_tab, workbook};
 use crate::google::ExportError;
 
 /// `(path, output tab)` of every output file, in package order. S1 and S7 name their output tab
@@ -87,7 +87,10 @@ impl Source {
     fn range(self, p: &Package) -> String {
         let last_col = col_letter(self.header().len().saturating_sub(1));
         let last_row = FIRST_ROW + self.rows(p).max(1) - 1;
-        format!("{}!A{FIRST_ROW}:{last_col}{last_row}", quoted(self.tab()))
+        format!(
+            "{}!A{FIRST_ROW}:{last_col}{last_row}",
+            quote_tab(self.tab())
+        )
     }
 
     fn mirror(self, p: &Package) -> Sheet {
@@ -319,7 +322,7 @@ impl Kind {
                 skip: format!(
                     "OR({campaign_key}=\"\",{campaign_action}<>{},{}=\"\")",
                     lit(add),
-                    x.setting(settings::APP_ID)
+                    settings::cell(settings::APP_ID)
                 ),
                 cols: vec![
                     col("Action", lit(add)),
@@ -329,9 +332,12 @@ impl Kind {
                         val(&x.cell(Source::Campaigns, campaigns::CAMPAIGN)),
                     ),
                     col("Link text", lit("Get the app")),
-                    col("App ID / Package name", val(&x.setting(settings::APP_ID))),
-                    col("App store", val(&x.setting(settings::APP_STORE))),
-                    col("Final URL", val(&x.setting(settings::DOMAIN))),
+                    col(
+                        "App ID / Package name",
+                        val(&settings::cell(settings::APP_ID)),
+                    ),
+                    col("App store", val(&settings::cell(settings::APP_STORE))),
+                    col("Final URL", val(&settings::cell(settings::DOMAIN))),
                 ],
             },
         }
@@ -370,24 +376,15 @@ struct Refs {
 
 impl Refs {
     fn feed(&self, c: FeedColumn) -> String {
-        format!("Feed!${}{}", c.letter(), self.r)
+        cell_ref("Feed", c.index(), self.r)
     }
 
     fn cell(&self, source: Source, col: usize) -> String {
-        format!("{}!${}{}", quoted(source.tab()), col_letter(col), self.r)
-    }
-
-    /// The value of a `Settings` row in the mirror.
-    fn setting(&self, offset: usize) -> String {
-        format!(
-            "Settings!${}${}",
-            col_letter(settings::VALUE),
-            FIRST_ROW + offset
-        )
+        cell_ref(source.tab(), col, self.r)
     }
 
     fn customer_id(&self) -> String {
-        val(&self.setting(settings::CUSTOMER_ID))
+        val(&settings::cell(settings::CUSTOMER_ID))
     }
 
     /// True on every row but the first of its campaign and ad group.
@@ -484,7 +481,7 @@ impl Refs {
             col("Ad group", self.feed_val(FeedColumn::AdGroup)),
             col(
                 "Tracking template",
-                val(&self.setting(settings::TRACKING_TEMPLATE)),
+                val(&settings::cell(settings::TRACKING_TEMPLATE)),
             ),
         ]
     }
@@ -568,15 +565,6 @@ fn val(e: &str) -> String {
 /// A formula string literal.
 fn lit(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
-}
-
-/// A tab name as a formula or range prefix: quoted when it has a space.
-fn quoted(tab: &str) -> String {
-    if tab.contains(' ') {
-        format!("'{tab}'")
-    } else {
-        tab.to_string()
-    }
 }
 
 /// The output files present in this package: S8 only with an app.

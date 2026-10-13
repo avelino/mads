@@ -82,16 +82,11 @@ function writeAccountStatus(feed) {
     }
   }
 
-  if (rows.length > STATUS_CAP) {
-    throw new Error('The account has ' + rows.length + ' ad groups in automated campaigns and ' +
-                    'the "' + STATUS_TAB + '" block holds ' + STATUS_CAP + '. Split the ' +
-                    'campaign or lower the catalog size, then run again: a half-read account ' +
-                    'turns into CREATE for groups that already exist.');
-  }
-
-  writeBlock(sheet, rows, STATUS_CAP, STATUS_COLS);
-  sheet.getRange('F3').setValue('Last read: ' + now());
-  return rows.length;
+  return writeCapped(sheet, rows, STATUS_CAP, STATUS_COLS, 'F3', 'Last read: ',
+                     'The account has ' + rows.length + ' ad groups in automated campaigns and ' +
+                     'the "' + STATUS_TAB + '" block holds ' + STATUS_CAP + '. Split the ' +
+                     'campaign or lower the catalog size, then run again: a half-read account ' +
+                     'turns into CREATE for groups that already exist.');
 }
 
 
@@ -101,16 +96,22 @@ function writeAutoNegatives(feed) {
   var groups = feedGroups(requireSheet(feed, FEED_TAB));
   var out = isolationNegatives(groups);
 
-  if (out.length > NEGATIVES_CAP) {
-    throw new Error('The feed produced ' + out.length + ' negatives and the "' + NEGATIVES_TAB +
-                    '" block holds ' + NEGATIVES_CAP + '. Remove overlapping keywords or ' +
-                    'catalog items, then run again: a cut list loses part of the isolation ' +
-                    'between ad groups.');
-  }
+  return writeCapped(sheet, out, NEGATIVES_CAP, NEGATIVES_COLS, 'G3', 'Last computed: ',
+                     'The feed produced ' + out.length + ' negatives and the "' + NEGATIVES_TAB +
+                     '" block holds ' + NEGATIVES_CAP + '. Remove overlapping keywords or ' +
+                     'catalog items, then run again: a cut list loses part of the isolation ' +
+                     'between ad groups.');
+}
 
-  writeBlock(sheet, out, NEGATIVES_CAP, NEGATIVES_COLS);
-  sheet.getRange('G3').setValue('Last computed: ' + now());
-  return out.length;
+/**
+ * Writes `rows` into the fixed block of `sheet` and stamps `stampCell`. Throws `overflow`
+ * instead of writing a cut list when `rows` does not fit `cap`.
+ */
+function writeCapped(sheet, rows, cap, cols, stampCell, stampText, overflow) {
+  if (rows.length > cap) throw new Error(overflow);
+  writeBlock(sheet, rows, cap, cols);
+  sheet.getRange(stampCell).setValue(stampText + now());
+  return rows.length;
 }
 
 /**
@@ -118,11 +119,7 @@ function writeAutoNegatives(feed) {
  * group come from a fixed campaign keyword, so reading only automated rows would miss them.
  */
 function feedGroups(sheet) {
-  var last = sheet.getLastRow();
-  if (last < FIRST_ROW) return [];
-  var width = Math.max(FEED_COL.action, FEED_COL.automated, FEED_COL.campaign,
-                       FEED_COL.adGroup, FEED_COL.keyword) + 1;
-  var data = sheet.getRange(FIRST_ROW, 1, last - FIRST_ROW + 1, width).getValues();
+  var data = readTab(sheet, FEED_COL);
 
   var groups = [], seen = {};
   for (var i = 0; i < data.length; i++) {
@@ -353,7 +350,7 @@ function linkSheets() {
       Logger.log('linked ' + file + ' (' + tab + ')');
       linked++;
     } catch (e) {
-      Logger.log('FAILED ' + file + ': ' + (e && e.message ? e.message : e));
+      Logger.log('FAILED ' + file + ': ' + errorText(e));
       failed++;
     }
   }
@@ -760,33 +757,30 @@ function picture(images, path) {
 }
 
 function fieldValues(assets, field) {
-  var out = [];
-  for (var i = 0; i < assets.length; i++) {
-    if (assets[i].field !== field) continue;
-    var v = assets[i].text || assets[i].file;
-    if (v && out.indexOf(v) < 0) out.push(v);
-  }
-  return out;
+  return unique(assets
+    .filter(function (a) { return a.field === field; })
+    .map(function (a) { return a.text || a.file; })
+    .filter(Boolean));
 }
 
 /** Fields of `assets` the builder does not place, logged once per campaign. */
 function warnUnused(b, assets, used) {
-  var skipped = [];
-  for (var i = 0; i < assets.length; i++) {
-    var f = assets[i].field;
-    if (used.indexOf(f) < 0 && skipped.indexOf(f) < 0) skipped.push(f);
-  }
+  var skipped = unique(assets
+    .map(function (a) { return a.field; })
+    .filter(function (f) { return used.indexOf(f) < 0; }));
   if (skipped.length > 0) warn(b, b.row.type + ' does not take ' + skipped.join(', ') + ', skipped');
 }
 
 
 // ------------------------------------------------------------- bidding
-// Performance Max takes only Maximize conversions (or conversion value). Manual CPC and
-// Maximize clicks map to Maximize conversions.
+// Performance Max takes only Maximize conversions (or conversion value), and App installs
+// without a target install cost take Maximize conversions too. Every other mads strategy maps
+// to it. `subject` names the campaign type in the warning.
 // https://developers.google.com/google-ads/api/performance-max/create-campaign
-function pmaxBidding(b) {
+// https://developers.google.com/google-ads/api/docs/app-campaigns/create-campaign
+function maximizeConversionsBidding(b, subject) {
   if (b.row.bid !== 'maximize_conversions') {
-    warn(b, 'Performance Max does not take ' + (b.row.bid || 'an empty bid strategy') +
+    warn(b, subject + ' ' + (b.row.bid || 'an empty bid strategy') +
             ', using maximize conversions');
   }
   return { maximizeConversions: {} };
@@ -808,16 +802,6 @@ function demandGenBidding(b) {
   return { targetSpend: {} };
 }
 
-// App installs without a target install cost: Maximize conversions. Every other mads strategy
-// maps to it.
-// https://developers.google.com/google-ads/api/docs/app-campaigns/create-campaign
-function appBidding(b) {
-  if (b.row.bid !== 'maximize_conversions') {
-    warn(b, 'App campaigns do not take ' + (b.row.bid || 'an empty bid strategy') +
-            ', using maximize conversions');
-  }
-  return { maximizeConversions: {} };
-}
 
 function assign(target, source) {
   for (var k in source) target[k] = source[k];
@@ -833,7 +817,8 @@ function assign(target, source) {
 // https://developers.google.com/google-ads/api/performance-max/create-campaign-criteria
 // https://developers.google.com/google-ads/api/performance-max/asset-group-signals
 function buildPerformanceMax(b, row, groups) {
-  var campaign = assign(campaignBase(b, 'PERFORMANCE_MAX'), pmaxBidding(b));
+  var campaign = assign(campaignBase(b, 'PERFORMANCE_MAX'),
+                        maximizeConversionsBidding(b, 'Performance Max does not take'));
   campaign.brandGuidelinesEnabled = true;
   b.campaignOp = { campaignOperation: { create: campaign } };
   pushCampaignCriteria(b, row);
@@ -960,7 +945,8 @@ function buildApp(b, row, groups) {
   if (!row.appId) throw new Error('no App ID: set google_ads.app_id or [app] and export again');
   var store = APP_STORES[row.appStore];
   if (!store) throw new Error('App store "' + row.appStore + '" is not Google Play or Apple App Store');
-  var campaign = assign(campaignBase(b, 'MULTI_CHANNEL'), appBidding(b));
+  var campaign = assign(campaignBase(b, 'MULTI_CHANNEL'),
+                        maximizeConversionsBidding(b, 'App campaigns do not take'));
   campaign.advertisingChannelSubType = 'APP_CAMPAIGN';
   campaign.appCampaignSetting = {
     appId: row.appId,

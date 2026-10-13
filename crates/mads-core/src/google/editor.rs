@@ -122,6 +122,14 @@ pub(crate) fn same_name(a: &str, b: &str) -> bool {
     normalize(a) == normalize(b)
 }
 
+/// The campaign of the live account's baseline named like `name`.
+pub(crate) fn baseline_campaign<'a>(live: &'a Live, name: &str) -> Option<&'a Campaign> {
+    live.baseline
+        .campaigns
+        .iter()
+        .find(|c| same_name(&c.name, name))
+}
+
 /// Something the live account serves that the new account dropped. Names come from the live
 /// account. `campaign` and `group` are the kept ones of the new account.
 #[derive(Debug, Clone, Copy)]

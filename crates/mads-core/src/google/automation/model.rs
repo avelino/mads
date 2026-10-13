@@ -34,8 +34,9 @@ const DESCRIPTIONS: usize = 4;
 const HEADLINE_LEN: usize = 30;
 
 /// What the structural track does with a campaign, ad group or keyword.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum StructAction {
+    #[default]
     Add,
     Edit,
     Pause,
@@ -51,7 +52,7 @@ impl StructAction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct Package {
     pub folder: String,
     pub business: String,
@@ -74,7 +75,7 @@ pub(crate) struct Package {
 }
 
 /// One row of `Image Campaigns`. Columns: `columns::image_campaigns`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ImageCampaignRow {
     pub key: String,
     pub name: String,
@@ -132,7 +133,7 @@ pub(crate) struct Settings {
     pub app_store: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct CampaignRow {
     pub key: String,
     pub automated: bool,
@@ -238,18 +239,9 @@ pub(crate) fn package(
         folder: folder_name(&input.business.name),
         business: input.business.name.clone(),
         settings: settings(input, account),
-        campaigns: Vec::new(),
-        catalog: Vec::new(),
-        fixed: Vec::new(),
-        templates: Vec::new(),
-        negatives: Vec::new(),
-        capacity: 0,
-        automated_campaigns: Vec::new(),
         has_app: !input.google_ads.app_id.trim().is_empty(),
         live: live.is_some(),
-        image_campaigns: Vec::new(),
-        image_assets: Vec::new(),
-        pictures: Vec::new(),
+        ..Package::default()
     };
     let mut group_negatives = Vec::new();
     for c in search {
@@ -333,7 +325,7 @@ fn settings(input: &Input, account: &Account) -> Settings {
         app_store: if app_id.is_empty() {
             String::new()
         } else {
-            store_of(app_id).0.to_string()
+            store_of(app_id).to_string()
         },
     }
 }
@@ -521,21 +513,9 @@ mod types_tests {
     #[test]
     fn feed_rows_is_capacity_plus_fixed_rows() {
         let p = Package {
-            folder: "Vinellu Ads Automation".into(),
-            business: "Vinellu".into(),
-            settings: Settings::default(),
-            campaigns: Vec::new(),
-            catalog: Vec::new(),
             fixed: vec![fixed_row(), fixed_row()],
-            templates: Vec::new(),
-            negatives: Vec::new(),
             capacity: 150,
-            automated_campaigns: Vec::new(),
-            has_app: false,
-            live: false,
-            image_campaigns: Vec::new(),
-            image_assets: Vec::new(),
-            pictures: Vec::new(),
+            ..Package::default()
         };
         assert_eq!(p.feed_rows(), 152);
     }

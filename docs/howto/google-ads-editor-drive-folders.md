@@ -76,6 +76,8 @@ A successful `bulk` export removes the `automation/` folder. A successful `drive
 
 `README.xlsx` has the same steps in its `Linking` and `Routine` tabs.
 
+Uploading alone links nothing. Until `linkSheets` runs, cell `A5` of every mirror tab holds `IMPORTRANGE("FEED_ID", ...)` with a literal `FEED_ID`, and the output tabs have nothing to read. This also holds when an agent uploads the folder for you. mads writes files before they exist in Drive, so it cannot know the id of `0. Feed`.
+
 1. In Google Drive settings, turn on Convert uploads. Upload the whole folder without renaming it. The script cannot read an `.xlsx` that was not converted, and its log says so.
 2. In Google Ads, Tools, Scripts, create a script and paste `daily-sync.js`.
 3. Run `linkSheets` once. It finds the folder by name, points every mirror tab at `0. Feed` and logs each file as `linked` or `FAILED`. Running it again is safe.
@@ -84,6 +86,7 @@ A successful `bulk` export removes the `automation/` folder. A successful `drive
 6. In Google Ads Editor, get the recent changes of the account. Paste the output tab of `S1` through `S7` (or `S8`), in that order. Hold `S2` until you are ready to go live, because it enables the new campaigns.
 7. Fill what `Pending` lists, such as Customer ID and Default Max CPC. Review the Editor preview, then post.
 8. Schedule `main` in the script to run daily, at night.
+9. Check cell `A5` of the mirror tabs in each `D` and `S` file. It must hold data. `FEED_ID`, `#REF!` or a `Loading...` that never ends means step 3 or step 5 did not happen for that file.
 
 `S1` creates campaigns paused even when `export.status` is `Enabled`. Fixed ad groups in `S3` are `Enabled`. Fixed keywords in `S4` and ads in `S5` are `Paused`, so you enable them after review.
 

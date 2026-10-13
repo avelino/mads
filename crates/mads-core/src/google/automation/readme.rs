@@ -223,7 +223,7 @@ fn linking(p: &Package) -> Sheet {
     let mut s = Sheet::new(
         "Linking",
         "Linking the files in Google Sheets",
-        "Do this once. Never edit the mirror tabs (Settings, Feed, Campaigns, Negatives, Auto Negatives) in the D and S files. They copy 0. Feed.",
+        "Uploading alone links nothing: every mirror tab keeps FEED_ID until linkSheets runs. Do this once. Never edit the mirror tabs (Settings, Feed, Campaigns, Negatives, Auto Negatives) in the D and S files. They copy 0. Feed.",
         &["Step", "Where", "What to do"],
     );
     let mut steps: Vec<[&str; 2]> = vec![
@@ -254,6 +254,10 @@ fn linking(p: &Package) -> Sheet {
         [
             "Google Ads > Tools > Scripts",
             "Schedule main daily, at night. Without it the files work on yesterday's account.",
+        ],
+        [
+            "Each D and S file",
+            "Check cell A5 of each mirror tab. It must hold data, not FEED_ID, #REF! or Loading. If an agent uploaded the folder, it still has to run linkSheets and click Allow access, or this check will fail.",
         ],
     ]);
     s.rows = steps
@@ -467,6 +471,27 @@ mod tests {
         assert_eq!(numbers, expected);
         let without = tab(&no_image_campaigns(), "Linking");
         assert!(!has_cell(&without, "setupImageCampaigns"));
+    }
+
+    #[test]
+    fn linking_warns_that_an_upload_alone_links_nothing_and_ends_with_a_check() {
+        let linking = tab(&sample_package(), "Linking");
+        let intro: Vec<String> = linking
+            .rows()
+            .take(3)
+            .flat_map(|r| r.iter().map(|c| c.to_string()))
+            .collect();
+        assert!(
+            intro
+                .iter()
+                .any(|c| c.contains("Uploading alone links nothing")),
+            "{intro:?}"
+        );
+        let rows = data_rows(&linking);
+        let last = rows.last().expect("steps");
+        assert!(last[2].contains("FEED_ID"), "{last:?}");
+        assert!(last[2].contains("#REF!"), "{last:?}");
+        assert!(last[2].contains("A5"), "{last:?}");
     }
 
     #[test]

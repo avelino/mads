@@ -57,6 +57,7 @@ jobs:
               - "clippy.toml"
             lock:
               - "Cargo.lock"
+              - ".cargo/audit.toml"
             image:
               - "Dockerfile"
               - ".dockerignore"

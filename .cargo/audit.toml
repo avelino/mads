@@ -1,0 +1,7 @@
+[advisories]
+ignore = [
+  # paste is unmaintained (no CVE). It's a compile-time macro crate that only
+  # comes in transitively through genai, and no genai release drops it yet.
+  # Revisit when genai removes paste.
+  "RUSTSEC-2024-0436",
+]

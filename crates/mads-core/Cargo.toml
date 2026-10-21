@@ -10,7 +10,7 @@ async-trait = "0.1.92"
 csv = "1.4.0"
 futures = "0.3.34"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
-rust_xlsxwriter = "0.99.1"
+rust_xlsxwriter = "0.101.0"
 schemars = "1.2.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -26,6 +26,6 @@ uuid = { version = "1.26.1", features = ["v4"] }
 workspace = true
 
 [dev-dependencies]
-calamine = "0.36.1"
+calamine = "0.37.0"
 tempfile = "3.27.0"
 time = { version = "0.3.55", features = ["parsing"] }

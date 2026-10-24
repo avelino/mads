@@ -57,9 +57,18 @@ pub(crate) fn api_provider(name: &str) -> Option<(&'static str, Option<&'static 
 impl GenaiChatModel {
     /// `provider` is the mads name (`anthropic`, `openrouter`...). None for unknown names.
     pub fn for_provider(provider: &str, model: &str) -> Option<Self> {
+        Self::for_provider_with_key(provider, model, None)
+    }
+
+    /// Same as `for_provider`, but a key saved by the studio wins over the variable.
+    pub fn for_provider_with_key(provider: &str, model: &str, key: Option<&str>) -> Option<Self> {
         let (namespace, env) = api_provider(provider)?;
         let mut builder = Client::builder();
-        if let Some(var) = env {
+        if let Some(key) = key.map(str::to_string) {
+            builder = builder.with_auth_resolver_fn(move |_: ModelIden| {
+                Ok(Some(AuthData::from_single(key.clone())))
+            });
+        } else if let Some(var) = env {
             builder = builder
                 .with_auth_resolver_fn(move |_: ModelIden| Ok(Some(AuthData::from_env(var))));
         }

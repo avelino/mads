@@ -11,7 +11,7 @@ pub use cli::{Claude, CliAgent, CliDriver, Codex, Gemini};
 pub use genai_model::GenaiChatModel;
 pub use image::{
     GEMINI_IMAGE_MODEL, GeminiImageModel, OPENAI_IMAGE_MODEL, OpenAiImageModel, build_image_model,
-    list_image_providers,
+    build_image_model_with_keys, list_image_providers,
 };
 pub use mcp::McpEndpoint;
 pub use select::{

@@ -17,6 +17,8 @@ pub struct ProviderSelection {
     pub model: Option<String>,
     pub plan_model: Option<String>,
     pub base_url: Option<String>,
+    /// Key saved by the studio. `None` reads the provider variable.
+    pub api_key: Option<String>,
     /// `replay` only: JSON script with recorded responses.
     pub script: Option<PathBuf>,
 }
@@ -211,7 +213,7 @@ fn api_drivers(sel: &ProviderSelection, provider: &str) -> Result<Drivers, Provi
                 std::env::var("MADS_API_KEY").ok().filter(|k| !k.is_empty()),
             )
         } else {
-            GenaiChatModel::for_provider(provider, m)
+            GenaiChatModel::for_provider_with_key(provider, m, sel.api_key.as_deref())
                 .ok_or_else(|| ProviderError::NotAvailable(provider.into()))?
         };
         Ok(Arc::new(LoopDriver::new(Arc::new(chat))))

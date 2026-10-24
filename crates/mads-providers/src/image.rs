@@ -253,6 +253,15 @@ pub fn build_image_model(
     image_model_with(provider, model, &env)
 }
 
+/// Same as `build_image_model`, but a studio key file wins over the variable.
+pub fn build_image_model_with_keys(
+    provider: &str,
+    model: Option<&str>,
+    keys: &dyn Fn(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn ImageModel>>, ProviderError> {
+    image_model_with(provider, model, keys)
+}
+
 pub(crate) fn image_model_with(
     provider: &str,
     model: Option<&str>,

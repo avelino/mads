@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Studio") }}</p>
+    <h1>{{ chrome.t("Novo projeto") }}</h1>
+    <p class="lede">{{ chrome.t("O agente lê o site e escreve") }} <span class="mono">business.toml</span>, <span class="mono">catalog.csv</span> {{ chrome.t("e") }} <span class="mono">research.md</span>{{ chrome.t(". Você revisa depois.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/">{{ chrome.t("Voltar") }}</a>
+  </div>
+</section>
+
+<form class="panel form" data-project-form data-action="/api/projects">
+  <div class="form-grid">
+    <label>{{ chrome.t("Nome do negócio") }}
+      <input name="name" required maxlength="80" placeholder="Vinellu">
+    </label>
+    <label>{{ chrome.t("Site") }}
+      <input name="start_url" type="url" required placeholder="https://exemplo.com">
+    </label>
+    <label>{{ chrome.t("Orçamento diário") }}
+      <input name="daily" type="number" min="0.01" step="0.01" required value="50">
+    </label>
+    <label>{{ chrome.t("Moeda") }}
+      <input name="currency" required maxlength="3" value="BRL">
+    </label>
+    <label>{{ chrome.t("Provedor") }}
+      <input name="provider" list="project-providers" value="{{ default_provider }}" required>
+      <datalist id="project-providers">
+        {% for provider in providers %}<option value="{{ provider.name }}">{{ provider.status }}</option>{% endfor %}
+      </datalist>
+    </label>
+    <label>{{ chrome.t("Modelo") }}
+      <input name="model" value="{{ default_model }}" placeholder="{{ chrome.t("o id que o provedor documenta") }}">
+    </label>
+    <label>Endpoint (openai-compat)
+      <input name="base_url" placeholder="http://localhost:8000/v1">
+    </label>
+    <label>{{ chrome.t("Itens do catálogo") }}
+      <input name="catalog_limit" type="number" min="0" value="50">
+    </label>
+    <label>{{ chrome.t("Turnos por missão") }}
+      <input name="max_turns" type="number" min="1" value="40">
+    </label>
+    <label>{{ chrome.t("Tempo por missão") }}
+      <input name="timeout" value="15m">
+    </label>
+    <label>{{ chrome.t("Teto de tokens") }}
+      <input name="max_tokens" type="number" min="0" value="4000000">
+    </label>
+    <label>{{ chrome.t("Retentativas") }}
+      <input name="retries" type="number" min="0" value="1">
+    </label>
+  </div>
+
+  <div class="check-row">
+    <label class="check"><input type="checkbox" name="web_search" checked> {{ chrome.t("Deixar o agente buscar na web") }}</label>
+    <label class="check"><input type="checkbox" name="focus"> {{ chrome.t("Anunciar só esta oferta, não o negócio inteiro") }}</label>
+  </div>
+
+  <div class="notice warn">
+    <strong>{{ chrome.t("Isto gasta tokens do seu provedor.") }}</strong>
+    {{ chrome.t("O agent lê o site e pode pesquisar na web. Você acompanha e pode parar.") }}
+  </div>
+
+  <div class="form-actions">
+    <button class="button primary" type="submit">{{ chrome.t("Estudar site e criar projeto") }}</button>
+    <a class="button" href="/">{{ chrome.t("Cancelar") }}</a>
+    <span class="form-error error" data-form-error role="alert"></span>
+  </div>
+</form>
+{% endblock %}

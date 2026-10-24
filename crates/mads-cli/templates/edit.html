@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução · correção") }}</p>
+    <h1>{{ chrome.t("Corrigir") }}</h1>
+    <p class="lede">{{ chrome.t("A edição cria uma revisão. A execução original fica intacta e a reexportação não chama a IA.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  </div>
+</section>
+
+{% if run.has_account %}
+<form class="panel form" data-revision-form data-action="/api/runs/{{ run.summary.id }}/revisions">
+  <div class="edit-list">
+    {% for field in run.account.fields %}
+    <div class="edit-row">
+      <label for="f{{ loop.index }}">{{ field.label }}</label>
+      <input id="f{{ loop.index }}"
+             data-path="{{ field.path }}"
+             data-kind="{{ field.kind }}"
+             data-original="{{ field.value }}"
+             value="{{ field.value }}"
+             {% if field.limit > 0 %}maxlength="{{ field.limit }}"{% endif %}
+             {% if field.kind == "number" %}inputmode="decimal"{% endif %}
+             autocomplete="off" spellcheck="false">
+      {% if field.limit > 0 %}<span class="muted small">{{ chrome.t("limite") }} {{ field.limit }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="muted small">{{ chrome.t("Você pode editar textos, orçamento, lances, URLs, palavras, negativas, grupos de assets e ativos de campanha. Para mudar a estrutura de campanhas ou grupos, gere outra execução.") }}</p>
+
+  <div class="notice warn">
+    <strong>{{ chrome.t("Salvar cria uma nova revisão.") }}</strong> {{ chrome.t("A conta é validada antes de gravar. Se algo quebrar, nada é salvo.") }}
+  </div>
+
+  <div class="form-actions">
+    <button class="button primary" type="submit">{{ chrome.t("Salvar revisão e reexportar") }}</button>
+    <a class="button" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Cancelar") }}</a>
+    <span class="form-error error" data-form-error role="alert"></span>
+  </div>
+</form>
+{% else %}
+<div class="notice error"><strong>{{ chrome.t("Sem conta.") }}</strong><p>{{ chrome.t("Esta execução não tem workspace para corrigir.") }}</p></div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução · alterações") }}</p>
+    <h1>{{ chrome.t("Alterações") }}</h1>
+    {% if not_revision %}
+    <p class="lede">{{ chrome.t("Esta execução não é uma revisão. Não há execução anterior para comparar.") }}</p>
+    {% else if missing_parent %}
+    <p class="lede">{{ chrome.t("A revisão aponta para") }} <span class="mono">{{ parent_id }}</span>{{ chrome.t(", mas essa execução não está no projeto.") }}</p>
+    {% else if error_text != "" %}
+    <p class="lede">{{ chrome.t("Não foi possível carregar as contas para comparar.") }}</p>
+    {% else %}
+    <p class="lede">{{ changes.len() }} {{ chrome.t("alteração(ões) em relação à execução") }} <a class="mono" href="/runs/{{ parent_id }}">{{ parent_id }}</a>{{ chrome.t(". Valores na moeda do projeto.") }}</p>
+    {% endif %}
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+    {% if run.summary.has_parent %}<a class="button" href="/runs/{{ parent_id }}">{{ chrome.t("revisão de") }} {{ parent_id }}</a>{% endif %}
+    {% if run.summary.origin == "human" %}
+    <button class="button" type="button" data-revert-revision data-action="/api/runs/{{ run.summary.id }}/revert">{{ chrome.t("Desfazer revisão") }}</button>
+    {% endif %}
+  </div>
+</section>
+
+<nav class="tabs" aria-label="{{ chrome.t("Execução") }}">
+  <a class="tab" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Validação") }}</a>
+  {% if run.has_report %}<a class="tab" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+  <a class="tab" href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/events">{{ chrome.t("Eventos") }}</a>
+  {% if run.summary.has_parent %}<a class="tab is-active" href="/runs/{{ run.summary.id }}/diff">{{ chrome.t("Alterações") }}</a>{% endif %}
+</nav>
+
+{% if not_revision %}
+<div class="notice">
+  <strong>{{ chrome.t("Esta execução não é uma revisão.") }}</strong>
+  <p>{{ chrome.t("Ela foi gerada do zero, sem execução anterior.") }} <a href="/runs/{{ run.summary.id }}">{{ chrome.t("Abrir a execução") }}</a>.</p>
+</div>
+{% else %}
+  {% if missing_parent %}
+  <div class="notice warn">
+    <strong>{{ chrome.t("Execução anterior não encontrada.") }}</strong>
+    <p>{{ chrome.t("A revisão aponta para") }} <span class="mono">{{ parent_id }}</span>{{ chrome.t(", mas a pasta dessa execução não está neste projeto. Nada a comparar.") }}</p>
+  </div>
+  {% else %}
+    {% if error_text != "" %}
+    <div class="notice error">
+      <strong>{{ chrome.t("Não foi possível comparar.") }}</strong>
+      <p>{{ error_text }}</p>
+    </div>
+    {% else %}
+      <section class="stats">
+        <div class="stat"><span class="stat-label">{{ chrome.t("Alterações") }}</span><span class="stat-value">{{ changes.len() }}</span></div>
+        <div class="stat"><span class="stat-label">{{ chrome.t("Campanhas") }}</span><span class="stat-value">{{ run.account.campaign_count }}</span></div>
+      </section>
+
+      {% if changes.len() == 0 %}
+      <div class="notice ok">
+        <strong>{{ chrome.t("Nenhuma alteração.") }}</strong>
+        <p>{{ chrome.t("A conta é idêntica à execução") }} <span class="mono">{{ parent_id }}</span>.</p>
+      </div>
+      {% else %}
+      <div class="panel">
+        <table class="table">
+          <thead><tr><th>{{ chrome.t("Escopo") }}</th><th>{{ chrome.t("Campo") }}</th><th>{{ chrome.t("Antes") }}</th><th>{{ chrome.t("Depois") }}</th></tr></thead>
+          <tbody>
+          {% for change in changes %}
+          <tr>
+            <td class="mono">{{ change.scope }}</td>
+            <td>{{ change.field }}</td>
+            <td class="break">{% if change.before != "" %}{{ change.before }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="break">{% if change.after != "" %}{{ change.after }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    {% endif %}
+  {% endif %}
+{% endif %}
+{% endblock %}

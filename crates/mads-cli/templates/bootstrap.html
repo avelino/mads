@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · mads studio</title>
+  <link rel="stylesheet" href="/assets/app.css?v=20261024b">
+</head>
+<body class="bootstrap-body">
+  <main class="bootstrap">
+    <div class="bootstrap-card">
+      <div class="bootstrap-top">
+        <a class="brand" href="/">mads <span>studio</span></a>
+        <label class="lang"><select data-language><option value="pt-BR"{% if lang != "en" %} selected{% endif %}>Português (BR)</option><option value="en"{% if lang == "en" %} selected{% endif %}>English</option></select></label>
+      </div>
+      <h1>{% if lang == "en" %}Open the studio{% else %}Abra o estúdio{% endif %}</h1>
+      <p class="muted">
+        {% if lang == "en" %}
+        The server prints an address with the token in the terminal. If the page opened
+        automatically, it signs in by itself. Otherwise, paste the token below.
+        {% else %}
+        O servidor imprime um endereço com o token no terminal. Se a página foi aberta
+        automaticamente, ela entra sozinha. Caso contrário, cole o token abaixo.
+        {% endif %}
+      </p>
+      <form data-bootstrap class="stack" autocomplete="off">
+        <label for="token">Token</label>
+        <input id="token" name="token" type="password" autocomplete="off" spellcheck="false"
+               placeholder="65 caracteres" required>
+        <button class="button primary" type="submit">{% if lang == "en" %}Sign in{% else %}Entrar{% endif %}</button>
+        <p class="error" data-bootstrap-error role="alert" hidden></p>
+      </form>
+      <p class="hint">
+        {% if lang == "en" %}
+        The token is temporary. Restarting <span class="mono">mads serve</span> generates another.
+        {% else %}
+        O token é temporário. Reiniciar <span class="mono">mads serve</span> gera outro.
+        {% endif %}
+      </p>
+    </div>
+  </main>
+  <script src="/assets/app.js?v=20261024b" defer></script>
+</body>
+</html>

@@ -1,6 +1,8 @@
 mod cli;
 mod commands;
 mod render;
+#[cfg(feature = "serve")]
+mod serve;
 
 use std::io::IsTerminal;
 
@@ -34,6 +36,8 @@ async fn main() {
         Command::Optimize(args) => commands::optimize::run(args, format).await,
         Command::Export(args) => commands::export::run(args, format).await,
         Command::Providers => commands::providers::run(),
+        #[cfg(feature = "serve")]
+        Command::Serve(args) => commands::serve::run(args).await,
     };
     let code = match result {
         Ok(code) => code,

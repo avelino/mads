@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Projeto") }}</p>
+    <h1>{{ project.name }}</h1>
+    <p class="lede">{{ chrome.t("Configurações do projeto.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/projects/{{ project.id }}">{{ chrome.t("Voltar ao projeto") }}</a>
+    <a class="button" href="/">{{ chrome.t("Projetos") }}</a>
+  </div>
+</section>
+
+<section class="split">
+  <div>
+    <div class="panel">
+      <h3>{{ chrome.t("Identificação") }}</h3>
+      <dl class="facts">
+        <dt>{{ chrome.t("Nome") }}</dt><dd>{{ project.name }}</dd>
+        <dt>{{ chrome.t("Id") }}</dt><dd class="mono">{{ project.id }}</dd>
+        <dt>{{ chrome.t("Caminho") }}</dt><dd class="mono">{{ path }}</dd>
+        <dt>{{ chrome.t("Estado") }}</dt>
+        <dd>
+          {% if project.archived %}
+          <span class="status status-muted">{{ chrome.t("Arquivado") }}</span>
+          {% else %}
+          <span class="status status-ok">{{ chrome.t("Ativo") }}</span>
+          {% endif %}
+        </dd>
+      </dl>
+    </div>
+
+    <div class="panel">
+      <h3>{{ chrome.t("Arquivar") }}</h3>
+      <p class="small muted">{{ chrome.t("Arquivar esconde o projeto da lista. Os arquivos continuam no disco e você pode reativar quando quiser.") }}</p>
+      {% if project.archived %}
+      <button class="button" type="button" data-project-archive="/api/projects/{{ project.id }}/archive" data-archived="false">{{ chrome.t("Reativar projeto") }}</button>
+      {% else %}
+      <button class="button" type="button" data-project-archive="/api/projects/{{ project.id }}/archive" data-archived="true">{{ chrome.t("Arquivar projeto") }}</button>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <h3>{{ chrome.t("Excluir") }}</h3>
+      <div class="notice warn">
+        <strong>{{ chrome.t("O projeto vai para a lixeira, não é apagado.") }}</strong>
+        <p>{{ chrome.t("A pasta sai da lista e vai para") }} <span class="mono">{{ trash }}</span>{{ chrome.t(". Você pode recuperar tudo pelo terminal.") }}</p>
+      </div>
+      <button class="button danger" type="button" data-project-delete="/api/projects/{{ project.id }}/delete" data-project="{{ project.name }}">{{ chrome.t("Mover para a lixeira") }}</button>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="panel">
+      <h3>{{ chrome.t("Atalhos") }}</h3>
+      <p class="actions-row">
+        <a class="button" href="/projects/{{ project.id }}/draft">{{ chrome.t("Rascunho") }}</a>
+        <a class="button" href="/projects/{{ project.id }}/run">{{ chrome.t("Nova execução") }}</a>
+      </p>
+    </div>
+    <div class="panel">
+      <h3>{{ chrome.t("Onde ficam os arquivos") }}</h3>
+      <p class="small muted">{{ chrome.t("O rascunho, as execuções e o histórico ficam nesta pasta. Nada é enviado ao Google Ads.") }}</p>
+    </div>
+  </aside>
+</section>
+{% endblock %}

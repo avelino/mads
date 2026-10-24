@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução · conta") }}</p>
+    <h1>{{ chrome.t("Conta") }}</h1>
+    <p class="lede">{{ run.summary.id }} · {{ run.account.campaign_count }} {{ chrome.t("campanha(s)") }} · {{ run.account.budget_total }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button primary" href="/runs/{{ run.summary.id }}/edit">{{ chrome.t("Corrigir") }}</a>
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+    <a class="button" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Validação") }}</a>
+  </div>
+</section>
+
+<nav class="tabs" aria-label="{{ chrome.t("Execução") }}">
+  <a class="tab" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  <a class="tab is-active" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Validação") }}</a>
+  {% if run.has_report %}<a class="tab" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+  <a class="tab" href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/events">{{ chrome.t("Eventos") }}</a>
+</nav>
+
+{% if !run.has_account %}
+<div class="notice error"><strong>{{ chrome.t("Sem conta.") }}</strong> {{ chrome.t("O workspace desta execução não carrega.") }}</div>
+{% else %}
+<div class="account-bar">
+  <div><span class="muted">{{ chrome.t("Brand kit") }}</span> <strong>{{ run.account.brand_headlines }}</strong> {{ chrome.t("títulos") }}, <strong>{{ run.account.brand_descriptions }}</strong> {{ chrome.t("descrições") }}</div>
+  <div><span class="muted">{{ chrome.t("Total") }}</span> <strong>{{ run.account.budget_total }}</strong>{{ chrome.t("/dia") }}</div>
+</div>
+
+{% for campaign in run.account.campaigns %}
+<article class="campaign">
+  <header class="campaign-head">
+    <div>
+      <div class="row-main">
+        <h2>{{ campaign.name }}</h2>
+        <span class="chip">{{ chrome.t(campaign.kind) }}</span>
+        <span class="chip">{{ chrome.t(campaign.intent) }}</span>
+      </div>
+      <p class="muted small">{{ campaign.budget }}{{ chrome.t("/dia") }} · {{ campaign.bid }} · {{ campaign.keyword_count }} {{ chrome.t("palavras") }} · {{ campaign.ad_groups.len() }} {{ chrome.t("grupo(s)") }}</p>
+    </div>
+    <span class="mono strong">{{ campaign.budget }}</span>
+  </header>
+
+  {% if campaign.rationale != "" %}
+  <p class="rationale"><span class="label">{{ chrome.t("Por que") }}</span> {{ campaign.rationale }}</p>
+  {% endif %}
+
+  {% if campaign.negatives.len() > 0 %}
+  <div class="inline-list">
+    <span class="label">{{ chrome.t("Negativas da campanha") }}</span>
+    {% for negative in campaign.negatives %}<span class="chip">{{ negative }}</span>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if campaign.has_assets %}
+  <div class="campaign-assets">
+    <span class="label">{{ chrome.t("Ativos") }}</span>
+    {% if campaign.sitelinks.len() > 0 %}
+    <div class="inline-list">
+      <span class="muted small">{{ chrome.t("Sitelinks") }}</span>
+      {% for link in campaign.sitelinks %}
+      <span class="chip" title="{{ link.url }} · {{ link.description }}">{{ link.text }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if campaign.callouts.len() > 0 %}
+    <div class="inline-list">
+      <span class="muted small">{{ chrome.t("Callouts") }}</span>
+      {% for callout in campaign.callouts %}<span class="chip">{{ callout }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    {% if campaign.snippets.len() > 0 %}
+    <div class="inline-list">
+      <span class="muted small">{{ chrome.t("Snippets") }}</span>
+      {% for snippet in campaign.snippets %}<span class="chip">{{ snippet.header }}: {{ snippet.values }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    <p class="muted small">{{ chrome.t("Sitelinks, callouts e snippets são validados, mas não exportados nesta versão.") }}</p>
+  </div>
+  {% endif %}
+
+  {% for group in campaign.ad_groups %}
+  <details class="adgroup" open>
+    <summary>
+      <span class="mono strong">{{ group.name }}</span>
+      <span class="muted">CPC {{ group.cpc }}</span>
+      <span class="muted">{{ group.keywords.len() }} {{ chrome.t("palavras") }}</span>
+      {% if group.final_url != "" %}<span class="mono path">{{ group.final_url }}</span>{% endif %}
+    </summary>
+    <div class="adgroup-body">
+      <div class="two-col">
+        <div>
+          <h4>{{ chrome.t("Palavras-chave") }}</h4>
+          <table class="table compact">
+            <thead><tr><th>{{ chrome.t("Texto") }}</th><th>{{ chrome.t("Correspondência") }}</th></tr></thead>
+            <tbody>
+            {% for keyword in group.keywords %}
+              <tr><td class="mono">{{ keyword.text }}</td><td><span class="chip">{{ chrome.t(keyword.kind) }}</span></td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% if group.negatives.len() > 0 %}
+          <h4>{{ chrome.t("Negativas") }}</h4>
+          <div class="inline-list">
+            {% for negative in group.negatives %}<span class="chip">{{ negative }}</span>{% endfor %}
+          </div>
+          {% endif %}
+        </div>
+        <div>
+          <h4>{{ chrome.t("Anúncio (merge real)") }}</h4>
+          <div class="ad-preview">
+            <div class="ad-headline">
+              {% for headline in group.headlines %}
+              <span class="ad-text{% if headline.over %} over{% endif %}" title="{{ headline.len }}/{{ headline.limit }}">{{ headline.text }}</span>
+              {% endfor %}
+            </div>
+            {% for description in group.descriptions %}
+            <p class="ad-description{% if description.over %} over{% endif %}">{{ description.text }}</p>
+            {% endfor %}
+            {% if group.path1 != "" %}<p class="mono path">/{{ group.path1 }}{% if group.path2 != "" %}/{{ group.path2 }}{% endif %}</p>{% endif %}
+          </div>
+          <div class="counters">
+            {% for headline in group.headlines %}<span class="counter{% if headline.over %} over{% endif %}">{{ headline.len }}/{{ headline.limit }}</span>{% endfor %}
+            {% for description in group.descriptions %}<span class="counter{% if description.over %} over{% endif %}">{{ description.len }}/{{ description.limit }}</span>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </details>
+  {% endfor %}
+
+  {% if campaign.asset_groups.len() > 0 %}
+  <div class="asset-groups">
+    <h3>{{ chrome.t("Grupos de assets") }}</h3>
+    {% for group in campaign.asset_groups %}
+    <details class="adgroup">
+      <summary>
+        <span class="mono strong">{{ group.name }}</span>
+        <span class="muted">{{ group.business_name }}</span>
+        <span class="mono path">{{ group.final_url }}</span>
+      </summary>
+      <div class="adgroup-body">
+        <div class="two-col">
+          <div>
+            <h4>{{ chrome.t("Títulos") }}</h4>
+            <div class="inline-list">{% for text in group.headlines %}<span class="chip{% if text.over %} over{% endif %}" title="{{ text.len }}/{{ text.limit }}">{{ text.text }}</span>{% endfor %}</div>
+            <h4>{{ chrome.t("Títulos longos") }}</h4>
+            <div class="inline-list">{% for text in group.long_headlines %}<span class="chip{% if text.over %} over{% endif %}">{{ text.text }}</span>{% endfor %}</div>
+            <h4>{{ chrome.t("Descrições") }}</h4>
+            <div class="inline-list">{% for text in group.descriptions %}<span class="chip{% if text.over %} over{% endif %}">{{ text.text }}</span>{% endfor %}</div>
+            {% if group.search_themes.len() > 0 %}
+            <h4>{{ chrome.t("Temas de busca") }}</h4>
+            <div class="inline-list">{% for theme in group.search_themes %}<span class="chip">{{ theme }}</span>{% endfor %}</div>
+            {% endif %}
+          </div>
+          <div>
+            <h4>{{ chrome.t("Imagens") }}</h4>
+            <div class="images">
+              {% for image in group.images %}
+              <figure class="image-card">
+                {% if image.has_preview %}<img src="{{ image.preview_url }}" alt="" loading="lazy">{% endif %}
+                <figcaption>
+                  <span class="mono">{{ image.id }}</span>
+                  <span class="chip">{{ image.ratio }}</span>
+                  <span class="muted">{{ chrome.t(image.status) }}</span>
+                </figcaption>
+                <p class="small muted">{{ image.prompt }}</p>
+              </figure>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+</article>
+{% endfor %}
+{% endif %}
+{% endblock %}

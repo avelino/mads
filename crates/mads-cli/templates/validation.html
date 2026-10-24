@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução · validação") }}</p>
+    <h1>{{ chrome.t("Validação") }}</h1>
+    <p class="lede">{{ run.errors.len() }} {{ chrome.t("erro(s),") }} {{ run.warnings.len() }} {{ chrome.t("aviso(s). Erros bloqueiam a exportação.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+    {% if run.has_report %}<a class="button" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+  </div>
+</section>
+
+<nav class="tabs" aria-label="{{ chrome.t("Execução") }}">
+  <a class="tab" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+  <a class="tab is-active" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Validação") }}</a>
+  {% if run.has_report %}<a class="tab" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+  <a class="tab" href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/events">{{ chrome.t("Eventos") }}</a>
+</nav>
+
+<div class="split">
+  <div>
+    <div class="section-head"><h2>{{ chrome.t("Erros") }}</h2><span class="muted">{{ run.errors.len() }}</span></div>
+    {% if run.errors.len() == 0 %}
+      <div class="notice ok"><strong>{{ chrome.t("Nenhum erro.") }}</strong> {{ chrome.t("A conta passa nas regras que bloqueiam a exportação.") }}</div>
+    {% else %}
+      {% for group in run.error_groups %}
+      <div class="issue-group">
+        <div class="issue-head"><span class="code">{{ group.code }}</span><span class="muted">{{ group.count }} {{ chrome.t("ocorrência(s)") }}</span></div>
+        <ul class="issues">
+          {% for issue in group.items %}
+          <li><span class="mono path">{{ issue.path }}</span><span>{{ issue.message }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="section-head"><h2>{{ chrome.t("Avisos") }}</h2><span class="muted">{{ run.warnings.len() }}</span></div>
+    {% if run.warnings.len() == 0 %}
+      <p class="muted">{{ chrome.t("Nenhum aviso.") }}</p>
+    {% else %}
+      {% for group in run.warning_groups %}
+      <div class="issue-group">
+        <div class="issue-head"><span class="code warn-code">{{ group.code }}</span><span class="muted">{{ group.count }} {{ chrome.t("ocorrência(s)") }}</span></div>
+        <ul class="issues">
+          {% for issue in group.items %}
+          <li><span class="mono path">{{ issue.path }}</span><span>{{ issue.message }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <aside class="side">
+    <div class="panel">
+      <h3>{{ chrome.t("Verificação de URL") }}</h3>
+      {% if run.urls.len() == 0 %}
+      <p class="muted small">{{ chrome.t("Nenhuma verificação registrada. Pode ter sido pulada.") }}</p>
+      {% else %}
+      <table class="table compact">
+        <thead><tr><th>{{ chrome.t("URL") }}</th><th>{{ chrome.t("Status") }}</th></tr></thead>
+        <tbody>
+        {% for url in run.urls %}
+        <tr>
+          <td class="mono small break">{{ url.url }}</td>
+          <td><span class="status {% if url.ok %}status-ok{% else %}status-error{% endif %}">{{ url.status }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    <div class="panel">
+      <h3>{{ chrome.t("Como corrigir") }}</h3>
+      <p class="small">{{ chrome.t("Abra") }} <strong>{{ chrome.t("Corrigir") }}</strong> {{ chrome.t("para editar a conta e reexportar sem chamar a IA. Para mudar o rascunho e gerar outra execução, edite o Rascunho.") }}</p>
+    </div>
+  </aside>
+</div>
+{% endblock %}

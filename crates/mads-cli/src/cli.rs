@@ -1,5 +1,8 @@
 use std::{path::PathBuf, time::Duration};
 
+#[cfg(feature = "serve")]
+use std::net::IpAddr;
+
 use clap::{Args, Parser, Subcommand};
 use mads_providers::ProviderSelection;
 
@@ -42,6 +45,34 @@ pub enum Command {
     Export(ExportArgs),
     /// List the providers and whether each one is ready.
     Providers,
+    /// Serve mads studio in the browser.
+    #[cfg(feature = "serve")]
+    Serve(ServeArgs),
+}
+
+/// `mads serve`: the browser interface. It binds loopback unless `--allow-remote`
+/// is given with a token file.
+#[cfg(feature = "serve")]
+#[derive(Args)]
+pub struct ServeArgs {
+    /// Directory that holds one subdirectory per project.
+    #[arg(long, env = "MADS_ROOT")]
+    pub root: Option<PathBuf>,
+    /// Address to bind. The default is loopback.
+    #[arg(long, default_value = "127.0.0.1")]
+    pub bind: IpAddr,
+    /// Port to bind. The default is fixed so a bookmark keeps working.
+    #[arg(long, default_value_t = 4780)]
+    pub port: u16,
+    /// Open the browser after the server starts.
+    #[arg(long)]
+    pub open: bool,
+    /// Allow a non-loopback bind. Requires --token-file.
+    #[arg(long)]
+    pub allow_remote: bool,
+    /// File with the bearer token for a non-loopback bind. A random token is printed otherwise.
+    #[arg(long)]
+    pub token_file: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -200,6 +231,7 @@ impl AgentArgs {
             model: self.model.clone(),
             plan_model: self.plan_model.clone(),
             base_url: self.base_url.clone(),
+            api_key: None,
             script: self.script.clone(),
         }
     }

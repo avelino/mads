@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução · arquivos") }}</p>
+    <h1>{{ chrome.t("Arquivos") }}</h1>
+    <p class="lede">{{ run.files.len() }} {{ chrome.t("arquivo(s) em") }} <span class="mono">google-ads/</span>, <span class="mono">transcripts/</span> {{ chrome.t("e") }} <span class="mono">input/</span>.</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  </div>
+</section>
+
+<nav class="tabs" aria-label="{{ chrome.t("Execução") }}">
+  <a class="tab" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Validação") }}</a>
+  {% if run.has_report %}<a class="tab" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+  <a class="tab is-active" href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/events">{{ chrome.t("Eventos") }}</a>
+</nav>
+
+{% if run.files.len() == 0 %}
+<div class="empty"><h2>{{ chrome.t("Nenhum arquivo") }}</h2><p>{{ chrome.t("Uma execução incompleta ou falha não escreve arquivos em") }} <span class="mono">google-ads/</span>.</p></div>
+{% else %}
+<div class="file-grid">
+  {% for file in run.files %}
+  <div class="file-card">
+    <a class="file-link" href="{{ file.url }}">
+      {% if file.image %}
+      <img class="thumb" src="{{ file.url }}" alt="" loading="lazy">
+      {% endif %}
+      <div class="file-main">
+        <span class="mono small break">{{ file.path }}</span>
+        <span class="muted small">{{ file.kind }} · {{ file.size }}</span>
+      </div>
+    </a>
+    {% if file.has_preview %}
+    <details class="file-preview">
+      <summary>{{ chrome.t("Prévia") }}</summary>
+      <pre>{{ file.preview }}</pre>
+    </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

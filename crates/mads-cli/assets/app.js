@@ -1,0 +1,694 @@
+(() => {
+  "use strict";
+
+  const $ = (selector) => document.querySelector(selector);
+  const lang = document.documentElement.lang === "en" ? "en" : "pt-BR";
+  const en = {
+    "Token inválido ou expirado. Copie o endereço impresso no terminal e tente de novo.":
+      "Invalid or expired token. Copy the address printed in the terminal and try again.",
+    "Não foi possível falar com o servidor. Ele ainda está rodando?":
+      "Could not reach the server. Is it still running?",
+    "O token tem pelo menos 32 caracteres.": "The token has at least 32 characters.",
+    "Remover a chave salva de": "Remove the saved key for",
+    "Nada mudou.": "Nothing changed.",
+    "este projeto": "this project",
+    "Parar esta execução? O trabalho já salvo permanece e pode ser retomado.":
+      "Stop this run? Work already saved stays and can be resumed.",
+    "concluída": "done",
+    "falhou": "failed",
+    "erro": "error",
+    "erro(s)": "error(s)",
+    "aviso(s)": "warning(s)",
+    "sem resposta": "no response",
+    "fim": "end",
+    "Falhou": "Failed",
+    "Concluído": "Done",
+    "O job falhou. Recarregue a página para ver o erro completo.":
+      "The job failed. Reload the page to see the full error.",
+    "O job terminou. Recarregue a página para ver o resultado.":
+      "The job finished. Reload the page to see the result.",
+  };
+  const tr = (text) => (lang === "en" ? en[text] || text : text);
+  const showError = (text) => {
+    const node = $("[data-bootstrap-error]");
+    if (node) {
+      node.textContent = text;
+      node.hidden = false;
+    }
+  };
+
+  async function login(token) {
+    try {
+      const response = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (!response.ok) {
+        showError(tr("Token inválido ou expirado. Copie o endereço impresso no terminal e tente de novo."));
+        return;
+      }
+      history.replaceState(null, "", location.pathname + location.search);
+      location.reload();
+    } catch {
+      showError(tr("Não foi possível falar com o servidor. Ele ainda está rodando?"));
+    }
+  }
+
+  const fragment = location.hash.slice(1);
+  if (fragment.length >= 32) {
+    login(fragment);
+  }
+
+  const form = document.querySelector("[data-bootstrap]");
+  if (form) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const token = String(data.get("token") || "").trim();
+      if (token.length < 32) {
+        showError(tr("O token tem pelo menos 32 caracteres."));
+        return;
+      }
+      login(token);
+    });
+  }
+
+
+  const csrf = () => {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute("content") || "" : "";
+  };
+
+  async function postJson(url, body) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Mads-CSRF": csrf(),
+      },
+      body: JSON.stringify(body || {}),
+    });
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch {
+      // A non JSON error still has a status.
+    }
+    if (!response.ok) {
+      const message = payload && payload.error ? payload.error.message : `HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return payload;
+  }
+
+
+  async function sendJson(method, url, body) {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Mads-CSRF": csrf(),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch {
+      // Keep the HTTP status when the body is not JSON.
+    }
+    if (!response.ok) {
+      const message = payload && payload.error ? payload.error.message : `HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return payload;
+  }
+
+  document.querySelectorAll("[data-key-form]").forEach((form) => {
+    const provider = form.dataset.provider;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = form.querySelector('input[name="value"]');
+      const error = form.querySelector("[data-key-error]");
+      if (error) error.textContent = "";
+      try {
+        await sendJson("PUT", `/api/secrets/${provider}`, { value: input ? input.value : "" });
+        location.reload();
+      } catch (e) {
+        if (error) error.textContent = e.message;
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-key-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const provider = button.dataset.keyDelete;
+      if (!window.confirm(`${tr("Remover a chave salva de")} ${provider}?`)) return;
+      try {
+        await sendJson("DELETE", `/api/secrets/${provider}`);
+        location.reload();
+      } catch (e) {
+        window.alert(e.message);
+      }
+    });
+  });
+
+
+
+
+  const revisionForm = document.querySelector("[data-revision-form]");
+  if (revisionForm) {
+    revisionForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorNode = revisionForm.querySelector("[data-form-error]");
+      if (errorNode) errorNode.textContent = "";
+      const edits = [];
+      revisionForm.querySelectorAll("[data-path]").forEach((input) => {
+        const value = input.value;
+        if (value === input.dataset.original) return;
+        edits.push({
+          path: input.dataset.path,
+          value: input.dataset.kind === "number" ? Number(value) : value,
+        });
+      });
+      if (edits.length === 0) {
+        if (errorNode) errorNode.textContent = tr("Nada mudou.");
+        return;
+      }
+      try {
+        const result = await postJson(revisionForm.dataset.action, { edits });
+        location.href = `/jobs/${result.job_id}`;
+      } catch (error) {
+        if (errorNode) errorNode.textContent = error.message;
+      }
+    });
+  }
+
+  const optimizeForm = document.querySelector("[data-optimize-form]");
+  if (optimizeForm) {
+    optimizeForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorNode = optimizeForm.querySelector("[data-form-error]");
+      if (errorNode) errorNode.textContent = "";
+      const data = new FormData(optimizeForm);
+      try {
+        const response = await fetch(optimizeForm.dataset.action, {
+          method: "POST",
+          headers: { "X-Mads-CSRF": csrf() },
+          body: data,
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error ? payload.error.message : `HTTP ${response.status}`);
+        }
+        location.href = `/runs/${payload.run_id}/optimize/review`;
+      } catch (error) {
+        if (errorNode) errorNode.textContent = error.message;
+      }
+    });
+  }
+
+
+
+  document.querySelectorAll("[data-asset-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = form.querySelector("[data-form-error]");
+      if (error) error.textContent = "";
+      const text = form.querySelector('textarea[name="text"]');
+      try {
+        await sendJson("PUT", form.dataset.action, { text: text ? text.value : "" });
+        location.reload();
+      } catch (e) {
+        if (error) error.textContent = e.message;
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-logo-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = form.querySelector("[data-form-error]");
+      if (error) error.textContent = "";
+      try {
+        const response = await fetch(form.dataset.action, {
+          method: "POST",
+          headers: { "X-Mads-CSRF": csrf() },
+          body: new FormData(form),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error ? payload.error.message : `HTTP ${response.status}`);
+        }
+        location.reload();
+      } catch (e) {
+        if (error) error.textContent = e.message;
+      }
+    });
+  });
+
+  const draftForm = document.querySelector("[data-draft-form]");
+  if (draftForm) {
+    draftForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorNode = draftForm.querySelector("[data-form-error]");
+      if (errorNode) errorNode.textContent = "";
+      const form = new FormData(draftForm);
+      const number = (name, fallback) => {
+        const raw = form.get(name);
+        if (raw === null || String(raw).trim() === "") return fallback;
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+      };
+      const text = (name) => String(form.get(name) || "").trim();
+      const body = {
+        name: text("name"),
+        url: text("url"),
+        language: text("language"),
+        location: text("location"),
+        goal: text("goal"),
+        description: text("description"),
+        conversion_tracking: form.get("conversion_tracking") !== null,
+        brand_terms: text("brand_terms"),
+        competitors: text("competitors"),
+        avoid: text("avoid"),
+        restricted: form.getAll("restricted"),
+        daily: number("daily", 0),
+        currency: text("currency"),
+        max_cpc: text("max_cpc") === "" ? null : number("max_cpc", 0),
+        export_status: text("export_status") || "Paused",
+        url_suffix: text("url_suffix"),
+        eu_political_ads: form.get("eu_political_ads") !== null,
+        decimal_comma: form.get("decimal_comma") !== null,
+        formats: form.getAll("formats"),
+        catalog_text: String(form.get("catalog_text") || ""),
+        focus_name: text("focus_name"),
+        focus_urls: String(form.get("focus_urls") || ""),
+        focus_terms: String(form.get("focus_terms") || ""),
+        app_store: text("app_store") || "google_play",
+        app_id: text("app_id"),
+        google_ads_customer_id: text("google_ads_customer_id"),
+        google_ads_tracking_template: text("google_ads_tracking_template"),
+        google_ads_devices: text("google_ads_devices"),
+        google_ads_labels: text("google_ads_labels"),
+        google_ads_app_id: text("google_ads_app_id"),
+      };
+      try {
+        await sendJson("PUT", draftForm.dataset.action, body);
+        location.reload();
+      } catch (error) {
+        if (errorNode) errorNode.textContent = error.message;
+      }
+    });
+  }
+
+
+
+
+  document.querySelectorAll("[data-project-archive]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const archived = button.dataset.archived === "true";
+      try {
+        await postJson(button.dataset.projectArchive, { archived });
+        location.reload();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-project-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const name = button.dataset.project || tr("este projeto");
+      if (!confirm(lang === "en" ? `Move ${name} to the trash?` : `Mover ${name} para a lixeira?`)) return;
+      try {
+        await postJson(button.dataset.projectDelete, {});
+        location.href = "/";
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  });
+
+  const importForm = document.querySelector("[data-project-import-form]");
+  if (importForm) {
+    importForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = importForm.querySelector("[data-form-error]");
+      if (error) error.textContent = "";
+      try {
+        const result = await postJson(importForm.dataset.action, {
+          path: new FormData(importForm).get("path"),
+        });
+        location.href = `/projects/${result.project_id}`;
+      } catch (e) {
+        if (error) error.textContent = e.message;
+      }
+    });
+  }
+
+  const manualForm = document.querySelector("[data-project-manual-form]");
+  if (manualForm) {
+    manualForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = manualForm.querySelector("[data-form-error]");
+      if (error) error.textContent = "";
+      const form = new FormData(manualForm);
+      const number = (name, fallback) => {
+        const raw = form.get(name);
+        const value = raw === null ? NaN : Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+      };
+      try {
+        const result = await postJson(manualForm.dataset.action, {
+          name: String(form.get("name") || "").trim(),
+          url: String(form.get("url") || "").trim(),
+          daily: number("daily", 50),
+          currency: String(form.get("currency") || "BRL").trim(),
+          language: String(form.get("language") || "pt-BR").trim(),
+          location: String(form.get("location") || "").trim(),
+          goal: String(form.get("goal") || "").trim(),
+          description: String(form.get("description") || "").trim(),
+        });
+        location.href = `/projects/${result.project_id}/draft`;
+      } catch (e) {
+        if (error) error.textContent = e.message;
+      }
+    });
+  }
+
+
+  const revert = document.querySelector("[data-revert-revision]");
+  if (revert) {
+    revert.addEventListener("click", async () => {
+      if (!confirm("Desfazer esta revisão? Uma nova revisão volta à conta anterior e é reexportada.")) return;
+      try {
+        const result = await postJson(revert.dataset.action, {});
+        location.href = `/jobs/${result.job_id}`;
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+  }
+
+
+  document.querySelectorAll('.anchor-nav a[href^="#"]').forEach((link) => {
+    link.addEventListener("click", () => {
+      const target = document.querySelector(link.getAttribute("href"));
+      if (target && target.tagName === "DETAILS") target.open = true;
+    });
+  });
+  if (location.hash) {
+    const target = document.querySelector(location.hash);
+    if (target && target.tagName === "DETAILS") target.open = true;
+  }
+
+  const language = document.querySelector("[data-language]");
+  if (language) {
+    language.addEventListener("change", () => {
+      const next = location.pathname + location.search;
+      location.href = `/settings/language?lang=${encodeURIComponent(language.value)}&next=${encodeURIComponent(next)}`;
+    });
+  }
+
+  const initForm = document.querySelector("[data-init-form]");
+  if (initForm) {
+    initForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorNode = initForm.querySelector("[data-form-error]");
+      if (errorNode) errorNode.textContent = "";
+      const form = new FormData(initForm);
+      const number = (name, fallback) => {
+        const raw = form.get(name);
+        if (raw === null || String(raw).trim() === "") return fallback;
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+      };
+      const text = (name) => String(form.get(name) || "").trim();
+      const body = {
+        start_url: text("start_url"),
+        daily: number("daily", 50),
+        currency: text("currency"),
+        provider: text("provider"),
+        model: text("model") || null,
+        base_url: text("base_url") || null,
+        catalog_limit: number("catalog_limit", 50),
+        web_search: form.get("web_search") !== null,
+        focus: form.get("focus") !== null,
+        force: form.get("force") !== null,
+        max_turns: number("max_turns", 40),
+        timeout: text("timeout") || "15m",
+        max_tokens: number("max_tokens", 4000000),
+        retries: number("retries", 1),
+      };
+      try {
+        const result = await postJson(initForm.dataset.action, body);
+        location.href = `/jobs/${result.job_id}`;
+      } catch (error) {
+        if (errorNode) errorNode.textContent = error.message;
+      }
+    });
+  }
+
+  const projectForm = document.querySelector("[data-project-form]");
+  if (projectForm) {
+    projectForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorNode = projectForm.querySelector("[data-form-error]");
+      if (errorNode) errorNode.textContent = "";
+      const form = new FormData(projectForm);
+      const number = (name, fallback) => {
+        const raw = form.get(name);
+        if (raw === null || String(raw).trim() === "") return fallback;
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+      };
+      const body = {
+        name: String(form.get("name") || "").trim(),
+        start_url: String(form.get("start_url") || "").trim(),
+        daily: number("daily", 50),
+        currency: String(form.get("currency") || "BRL").trim(),
+        provider: String(form.get("provider") || "").trim(),
+        model: String(form.get("model") || "").trim() || null,
+        base_url: String(form.get("base_url") || "").trim() || null,
+        catalog_limit: number("catalog_limit", 50),
+        web_search: form.get("web_search") !== null,
+        focus: form.get("focus") !== null,
+        max_turns: number("max_turns", 40),
+        timeout: String(form.get("timeout") || "15m"),
+        max_tokens: number("max_tokens", 4000000),
+        retries: number("retries", 1),
+      };
+      try {
+        const result = await postJson(projectForm.dataset.action, body);
+        location.href = `/jobs/${result.job_id}`;
+      } catch (error) {
+        if (errorNode) errorNode.textContent = error.message;
+      }
+    });
+  }
+
+  const runForm = document.querySelector("[data-run-form]");
+  if (runForm) {
+    runForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const errorNode = runForm.querySelector("[data-form-error]");
+      if (errorNode) errorNode.textContent = "";
+      const form = new FormData(runForm);
+      const number = (name, fallback) => {
+        const raw = form.get(name);
+        if (raw === null || String(raw).trim() === "") return fallback;
+        const value = Number(raw);
+        return Number.isFinite(value) ? value : fallback;
+      };
+      const body = {
+        provider: String(form.get("provider") || "").trim(),
+        model: String(form.get("model") || "").trim() || null,
+        plan_model: String(form.get("plan_model") || "").trim() || null,
+        base_url: String(form.get("base_url") || "").trim() || null,
+        image_provider: String(form.get("image_provider") || "auto"),
+        image_model: String(form.get("image_model") || "").trim() || null,
+        layout: String(form.get("layout") || "bulk"),
+        parallel: number("parallel", 4),
+        max_turns: number("max_turns", 40),
+        timeout: String(form.get("timeout") || "15m"),
+        max_tokens: number("max_tokens", 4000000),
+        retries: number("retries", 1),
+        max_ad_groups: number("max_ad_groups", 50),
+        max_images: number("max_images", 40),
+        skip_url_check: form.get("skip_url_check") !== null,
+        plan_review: form.get("plan_review") !== null,
+      };
+      try {
+        const job = await postJson(runForm.dataset.action, body);
+        location.href = `/jobs/${job.id}`;
+      } catch (error) {
+        if (errorNode) errorNode.textContent = error.message;
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-cancel-job]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!window.confirm(tr("Parar esta execução? O trabalho já salvo permanece e pode ser retomado."))) return;
+      button.disabled = true;
+      try {
+        await postJson(button.dataset.cancelJob, {});
+      } catch (error) {
+        button.disabled = false;
+        window.alert(error.message);
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-run-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const run = button.dataset.run;
+      const action = button.dataset.runAction;
+      let url = `/api/runs/${run}/export`;
+      let body = {};
+      if (action === "resume") {
+        url = `/api/runs/${run}/resume`;
+        body = { provider: button.dataset.provider || "", model: button.dataset.model || null };
+      } else if (action === "continue") {
+        url = `/api/runs/${run}/continue`;
+        body = { provider: button.dataset.provider || "", model: button.dataset.model || null };
+      }
+      button.disabled = true;
+      try {
+        const job = await postJson(url, body);
+        location.href = `/jobs/${job.id}`;
+      } catch (error) {
+        button.disabled = false;
+        window.alert(error.message);
+      }
+    });
+  });
+
+  const feed = document.querySelector("[data-stream]");
+  if (!feed) return;
+
+  let last = Number(feed.dataset.last || "0");
+  let follow = true;
+  const stream = new EventSource(feed.dataset.stream);
+  const finishJob = (failed, error) => {
+    stream.close();
+    clearInterval(poll);
+    const status = document.querySelector(".page-head .status");
+    if (status) {
+      status.textContent = failed ? tr("Falhou") : tr("Concluído");
+      status.className = `status status-${failed ? "error" : "ok"}`;
+    }
+    const hint = document.querySelector("[data-job-hint]");
+    if (hint) {
+      hint.textContent = error
+        ? error
+        : failed
+          ? tr("O job falhou. Recarregue a página para ver o erro completo.")
+          : tr("O job terminou. Recarregue a página para ver o resultado.");
+    }
+  };
+
+  const jobId = feed.dataset.job;
+  const poll = jobId
+    ? setInterval(async () => {
+        try {
+          const response = await fetch(`/api/jobs/${jobId}`);
+          if (!response.ok) return;
+          const job = await response.json();
+          if (job.state === "Failed" || job.state === "Cancelled") {
+            finishJob(true, job.error_text || "");
+          } else if (job.state === "Done") {
+            finishJob(false, "");
+          }
+        } catch {
+          // The next tick can try again.
+        }
+      }, 3000)
+    : null;
+
+  const append = (envelope) => {
+    const event = envelope.event || {};
+    const type = event.type || "event";
+    const row = document.createElement("div");
+    row.className = "event event-muted";
+    row.dataset.seq = String(envelope.seq);
+
+    const time = document.createElement("span");
+    time.className = "event-time mono";
+    time.textContent = (envelope.ts || "").slice(11, 19);
+
+    const mission = document.createElement("span");
+    mission.className = "event-mission mono";
+    mission.textContent = event.mission || "run";
+
+    const kind = document.createElement("span");
+    kind.className = "event-kind";
+    kind.textContent = type;
+
+    const text = document.createElement("span");
+    text.className = "event-text";
+    text.textContent = describe(event);
+
+    row.append(time, mission, kind, text);
+    feed.append(row);
+    if (follow) {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    }
+  };
+
+  const describe = (event) => {
+    switch (event.type) {
+      case "run_started":
+        return lang === "en" ? `start (${event.provider || "?"})` : `início (${event.provider || "?"})`;
+      case "mission_started":
+        return lang === "en" ? `attempt ${event.attempt}` : `tentativa ${event.attempt}`;
+      case "mission_finished":
+        return event.ok ? tr("concluída") : `${tr("falhou")}: ${event.reason || "?"}`;
+      case "tool_called":
+        return `> ${event.tool} ${event.summary || ""}`;
+      case "tool_finished":
+        return `< ${event.ok ? "ok" : tr("erro")} ${event.tool} ${event.summary || ""}`;
+      case "usage":
+        return `${event.input_tokens} in, ${event.output_tokens} out`;
+      case "step":
+        return `${event.name}: ${event.detail || ""}`;
+      case "validation":
+        return `${(event.errors || []).length} ${tr("erro(s)")}, ${(event.warnings || []).length} ${tr("aviso(s)")}`;
+      case "url_checked":
+        return `${event.url} ${event.status || tr("sem resposta")}`;
+      case "artifact_written":
+        return event.path;
+      case "run_finished":
+        return `${tr("fim")} (exit ${event.exit_code})`;
+      case "agent_text":
+        return String(event.text || "").slice(0, 240);
+      default:
+        return "";
+    }
+  };
+
+  stream.onmessage = (message) => {
+    try {
+      const envelope = JSON.parse(message.data);
+      if (!envelope || Number(envelope.seq) <= last) return;
+      last = Number(envelope.seq);
+      append(envelope);
+      if (envelope.event && envelope.event.type === "run_finished") {
+        finishJob(Number(envelope.event.exit_code || 0) !== 0, "");
+      }
+    } catch {
+      // Ignore a malformed frame. The next one can still be useful.
+    }
+  };
+
+  stream.onerror = () => {
+    // EventSource reconnects on its own. Do not spam the page.
+  };
+
+  window.addEventListener("scroll", () => {
+    const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 40;
+    follow = nearBottom;
+  });
+})();

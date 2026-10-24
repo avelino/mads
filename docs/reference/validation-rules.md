@@ -118,3 +118,7 @@ These come from the tool layer, not the rule set. The agent sees them in tool re
 ## Cross negatives
 
 The end step adds brand and competitor terms as campaign negatives before validation. Image campaigns are skipped. A term that would trigger `E09` in a campaign is skipped and reported as a note in the Validation section of `report.md`.
+
+## In the studio
+
+The validation page groups issues by code and shows the path into the account. The **Corrigir** page uses the same paths for edits. A save is refused when `Rules` finds an error. Warnings do not block the export.

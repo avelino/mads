@@ -14,4 +14,8 @@ Tell me what you found, the version or commit, and how to reproduce it. A proof 
 
 ## Scope
 
-mads talks to model providers with the API keys you give it, and it reads files you point it at: your brief, the reports you export from Google Ads, and its own output. It has no Google Ads API client and never holds Google Ads credentials; you upload what it writes yourself. Problems in that path count: a leaked API key or token, a prompt that makes mads write outside its output directory, a URL check that can be bypassed, or anything in the container image. Bugs in the providers themselves belong to them.
+mads talks to model providers with the API keys you give it, and it reads files you point it at: your brief, the reports you export from Google Ads, and its own output. It has no Google Ads API client and never holds Google Ads credentials. You upload what it writes yourself.
+
+`mads serve` adds a local web server. It binds loopback by default, exchanges a one-time URL token for an `HttpOnly` session cookie, checks `Origin`, `Host` and a CSRF header on mutations, and sandboxes file reads to the run directory. API keys saved in the browser go to a `0600` file outside the projects. A non-loopback bind requires an explicit `--allow-remote` and a token file.
+
+Problems in that path count: a leaked API key or token, a session or CSRF bypass, a path traversal, a prompt that makes mads write outside its output directory, a URL check that can be bypassed, or anything in the container image. Bugs in the providers themselves belong to them. See [mads studio security](docs/guides/mads-studio-security.md).

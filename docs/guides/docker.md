@@ -34,6 +34,20 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -e ANTHROPIC_API_KEY 
   --provider anthropic --model <model-id>
 ```
 
+## Studio
+
+The image contains the same `mads` binary, so `serve` is available. A container needs a non-loopback bind and a token.
+
+```bash
+mkdir -p mads
+printf '%s' "$(openssl rand -hex 32)" > token
+chmod 600 token
+
+docker run --rm   -p 127.0.0.1:4780:4780   -v "$PWD/mads:/data"   -v "$PWD/token:/run/secrets/mads-token:ro"   ghcr.io/avelino/mads:latest   serve --root /data --bind 0.0.0.0 --allow-remote --token-file /run/secrets/mads-token
+```
+
+Open `http://127.0.0.1:4780` and paste the token. The port is published on host loopback, so only the host reaches the container. Do not publish it on another interface without TLS. See [mads studio security](mads-studio-security.md).
+
 ## Tags
 
 | Tag | What it is |

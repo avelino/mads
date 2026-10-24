@@ -106,3 +106,9 @@ Sitelinks, callouts and structured snippets are validated but not exported. Add 
 When `business.toml` lists a restricted category, Google may refuse some keywords or ads at upload, such as `Alcohol sale: Your creative promotes the online sale of alcohol.` The `Restricted categories` section of `report.md` has the exception text to paste. See [Restricted categories](restricted-categories.md#when-google-refuses-a-keyword-or-an-ad).
 
 Performance Max, Demand Gen and App campaigns are not in files 1 to 5. `google-ads/editor/account.csv` holds the whole account, Search included, for Google Ads Editor, and you attach the pictures there by hand. Import that file or files 1 to 5, never both. See [Image campaigns](image-campaigns.md#import).
+
+## In the studio
+
+The run page opens the account, the validation, the report and the files. The files page previews text files and pictures. The import checklist is the same. The studio does not upload. Use Google Ads or Google Ads Editor.
+
+After the review, **Corrigir** creates a revision with validated edits and exports again without a model call.

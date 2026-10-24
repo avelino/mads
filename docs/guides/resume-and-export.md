@@ -82,3 +82,9 @@ To change an input value such as `export.decimal_comma` or `export.status`, edit
 ## Exit codes after resume or export
 
 The same as `generate`. See [Troubleshooting](../howto/troubleshooting.md).
+
+## In the studio
+
+A run page has **Retomar missões** and **Reexportar sem IA**. Both start a job and stream the events. A run that stopped after the plan has **Gerar campanhas**.
+
+**Corrigir** creates a human revision instead of changing the run. The revision is a sibling directory with the `-rN` suffix and its own `run.json`. The original run stays intact. See [mads studio](mads-studio.md#correct-without-calling-the-model).

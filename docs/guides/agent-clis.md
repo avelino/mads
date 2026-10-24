@@ -128,3 +128,7 @@ error: claude 2.0.1 is too old: mads needs 2.1.259 or newer
 ```
 
 Both exit with code `2`. Other failures show as a failed mission, such as `claude exited with exit status: 1 before calling finish: <stderr tail>`. See [Troubleshooting](../howto/troubleshooting.md).
+
+## In the studio
+
+`mads serve` checks the same executable and version. It does not manage the login. Log in with the CLI first. The Connections page shows the readiness.

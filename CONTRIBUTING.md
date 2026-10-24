@@ -45,6 +45,9 @@ crates/
     src/cli/         CliDriver and the claude, codex and gemini agents
     src/mcp.rs       the per-mission MCP server for agent CLIs
   mads-cli/          the mads binary, renderers, exit codes
+    src/serve/       mads studio, behind the default `serve` feature
+    templates/       Askama pages
+    assets/          CSS and JS, embedded in release builds
 data/                real example output, the golden reference for the export format
 docs/                the documentation (GitBook)
 docs/superpowers/    design specs
@@ -126,6 +129,20 @@ git push origin v0.1.0
 ```
 
 The first publish creates the package as private. Open the package settings once and make it public. The workflow needs no secret besides the built-in `GITHUB_TOKEN`.
+
+## Add a studio screen
+
+`mads serve` is a normal module in `mads-cli`. A screen touches these places.
+
+1. Add a page struct to `crates/mads-cli/src/serve/views.rs` with `#[derive(Template)]` and a file in `crates/mads-cli/templates/`.
+2. Add the route in `crates/mads-cli/src/serve/mod.rs`. Use `{name}` for path parameters.
+3. Add the handler in `crates/mads-cli/src/serve/handlers.rs`. HTML pages must call `state.auth.authenticate`. Mutations must call `mutation_identity` and declare the CSRF header.
+4. Read files through `store::read_file` or a sandboxed helper. Never join a request path without canonicalizing.
+5. Wrap user facing text with `chrome.t("...")` and add the English entry to `crates/mads-cli/src/serve/i18n.rs`. The key is the Portuguese text.
+6. Add a test in `crates/mads-cli/src/serve/web_tests.rs`. Use the replay provider for a full job. No test calls a real model.
+7. Run the gate. `--no-default-features` must still build.
+
+The `serve` feature is on by default. A new dependency goes under the feature and in the optional list.
 
 ## Docs
 

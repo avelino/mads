@@ -13,7 +13,9 @@ use tokio::{
 };
 
 use crate::{
-    agent::{Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget},
+    agent::{
+        Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, RunControl, TokenBudget,
+    },
     events::{Event, EventSink, Totals},
     finalize::{ExportOpts, Finalized, finalize},
     google::ExportLayout,
@@ -56,6 +58,15 @@ pub struct RunConfig {
     pub max_images: usize,
     pub provider: String,
     pub model: Option<String>,
+    /// Stop after the plan mission and leave the campaigns pending.
+    pub stop_after_plan: bool,
+    /// The studio passes a control it can cancel. The CLI leaves it idle.
+    pub control: RunControl,
+    /// `agent`, `human` or `optimize`. Written to `run.json`.
+    pub origin: String,
+    pub parent_run: Option<String>,
+    pub revision: u32,
+    pub edits: u32,
 }
 
 impl RunConfig {
@@ -74,6 +85,12 @@ impl RunConfig {
             max_images: 40,
             provider: String::new(),
             model: None,
+            stop_after_plan: false,
+            control: RunControl::default(),
+            origin: "agent".into(),
+            parent_run: None,
+            revision: 0,
+            edits: 0,
         }
     }
 }
@@ -90,6 +107,8 @@ pub struct RunResult {
     pub run_dir: PathBuf,
     pub exit_code: i32,
     pub totals: Totals,
+    /// True when the run stopped after the plan checkpoint.
+    pub paused: bool,
 }
 
 /// `<out>/<YYYYMMDD-HHMMSS>-<6 hex>/`
@@ -166,6 +185,12 @@ impl RunDir {
     }
 }
 
+enum RunPhase {
+    Completed,
+    Paused,
+    Failed,
+}
+
 struct Runner {
     ws: SharedWorkspace,
     ws_path: PathBuf,
@@ -177,6 +202,7 @@ struct Runner {
     mission_retries: u32,
     max_ad_groups: usize,
     image_model: bool,
+    control: RunControl,
 }
 
 fn is_finished(ws: &Workspace, id: &str) -> bool {
@@ -212,6 +238,10 @@ impl Runner {
     ) -> bool {
         let allowed = 1 + self.mission_retries;
         for attempt in 1..=allowed {
+            if self.control.is_cancelled() {
+                self.fail(&spec.id, "cancelled").await;
+                return false;
+            }
             if self.budget.exceeded() {
                 self.fail(&spec.id, "token budget exceeded").await;
                 return false;
@@ -249,6 +279,7 @@ impl Runner {
                 max_turns: self.max_turns,
                 budget: self.budget.clone(),
                 transcripts: Some(self.transcripts.clone()),
+                control: self.control.clone(),
             };
             let report = match tokio::time::timeout(
                 self.mission_timeout,
@@ -265,6 +296,10 @@ impl Runner {
             };
             let used = report.usage;
             self.update(&spec.id, |m| m.usage.add(&used)).await;
+            if self.control.is_cancelled() {
+                self.fail(&spec.id, "cancelled").await;
+                return false;
+            }
             match report.outcome {
                 MissionOutcome::Finished => {
                     self.update(&spec.id, |m| m.status = MissionStatus::Finished)
@@ -297,7 +332,12 @@ impl Runner {
     }
 
     /// Plan first, then every unfinished campaign in parallel. A failed campaign does not stop the others.
-    async fn run_all(self: &Arc<Self>, drivers: &Drivers, parallel: usize) -> bool {
+    async fn run_all(
+        self: &Arc<Self>,
+        drivers: &Drivers,
+        parallel: usize,
+        stop_after_plan: bool,
+    ) -> RunPhase {
         let (needs_plan, plan) = {
             let ws = self.ws.lock().await;
             (
@@ -310,7 +350,10 @@ impl Runner {
                 .run_mission(plan, MissionKind::Plan, drivers.plan.clone())
                 .await
         {
-            return false;
+            return RunPhase::Failed;
+        }
+        if stop_after_plan {
+            return RunPhase::Paused;
         }
         let pending: Vec<(MissionSpec, MissionKind)> = {
             let ws = self.ws.lock().await;
@@ -331,6 +374,9 @@ impl Runner {
         let gate = Arc::new(Semaphore::new(parallel.max(1)));
         let mut set = JoinSet::new();
         for (spec, kind) in pending {
+            if self.control.is_cancelled() {
+                break;
+            }
             let (runner, driver, gate) = (self.clone(), drivers.campaign.clone(), gate.clone());
             set.spawn(async move {
                 let _permit = gate.acquire().await;
@@ -341,7 +387,11 @@ impl Runner {
         while let Some(done) = set.join_next().await {
             all_ok &= done.unwrap_or(false);
         }
-        all_ok
+        if all_ok {
+            RunPhase::Completed
+        } else {
+            RunPhase::Failed
+        }
     }
 }
 
@@ -355,6 +405,10 @@ struct RunJson<'a> {
     status: &'static str,
     exit_code: i32,
     totals: &'a Totals,
+    origin: &'a str,
+    parent_run: Option<&'a str>,
+    revision: u32,
+    edits: u32,
 }
 
 /// The layout the last export of the run in `run_dir` wrote. A run from before `--layout` has none.
@@ -392,7 +446,7 @@ pub async fn generate(
     input: Input,
     drivers: Drivers,
     web: Arc<dyn Web>,
-    cfg: RunConfig,
+    mut cfg: RunConfig,
     events: EventSink,
 ) -> Result<RunResult, RunError> {
     let run = match &cfg.run_dir {
@@ -405,6 +459,28 @@ pub async fn generate(
     } else {
         Workspace::new(input)
     };
+    if let Ok(bytes) = std::fs::read(run.run_json_path())
+        && let Ok(previous) = serde_json::from_slice::<serde_json::Value>(&bytes)
+    {
+        if let Some(origin) = previous.get("origin").and_then(serde_json::Value::as_str) {
+            cfg.origin = origin.to_string();
+        }
+        cfg.parent_run = previous
+            .get("parent_run")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        cfg.revision = previous
+            .get("revision")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32;
+        cfg.edits = previous
+            .get("edits")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32;
+    }
+    if cfg.origin == "agent" && workspace.live.is_some() {
+        cfg.origin = "optimize".into();
+    }
     let ws: SharedWorkspace = Arc::new(Mutex::new(workspace));
     events.emit(Event::RunStarted {
         run_id: run.id(),
@@ -423,11 +499,50 @@ pub async fn generate(
         mission_retries: cfg.mission_retries,
         max_ad_groups: cfg.max_ad_groups,
         image_model: drivers.image.is_some(),
+        control: cfg.control.clone(),
     });
-    let missions_ok = runner.run_all(&drivers, cfg.parallel).await;
+    let phase = runner
+        .run_all(&drivers, cfg.parallel, cfg.stop_after_plan)
+        .await;
+    if matches!(phase, RunPhase::Paused) {
+        let layout = cfg
+            .layout
+            .or_else(|| saved_layout(run.root()))
+            .unwrap_or_default();
+        let guard = ws.lock().await;
+        let totals = totals_of(&guard);
+        guard.save(&run.workspace_path())?;
+        let run_id = run.id();
+        let json = RunJson {
+            version: 1,
+            run_id: &run_id,
+            provider: &cfg.provider,
+            model: &cfg.model,
+            layout,
+            status: "planned",
+            exit_code: 0,
+            totals: &totals,
+            origin: &cfg.origin,
+            parent_run: cfg.parent_run.as_deref(),
+            revision: cfg.revision,
+            edits: cfg.edits,
+        };
+        write_atomic(
+            &run.run_json_path(),
+            &serde_json::to_vec_pretty(&json).map_err(io::Error::other)?,
+        )?;
+        return Ok(RunResult {
+            run_dir: run.root().to_path_buf(),
+            exit_code: 0,
+            totals,
+            paused: true,
+        });
+    }
+    let cancelled = cfg.control.is_cancelled();
     let finish = Conclusion {
-        missions_ok,
+        missions_ok: matches!(phase, RunPhase::Completed),
         image: drivers.image.clone(),
+        cancelled,
     };
     conclude(&run, &ws, web.as_ref(), &cfg, &events, finish).await
 }
@@ -465,6 +580,16 @@ pub async fn export_run(
     let mut cfg = RunConfig::new(run.root().parent().unwrap_or(Path::new(".")).to_path_buf());
     cfg.provider = text("provider").unwrap_or_default();
     cfg.model = text("model");
+    cfg.origin = text("origin").unwrap_or_else(|| "agent".into());
+    cfg.parent_run = text("parent_run");
+    cfg.revision = previous
+        .get("revision")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
+    cfg.edits = previous
+        .get("edits")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0) as u32;
     cfg.skip_url_check = skip_url_check;
     cfg.max_ad_groups = max_ad_groups;
     cfg.layout = layout;
@@ -478,6 +603,7 @@ pub async fn export_run(
     let finish = Conclusion {
         missions_ok: true,
         image: None,
+        cancelled: false,
     };
     conclude(&run, &ws, web, &cfg, events, finish).await
 }
@@ -486,6 +612,13 @@ pub async fn export_run(
 /// Images stay: they cost money and the next export reuses them. An `editor/` directory that
 /// only held `account.csv` is removed, so a bulk run re-exported as drive-folders does not
 /// leave an empty folder behind. The automation package goes whole.
+/// Writes next to the target and renames, so a reader never sees half a file.
+fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)
+}
+
 fn remove_stale_csvs(dir: &Path) {
     remove_csvs_in(dir);
     let editor = dir.join(EDITOR_DIR);
@@ -536,6 +669,7 @@ fn remove_csvs_in(dir: &Path) {
 struct Conclusion {
     missions_ok: bool,
     image: Option<Arc<dyn ImageModel>>,
+    cancelled: bool,
 }
 
 /// Makes the missing images. A run without image campaigns returns at once.
@@ -571,7 +705,7 @@ async fn conclude(
         .unwrap_or_default();
     let mut notes = Vec::new();
     let mut images = ImageStepResult::default();
-    let fin = if finish.missions_ok {
+    let fin = if finish.missions_ok && !finish.cancelled {
         events.emit(Event::Step {
             name: "cross-negatives".into(),
             detail: "brand and competitor terms".into(),
@@ -618,7 +752,7 @@ async fn conclude(
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, &file.bytes)?;
+        write_atomic(&path, &file.bytes)?;
         events.emit(Event::ArtifactWritten {
             path: path.display().to_string(),
         });
@@ -627,10 +761,14 @@ async fn conclude(
     let guard = ws.lock().await;
     guard.save(&run.workspace_path())?;
     let totals = totals_of(&guard);
-    let status = match fin.exit_code {
-        0 => ReportStatus::Success,
-        3 => ReportStatus::Invalid,
-        _ => ReportStatus::Incomplete,
+    let status = if finish.cancelled {
+        ReportStatus::Cancelled
+    } else {
+        match fin.exit_code {
+            0 => ReportStatus::Success,
+            3 => ReportStatus::Invalid,
+            _ => ReportStatus::Incomplete,
+        }
     };
     let report = ReportData {
         run_id: run.id(),
@@ -650,7 +788,7 @@ async fn conclude(
         live: guard.live.clone(),
         layout,
     };
-    std::fs::write(run.report_path(), render_report(&report))?;
+    write_atomic(&run.report_path(), render_report(&report).as_bytes())?;
     events.emit(Event::ArtifactWritten {
         path: run.report_path().display().to_string(),
     });
@@ -658,6 +796,7 @@ async fn conclude(
         ReportStatus::Success => "success",
         ReportStatus::Invalid => "invalid",
         ReportStatus::Incomplete => "incomplete",
+        ReportStatus::Cancelled => "cancelled",
     };
     let json = RunJson {
         version: 1,
@@ -668,10 +807,14 @@ async fn conclude(
         status: status_name,
         exit_code: fin.exit_code,
         totals: &totals,
+        origin: &cfg.origin,
+        parent_run: cfg.parent_run.as_deref(),
+        revision: cfg.revision,
+        edits: cfg.edits,
     };
-    std::fs::write(
-        run.run_json_path(),
-        serde_json::to_vec_pretty(&json).map_err(io::Error::other)?,
+    write_atomic(
+        &run.run_json_path(),
+        &serde_json::to_vec_pretty(&json).map_err(io::Error::other)?,
     )?;
     events.emit(Event::RunFinished {
         ok: fin.exit_code == 0,
@@ -682,6 +825,7 @@ async fn conclude(
         run_dir: run.root().to_path_buf(),
         exit_code: fin.exit_code,
         totals,
+        paused: false,
     })
 }
 

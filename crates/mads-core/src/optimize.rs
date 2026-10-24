@@ -9,7 +9,7 @@ use std::{
 use crate::{
     images::EDITOR_DIR,
     perf::{Live, Performance, ReportInput, digest, read_table},
-    run::{PLATFORM_DIR, RunDir},
+    run::{PLATFORM_DIR, RunDir, saved_layout},
     workspace::{MissionStatus, Workspace},
 };
 
@@ -64,6 +64,31 @@ pub fn prepare(base: &Path, reports: &Path, out: &Path) -> Result<Prepared, Opti
         performance: performance.clone(),
     });
     ws.save(&run.workspace_path())?;
+    let run_id = run.id();
+    let meta = serde_json::json!({
+        "version": 1,
+        "run_id": run_id,
+        "provider": "",
+        "model": null,
+        "layout": saved_layout(base).unwrap_or_default(),
+        "status": "prepared",
+        "exit_code": 0,
+        "totals": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost_usd": null,
+            "missions": 0,
+            "failed_missions": 0
+        },
+        "origin": "optimize",
+        "parent_run": base.file_name().and_then(|n| n.to_str()),
+        "revision": 0,
+        "edits": 0
+    });
+    std::fs::write(
+        run.run_json_path(),
+        serde_json::to_vec_pretty(&meta).map_err(io::Error::other)?,
+    )?;
     Ok(Prepared {
         run_dir: run.root().to_path_buf(),
         performance,

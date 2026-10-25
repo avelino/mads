@@ -58,6 +58,20 @@ pub fn cookie(lang: &str) -> String {
 }
 
 const EN_TEXT: &[(&str, &str)] = &[
+    (
+        "configure um provedor em Conexões",
+        "configure a provider in Connections",
+    ),
+    (
+        "carrega do provedor, ou digite um id",
+        "loads from the provider, or type an id",
+    ),
+    (
+        "claude-cli, codex-cli e gemini-cli escolhem o modelo deles",
+        "claude-cli, codex-cli and gemini-cli pick their own model",
+    ),
+    ("buscando modelos", "loading models"),
+    ("Na fila", "Queued"),
     ("Renomear", "Rename"),
     (
         "O nome aparece na lista. A pasta do projeto não muda.",

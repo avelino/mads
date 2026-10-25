@@ -14,19 +14,24 @@
 <form class="panel form" data-run-form data-action="/api/projects/{{ project.id }}/runs">
   <div class="form-grid">
     <label>{{ chrome.t("Provedor") }}
-      <input name="provider" list="providers" value="{{ default_provider }}" placeholder="anthropic, openai, claude-cli" required>
-      <datalist id="providers">
-        {% for provider in providers %}<option value="{{ provider.name }}">{{ provider.status }}</option>{% endfor %}
-      </datalist>
+      <select name="provider" data-provider-select required>
+        <option value="">{{ chrome.t("configure um provedor em Conexões") }}</option>
+        {% for provider in providers %}{% if provider.ready %}
+        <option value="{{ provider.name }}"{% if provider.name == default_provider %} selected{% endif %}>{{ provider.name }}</option>
+        {% endif %}{% endfor %}
+      </select>
     </label>
     <label>{{ chrome.t("Modelo") }}
-      <input name="model" value="{{ default_model }}" placeholder="{{ chrome.t("o id que o provedor documenta") }}">
+      <input name="model" value="{{ default_model }}" list="model-options" data-model-input
+             placeholder="{{ chrome.t("carrega do provedor, ou digite um id") }}">
+      <datalist id="model-options"></datalist>
+      <span class="muted small" data-model-hint></span>
     </label>
     <label>{{ chrome.t("Modelo do plano (opcional)") }}
-      <input name="plan_model" placeholder="{{ chrome.t("um modelo mais forte só para o plano") }}">
+      <input name="plan_model" list="model-options" placeholder="{{ chrome.t("um modelo mais forte só para o plano") }}">
     </label>
     <label>Endpoint (openai-compat)
-      <input name="base_url" placeholder="http://localhost:8000/v1">
+      <input name="base_url" value="{{ default_base_url }}" placeholder="http://localhost:8000/v1" data-base-url>
     </label>
     <label>{{ chrome.t("Provedor de imagens") }}
       <select name="image_provider">

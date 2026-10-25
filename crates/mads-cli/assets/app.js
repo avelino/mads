@@ -446,6 +446,52 @@
     }
   }
 
+  // Fills the model datalist from the provider's own models endpoint. A free
+  // text id always works; the list is a convenience.
+  document.querySelectorAll("[data-provider-select]").forEach((select) => {
+    const form = select.closest("form");
+    const datalist = form && form.querySelector("#model-options");
+    const hint = form && form.querySelector("[data-model-hint]");
+    const baseUrl = form && form.querySelector("[data-base-url]");
+    if (!datalist) return;
+    const load = async () => {
+      const provider = select.value;
+      const cliProvider = provider.endsWith("-cli");
+      if (!provider || cliProvider) {
+        datalist.replaceChildren();
+        if (hint) {
+          hint.textContent = cliProvider ? tr("claude-cli, codex-cli e gemini-cli escolhem o modelo deles") : "";
+        }
+        return;
+      }
+      if (hint) hint.textContent = tr("buscando modelos") + "…";
+      const endpoint = new URL(`/api/providers/${encodeURIComponent(provider)}/models`, location.origin);
+      if (baseUrl && baseUrl.value.trim()) {
+        endpoint.searchParams.set("base_url", baseUrl.value.trim());
+      }
+      try {
+        const response = await fetch(endpoint);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error ? payload.error.message : `HTTP ${response.status}`);
+        }
+        const options = (payload.models || []).map((id) => {
+          const option = document.createElement("option");
+          option.value = id;
+          return option;
+        });
+        datalist.replaceChildren(...options);
+        if (hint) hint.textContent = options.length ? "" : tr("Nada mudou.");
+      } catch (error) {
+        datalist.replaceChildren();
+        if (hint) hint.textContent = error.message;
+      }
+    };
+    select.addEventListener("change", load);
+    if (baseUrl) baseUrl.addEventListener("change", load);
+    if (select.value) load();
+  });
+
   const language = document.querySelector("[data-language]");
   if (language) {
     language.addEventListener("change", () => {

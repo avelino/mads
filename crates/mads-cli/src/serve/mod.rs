@@ -101,6 +101,7 @@ pub fn app(state: AppState) -> Router {
             post(handlers::session_create).delete(handlers::session_delete),
         )
         .route("/api/secrets", get(handlers::api_secrets))
+        .route("/api/providers/{name}/models", get(handlers::api_models))
         .route(
             "/api/secrets/{name}",
             axum::routing::put(handlers::set_secret).delete(handlers::delete_secret),

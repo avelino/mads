@@ -385,6 +385,71 @@ async fn a_stale_if_match_is_a_conflict_and_a_fresh_one_passes() {
 }
 
 #[tokio::test]
+async fn the_models_endpoint_reports_cli_and_unknown_providers() {
+    let (_temp, state) = fixture();
+    let response = send(&state, get("/api/providers/claude-cli/models", true)).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(body_text(response).await.contains("picks its own model"));
+    let response = send(&state, get("/api/providers/nope/models", true)).await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn the_models_endpoint_reads_the_openai_compat_shape() {
+    // A stub provider on loopback answers the same JSON shape OpenAI uses.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let stub: tokio::task::JoinHandle<()> = tokio::spawn(async move {
+        loop {
+            let Ok((socket, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buffer = [0u8; 4096];
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut socket = socket;
+                let _ = socket.read(&mut buffer).await;
+                let body = "{\"data\":[{\"id\":\"compat-b\"},{\"id\":\"compat-a\"}]}";
+                let answer = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(answer.as_bytes()).await;
+            });
+        }
+    });
+
+    let (_temp, state) = fixture();
+    // The endpoint only serves providers with a resolved key.
+    let response = send(
+        &state,
+        put_json(
+            "/api/secrets/openai-compat",
+            json!({"value": "sk-compat"}),
+            true,
+        ),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = send(
+        &state,
+        get(
+            &format!("/api/providers/openai-compat/models?base_url=http://{addr}"),
+            true,
+        ),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let payload: serde_json::Value = serde_json::from_str(&body_text(response).await).unwrap();
+    assert_eq!(
+        payload["models"],
+        json!(["compat-a", "compat-b"]),
+        "sorted and deduplicated"
+    );
+    stub.abort();
+}
+
+#[tokio::test]
 async fn the_run_stream_sends_unnamed_events() {
     let (_temp, state) = fixture();
     let response = send(&state, get(&format!("/api/runs/{RUN_ID}/stream"), true)).await;
@@ -625,7 +690,7 @@ async fn the_new_project_page_is_served() {
     assert_eq!(response.status(), StatusCode::OK);
     let text = body_text(response).await;
     assert!(text.contains("Novo projeto"));
-    assert!(text.contains("Estudar site"));
+    assert!(text.contains("Study site"));
 }
 
 #[tokio::test]
@@ -682,7 +747,7 @@ async fn optimize_prepare_creates_a_derived_run_with_a_digest() {
     .await;
     assert_eq!(review.status(), StatusCode::OK);
     let page = body_text(review).await;
-    assert!(page.contains("Diagnóstico"));
+    assert!(page.contains("Diagnosis"));
     assert!(page.contains("Acme - Marca"));
     let run_dir = _temp.path().join("mads/acme/out").join(run_id);
     let run_json: serde_json::Value =
@@ -956,7 +1021,7 @@ async fn a_project_without_a_draft_offers_a_retry() {
     let response = send(&state, get("/projects/empty/init", true)).await;
     assert_eq!(response.status(), StatusCode::OK);
     let page = body_text(response).await;
-    assert!(page.contains("Estudar o site"));
+    assert!(page.contains("Study the site"));
     assert!(page.contains("data-init-form"));
 }
 
@@ -1014,7 +1079,10 @@ async fn the_language_switch_translates_the_shell() {
     assert_eq!(response.status(), StatusCode::OK);
     let page = body_text(response).await;
     assert!(page.contains("Projects"));
-    assert!(page.contains("English is in beta"));
+    assert!(
+        !page.contains("English is in beta"),
+        "the beta notice is gone"
+    );
 }
 
 #[tokio::test]
@@ -1067,7 +1135,8 @@ async fn a_saved_key_shows_as_ready_in_the_project_forms() {
     let response = send(&state, get("/projects/new", true)).await;
     assert_eq!(response.status(), StatusCode::OK);
     let page = body_text(response).await;
-    assert!(page.contains("arquivo 0600"));
+    // The form lists only the configured providers, by name.
+    assert!(page.contains("<option value=\"anthropic\""));
     assert!(!page.contains("missing ANTHROPIC_API_KEY"));
 }
 

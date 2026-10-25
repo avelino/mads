@@ -505,6 +505,7 @@ pub async fn new_project_page(State(state): State<AppState>, headers: HeaderMap)
         providers,
         default_provider: std::env::var("MADS_PROVIDER").unwrap_or_default(),
         default_model: std::env::var("MADS_MODEL").unwrap_or_default(),
+        default_base_url: std::env::var("MADS_BASE_URL").unwrap_or_default(),
     })
     .into_response()
 }
@@ -664,6 +665,7 @@ pub async fn new_run_page(
         providers,
         default_provider: std::env::var("MADS_PROVIDER").unwrap_or_default(),
         default_model: std::env::var("MADS_MODEL").unwrap_or_default(),
+        default_base_url: std::env::var("MADS_BASE_URL").unwrap_or_default(),
     })
     .into_response()
 }
@@ -1225,6 +1227,43 @@ pub async fn api_secrets(State(state): State<AppState>, headers: HeaderMap) -> R
         })).collect::<Vec<_>>()
     }))
     .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct ModelsQuery {
+    #[serde(default)]
+    base_url: Option<String>,
+}
+
+/// The model ids a provider serves today. The forms load it into a datalist and
+/// still accept a free text id.
+pub async fn api_models(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<ModelsQuery>,
+) -> Response {
+    if state.auth.authenticate(&headers).is_none() {
+        return api_not_authorized();
+    }
+    let known = mads_providers::list_providers()
+        .iter()
+        .any(|provider| provider.name == name);
+    if !known {
+        return api_not_found();
+    }
+    let key = crate::serve::secrets::env_for(&name)
+        .and_then(|var| state.secrets.resolved().get(var).cloned());
+    // The endpoint falls back to the server's own variable, then the user edits
+    // it in the form.
+    let base_url = query
+        .base_url
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| std::env::var("MADS_BASE_URL").ok());
+    match mads_providers::list_models(&name, key.as_deref(), base_url.as_deref()).await {
+        Ok(models) => Json(json!({"provider": name, "models": models})).into_response(),
+        Err(message) => bad_request(message),
+    }
 }
 
 pub async fn set_secret(

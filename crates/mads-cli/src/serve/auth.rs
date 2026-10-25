@@ -44,7 +44,7 @@ impl Auth {
         {
             return Some(Identity {
                 csrf: String::new(),
-                lang: "pt-BR".into(),
+                lang: "en".into(),
                 bearer: true,
             });
         }
@@ -67,7 +67,7 @@ impl Auth {
     /// `(session_id, csrf_token)`, both random.
     #[cfg(test)]
     pub fn create_session(&self, token: &str) -> Option<(String, String)> {
-        self.create_session_with_lang(token, "pt-BR")
+        self.create_session_with_lang(token, "en")
     }
 
     pub fn create_session_with_lang(&self, token: &str, lang: &str) -> Option<(String, String)> {

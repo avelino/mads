@@ -2,6 +2,7 @@ mod cli;
 mod genai_model;
 mod image;
 mod mcp;
+mod models;
 
 mod select;
 mod site;
@@ -14,6 +15,7 @@ pub use image::{
     build_image_model_with_keys, list_image_providers,
 };
 pub use mcp::McpEndpoint;
+pub use models::list_models;
 pub use select::{
     Kind as ProviderKind, ProviderError, ProviderInfo, ProviderSelection, ProviderStatus,
     build_drivers, list_providers, preflight,

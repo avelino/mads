@@ -90,6 +90,7 @@ pub struct NewProjectPage {
     pub providers: Vec<ProviderRow>,
     pub default_provider: String,
     pub default_model: String,
+    pub default_base_url: String,
 }
 
 #[derive(Template)]
@@ -145,6 +146,7 @@ pub struct NewRunPage {
     pub providers: Vec<ProviderRow>,
     pub default_provider: String,
     pub default_model: String,
+    pub default_base_url: String,
 }
 
 #[derive(Template)]

@@ -6,7 +6,7 @@ This page runs mads in the browser, from the first project to the exported CSVs.
 
 `mads serve` starts a local web interface. It reads and writes the same project directories as the CLI. It does not upload anything to Google Ads.
 
-The interface has Portuguese and English. English is in beta. Use the language selector in the top bar.
+The interface has English and Portuguese. English is the default; the language selector in the top bar switches to Portuguese.
 
 ## Start it
 
@@ -33,6 +33,8 @@ Stop the server with Ctrl-C.
 ## Create a project
 
 Open **Novo projeto**. The form asks for the business name, the site, the daily budget, the currency, the provider and the model.
+
+The provider select lists only the providers that are configured in **Conexões** (or present in the environment). When you pick one, the form asks the provider's own API for its model list and offers the ids in the model field; typing an id by hand always works. For `openai-compat` the endpoint field comes prefilled with `MADS_BASE_URL` when the server has one, and you can edit it.
 
 **Estudar site** runs `mads init`. The agent reads the site, may search the web and writes `business.toml`, `catalog.csv` and `research.md`. The job page shows the tool calls and the token use.
 
@@ -64,7 +66,7 @@ A saved draft does not change earlier runs. Each run keeps its own copy in `inpu
 
 Open a project and choose **Nova execução**.
 
-- Pick the provider and model. API providers need a key, see [Connections](#connections).
+- Pick the provider and model. The list shows only the configured providers; the model field loads the ids the provider's API serves, and a hand-typed id always works. API providers need a key, see [Connections](#connections).
 - Choose the file set. `bulk` writes files 1 to 5 and the Editor file. `drive-folders` writes the automation package.
 - Set the token cap, the turns per mission, the timeout and the retries.
 - Keep **Revisar o plano** on. The run stops after the plan and shows campaigns, budgets and groups before campaign missions spend tokens.
@@ -112,7 +114,7 @@ Open **Conexões** to see the providers and save API keys.
 
 Keys are stored in `~/.config/mads/secrets.toml` with mode `0600`. On Windows the path is `%APPDATA%\mads\secrets.toml`. The browser never receives a key. Environment variables win over the file. A saved key is used by text and image jobs, including `init` and `generate`; there is no need to restart the server or export the variable.
 
-Agent CLIs use their own login. The studio only checks that the executable exists and its version.
+Agent CLIs use their own login. The studio only checks that the executable exists and its version; they have no model list, so the agent picks its own default.
 
 ## Export
 
@@ -138,6 +140,7 @@ GET    /api/projects/:id/logo
 POST   /api/projects/:id/logo
 PUT    /api/projects/:id/research
 PUT    /api/projects/:id/design
+GET    /api/providers/:name/models
 GET    /api/secrets
 PUT    /api/secrets/:name
 DELETE /api/secrets/:name
@@ -193,7 +196,7 @@ The CLI keeps working. CI should keep using it.
 
 ## Language
 
-The language selector lives in the top bar. Portuguese is the default. English is in beta: the main screens, forms and messages are translated, but some labels from generated content stay in the language of the run.
+The language selector lives in the top bar. English is the default. A browser that asks for pt-BR in `Accept-Language` gets Portuguese; the selector overrides both.
 
 The choice is a cookie and a session field; it survives a reload and a server restart.
 
@@ -204,5 +207,4 @@ The choice is a cookie and a session field; it survives a reload and a server re
 - No multi-user server.
 - No structural account edits in the browser, such as adding or removing campaigns or ad groups.
 - Sitelinks, callouts and snippets are validated but not exported. They appear in the account and in the diff.
-- English is in beta.
 - The interface is local. Bind it to another address only with a token.

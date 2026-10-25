@@ -15,7 +15,7 @@
     <button class="button primary" type="button" data-run-action="continue" data-run="{{ run.summary.id }}"
       data-provider="{{ run.summary.provider }}"{% if run.summary.model != "-" %} data-model="{{ run.summary.model }}"{% endif %}>{{ chrome.t("Gerar campanhas") }}</button>
     {% endif %}
-    {% if (run.summary.status == "incomplete" || run.summary.status == "cancelled") && run.summary.provider != "-" %}
+    {% if (run.summary.status == "incomplete" || run.summary.status == "cancelled" || run.summary.status == "interrupted") && run.summary.provider != "-" %}
     <button class="button primary" type="button" data-run-action="resume" data-run="{{ run.summary.id }}"
       data-provider="{{ run.summary.provider }}"{% if run.summary.model != "-" %} data-model="{{ run.summary.model }}"{% endif %}>{{ chrome.t("Retomar missões") }}</button>
     {% endif %}

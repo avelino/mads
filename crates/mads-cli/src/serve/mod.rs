@@ -163,6 +163,9 @@ pub fn app(state: AppState) -> Router {
 }
 
 pub async fn serve(config: Config) -> anyhow::Result<()> {
+    // Runs from a previous server life cannot still be running: mark their
+    // missions interrupted so the UI offers resume instead of a fake "running".
+    store::sweep_interrupted_runs(&config.root);
     let addr = SocketAddr::new(config.bind, config.port);
     let listener = TcpListener::bind(addr).await.map_err(|e| {
         anyhow::anyhow!(

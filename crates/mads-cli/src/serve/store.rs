@@ -722,6 +722,15 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
             path.clone(),
             "ok",
         ),
+        Event::RunPaused { totals } => (
+            "run".into(),
+            "run_paused".to_string(),
+            format!(
+                "plano pronto, campanhas pendentes: {} in, {} out",
+                totals.input_tokens, totals.output_tokens
+            ),
+            "warn",
+        ),
         Event::RunFinished {
             ok,
             exit_code,
@@ -1564,5 +1573,42 @@ mod tests {
         assert_eq!(compact(999), "999");
         assert_eq!(compact(1_500), "1.5k");
         assert_eq!(compact(2_000_000), "2.0M");
+    }
+}
+
+/// Marks the missions of runs from a previous server life as interrupted. The
+/// in-memory job registry dies with the process, so a run left with `Running`
+/// missions would otherwise show "Em execução" forever, with no stop and no
+/// resume button. Core already counts anything not `Finished` as unfinished, so
+/// the resume path picks these up.
+pub fn sweep_interrupted_runs(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for project in entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+    {
+        let Ok(runs) = fs::read_dir(project.path().join("out")) else {
+            continue;
+        };
+        for run in runs.flatten() {
+            let workspace_path = run.path().join("workspace.json");
+            let Ok(mut workspace) = Workspace::load(&workspace_path) else {
+                continue;
+            };
+            let mut changed = false;
+            for mission in workspace.missions.values_mut() {
+                if mission.status == MissionStatus::Running {
+                    mission.status = MissionStatus::Failed {
+                        reason: "interrupted".into(),
+                    };
+                    changed = true;
+                }
+            }
+            if changed {
+                let _ = workspace.save(&workspace_path);
+            }
+        }
     }
 }

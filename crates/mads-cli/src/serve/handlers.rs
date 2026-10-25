@@ -280,7 +280,7 @@ pub async fn start_init_project(
             Json(json!({"job_id": job.id, "project_id": project.id})),
         )
             .into_response(),
-        Err(message) => bad_request(message),
+        Err(error) => job_error(error),
     }
 }
 
@@ -611,9 +611,9 @@ pub async fn create_project(
             Json(json!({"job_id": job.id, "project_id": id})),
         )
             .into_response(),
-        Err(message) => {
+        Err(error) => {
             let _ = std::fs::remove_dir_all(&dir);
-            bad_request(message)
+            job_error(error)
         }
     }
 }
@@ -703,7 +703,7 @@ pub async fn create_run(
     let project_dir = state.root().join(&project.id);
     match state.jobs.start_generate(&project, &project_dir, options) {
         Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
-        Err(message) => bad_request(message),
+        Err(error) => job_error(error),
     }
 }
 
@@ -741,7 +741,7 @@ pub async fn resume_run(
         .start_resume(&project, &project_dir, &run.summary.id, options)
     {
         Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
-        Err(message) => bad_request(message),
+        Err(error) => job_error(error),
     }
 }
 
@@ -781,7 +781,7 @@ pub async fn export_run_now(
         .start_export(&project, &project_dir, &run.summary.id, options)
     {
         Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
-        Err(message) => bad_request(message),
+        Err(error) => job_error(error),
     }
 }
 
@@ -881,7 +881,7 @@ pub async fn revert_revision(
             Json(json!({"job_id": job.id, "run_id": run_id})),
         )
             .into_response(),
-        Err(message) => bad_request(message),
+        Err(error) => job_error(error),
     }
 }
 
@@ -1659,6 +1659,24 @@ pub(crate) fn bad_request(message: String) -> Response {
         .into_response()
 }
 
+pub(crate) fn conflict(message: String) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({"error": {"code": "CONFLICT", "message": message}})),
+    )
+        .into_response()
+}
+
+/// A job that could not start: a conflict answers 409, anything else 400.
+pub(crate) fn job_error(error: crate::serve::jobs::JobError) -> Response {
+    match error {
+        crate::serve::jobs::JobError::Conflict => {
+            conflict("este projeto já tem uma execução em andamento".into())
+        }
+        crate::serve::jobs::JobError::Message(message) => bad_request(message),
+    }
+}
+
 pub(crate) fn api_not_authorized() -> Response {
     (
         StatusCode::UNAUTHORIZED,
@@ -1688,6 +1706,7 @@ fn event_name(event: &Event) -> &'static str {
         Event::Validation { .. } => "validation",
         Event::UrlChecked { .. } => "url_checked",
         Event::ArtifactWritten { .. } => "artifact_written",
+        Event::RunPaused { .. } => "run_paused",
         Event::RunFinished { .. } => "run_finished",
     }
 }

@@ -17,6 +17,8 @@ pub struct Edit {
 
 #[derive(Debug)]
 pub enum RevisionError {
+    /// Another job is running or queued for the project; handlers answer 409.
+    Conflict,
     Message(String),
     Invalid(Vec<Issue>),
 }
@@ -24,6 +26,7 @@ pub enum RevisionError {
 impl RevisionError {
     pub fn message(self) -> String {
         match self {
+            RevisionError::Conflict => "este projeto já tem uma execução em andamento".into(),
             RevisionError::Message(message) => message,
             RevisionError::Invalid(issues) => issues
                 .first()

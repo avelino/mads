@@ -1,7 +1,7 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fs::{self, File, OpenOptions},
-    io::Write,
+    io::{Seek, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
@@ -31,9 +31,15 @@ use crate::serve::{
     store::Project,
 };
 
+/// How many jobs run at once. The spec caps the server at two; the rest wait in a FIFO queue.
+const MAX_RUNNING_JOBS: usize = 2;
+/// Finished jobs kept in the registry before the oldest ones are dropped.
+const JOB_HISTORY: usize = 100;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobState {
+    Queued,
     Running,
     Cancelling,
     Done,
@@ -44,6 +50,7 @@ pub enum JobState {
 impl JobState {
     pub fn label(self) -> &'static str {
         match self {
+            JobState::Queued => "Na fila",
             JobState::Running => "Em execução",
             JobState::Cancelling => "Parando",
             JobState::Done => "Concluído",
@@ -54,11 +61,35 @@ impl JobState {
 
     pub fn class(self) -> &'static str {
         match self {
+            JobState::Queued => "muted",
             JobState::Running => "running",
             JobState::Cancelling => "warn",
             JobState::Done => "ok",
             JobState::Failed => "error",
             JobState::Cancelled => "muted",
+        }
+    }
+}
+
+/// Why a job could not start. A conflict is a state clash, not a bad request, so
+/// handlers answer it with 409.
+#[derive(Debug, Clone)]
+pub enum JobError {
+    Conflict,
+    Message(String),
+}
+
+impl From<String> for JobError {
+    fn from(message: String) -> Self {
+        JobError::Message(message)
+    }
+}
+
+impl std::fmt::Display for JobError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JobError::Conflict => write!(f, "este projeto já tem uma execução em andamento"),
+            JobError::Message(message) => write!(f, "{message}"),
         }
     }
 }
@@ -99,6 +130,10 @@ struct Job {
     tx: broadcast::Sender<EventEnvelope>,
     log: PathBuf,
     _lock: Mutex<Option<File>>,
+    /// Runs once when the job leaves the running set. Attached by the gate when
+    /// the job actually gets a slot, so a queued job cancelled before starting
+    /// never releases a slot it never held.
+    on_release: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl Job {
@@ -128,15 +163,19 @@ impl Job {
         }
     }
 
+    fn set_state(&self, state: JobState) {
+        if let Ok(mut slot) = self.state.lock() {
+            *slot = state;
+        }
+    }
+
     fn finish(&self, state: JobState, error: Option<String>) {
         crate::serve::audit::append(
             &self.project_dir,
             "job_finished",
             &format!("{} {} {:?}", self.id, self.kind, state),
         );
-        if let Ok(mut current) = self.state.lock() {
-            *current = state;
-        }
+        self.set_state(state);
         if let Ok(mut slot) = self.error.lock() {
             *slot = error;
         }
@@ -146,12 +185,81 @@ impl Job {
         if let Ok(mut lock) = self._lock.lock() {
             *lock = None;
         }
+        if let Ok(mut hook) = self.on_release.lock()
+            && let Some(release) = hook.take()
+        {
+            release();
+        }
+    }
+}
+
+/// How a queued job is started once a slot frees up.
+type Spawn = Box<dyn FnOnce(Arc<Job>) + Send>;
+
+/// Caps the server at `MAX_RUNNING_JOBS` live jobs and keeps the rest in a FIFO
+/// queue, as the design spec requires.
+#[derive(Default)]
+struct Gate {
+    state: Mutex<GateState>,
+}
+
+#[derive(Default)]
+struct GateState {
+    running: usize,
+    pending: VecDeque<(Arc<Job>, Spawn)>,
+}
+
+impl Gate {
+    fn admit(self: &Arc<Self>, job: Arc<Job>, spawn: Spawn) {
+        let mut gate = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if gate.running >= MAX_RUNNING_JOBS {
+            job.set_state(JobState::Queued);
+            gate.pending.push_back((job, spawn));
+            return;
+        }
+        gate.running += 1;
+        drop(gate);
+        self.launch(job, spawn);
+    }
+
+    /// Frees one slot and starts the first queued job that was not cancelled
+    /// while waiting. Called from `Job::finish`, never while holding the gate.
+    fn release(self: &Arc<Self>) {
+        let next = {
+            let mut gate = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            gate.running = gate.running.saturating_sub(1);
+            loop {
+                match gate.pending.pop_front() {
+                    Some((job, spawn)) => {
+                        let queued = job.state.lock().is_ok_and(|s| *s == JobState::Queued);
+                        if queued {
+                            gate.running += 1;
+                            break Some((job, spawn));
+                        }
+                    }
+                    None => break None,
+                }
+            }
+        };
+        if let Some((job, spawn)) = next {
+            self.launch(job, spawn);
+        }
+    }
+
+    fn launch(self: &Arc<Self>, job: Arc<Job>, spawn: Spawn) {
+        job.set_state(JobState::Running);
+        let gate = Arc::clone(self);
+        if let Ok(mut hook) = job.on_release.lock() {
+            *hook = Some(Box::new(move || gate.release()));
+        }
+        spawn(job);
     }
 }
 
 #[derive(Clone, Default)]
 pub struct Jobs {
     inner: Arc<Mutex<HashMap<String, Arc<Job>>>>,
+    gate: Arc<Gate>,
 }
 
 impl Jobs {
@@ -165,7 +273,7 @@ impl Jobs {
         };
         let mut jobs: Vec<_> = map.values().map(|job| job.view()).collect();
         jobs.sort_by(|a, b| b.started.cmp(&a.started));
-        jobs.truncate(100);
+        jobs.truncate(JOB_HISTORY);
         jobs
     }
 
@@ -174,10 +282,19 @@ impl Jobs {
             return false;
         };
         job.control.cancel();
+        let queued = job
+            .state
+            .lock()
+            .is_ok_and(|s| *s == JobState::Queued || *s == JobState::Cancelling);
         if let Ok(mut state) = job.state.lock()
             && *state == JobState::Running
         {
             *state = JobState::Cancelling;
+        }
+        // A queued job has no task to observe the control: finish it right away.
+        // The pending entry stays in the queue and is skipped when it drains.
+        if queued {
+            job.finish(JobState::Cancelled, None);
         }
         true
     }
@@ -193,7 +310,7 @@ impl Jobs {
                 job.project_id == project_id
                     && matches!(
                         *job.state.lock().unwrap_or_else(|e| e.into_inner()),
-                        JobState::Running | JobState::Cancelling
+                        JobState::Queued | JobState::Running | JobState::Cancelling
                     )
             })
         })
@@ -204,22 +321,24 @@ impl Jobs {
         project: &Project,
         project_dir: &Path,
         options: GenerateOptions,
-    ) -> Result<JobView, String> {
+    ) -> Result<JobView, JobError> {
         if self.active(&project.id) {
-            return Err("este projeto já tem uma execução em andamento".into());
+            return Err(JobError::Conflict);
         }
         if !project_dir.join("business.toml").is_file() {
-            return Err(
+            return Err(JobError::Message(
                 "o projeto não tem business.toml. Estude o site ou crie o rascunho antes de gerar."
                     .into(),
-            );
+            ));
         }
+        // The lock comes first: a losing submitter must not leave an orphan run
+        // directory behind.
+        let lock = lock_project(project_dir)?;
         let mut input = load_input(&project_dir.join("business.toml"))
-            .map_err(|e| format!("o rascunho não carrega: {e}"))?;
+            .map_err(|e| JobError::Message(format!("o rascunho não carrega: {e}")))?;
         let run = prepare_run(project_dir, &mut input)?;
         let run_id = run.id();
         let log = run.root().join("events.ndjson");
-        let lock = lock_project(project_dir)?;
         let job = new_job(
             project_dir,
             &project.id,
@@ -232,28 +351,26 @@ impl Jobs {
         )?;
         self.insert(job.clone());
         crate::serve::audit::append(project_dir, "job_started", &format!("generate {run_id}"));
-        let job_for_task = job.clone();
+        let view = job.view();
         let project_dir = project_dir.to_path_buf();
-        std::thread::spawn(move || {
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                job_for_task.finish(
-                    JobState::Failed,
-                    Some("cannot start the job runtime".into()),
+        self.admit(
+            job,
+            Box::new(move |job| {
+                start_job_thread(
+                    job,
+                    Box::new(move |job| {
+                        Box::pin(run_generate_job(
+                            job,
+                            project_dir,
+                            Some(run),
+                            input,
+                            options,
+                        ))
+                    }),
                 );
-                return;
-            };
-            runtime.block_on(run_generate_job(
-                job_for_task,
-                project_dir,
-                Some(run),
-                input,
-                options,
-            ));
-        });
-        Ok(job.view())
+            }),
+        );
+        Ok(view)
     }
 
     pub fn start_resume(
@@ -262,18 +379,18 @@ impl Jobs {
         project_dir: &Path,
         run_id: &str,
         mut options: GenerateOptions,
-    ) -> Result<JobView, String> {
+    ) -> Result<JobView, JobError> {
         options.plan_review = false;
         options.layout = None;
         if self.active(&project.id) {
-            return Err("este projeto já tem uma execução em andamento".into());
+            return Err(JobError::Conflict);
         }
         let run_dir = project_dir.join("out").join(run_id);
         if !run_dir.join("workspace.json").is_file() {
-            return Err("execução não encontrada".into());
+            return Err(JobError::Message("execução não encontrada".into()));
         }
         let input = Workspace::load(&run_dir.join("workspace.json"))
-            .map_err(|e| format!("não foi possível abrir a execução: {e}"))?
+            .map_err(|e| JobError::Message(format!("não foi possível abrir a execução: {e}")))?
             .input;
         let log = run_dir.join("events.ndjson");
         let lock = lock_project(project_dir)?;
@@ -289,30 +406,21 @@ impl Jobs {
         )?;
         self.insert(job.clone());
         crate::serve::audit::append(project_dir, "job_started", &format!("resume {run_id}"));
-        let job_for_task = job.clone();
+        let view = job.view();
         let project_dir = project_dir.to_path_buf();
         let run_id = run_id.to_string();
-        std::thread::spawn(move || {
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                job_for_task.finish(
-                    JobState::Failed,
-                    Some("cannot start the job runtime".into()),
+        self.admit(
+            job,
+            Box::new(move |job| {
+                start_job_thread(
+                    job,
+                    Box::new(move |job| {
+                        Box::pin(run_resume_job(job, project_dir, run_id, input, options))
+                    }),
                 );
-                return;
-            };
-            let run = RunDir::open(&project_dir.join("out").join(run_id)).ok();
-            runtime.block_on(run_generate_job(
-                job_for_task,
-                project_dir,
-                run,
-                input,
-                options,
-            ));
-        });
-        Ok(job.view())
+            }),
+        );
+        Ok(view)
     }
 
     pub fn start_init(
@@ -320,13 +428,13 @@ impl Jobs {
         project: &Project,
         project_dir: &Path,
         options: InitOptions,
-    ) -> Result<JobView, String> {
+    ) -> Result<JobView, JobError> {
         if self.active(&project.id) {
-            return Err("este projeto já tem uma execução em andamento".into());
+            return Err(JobError::Conflict);
         }
         let job_id = Uuid::new_v4().simple().to_string();
         let job_dir = project_dir.join(".mads").join("jobs").join(&job_id);
-        fs::create_dir_all(&job_dir).map_err(|e| e.to_string())?;
+        fs::create_dir_all(&job_dir).map_err(|e| JobError::Message(e.to_string()))?;
         let log = job_dir.join("events.ndjson");
         let lock = lock_project(project_dir)?;
         let job = new_job(
@@ -341,22 +449,18 @@ impl Jobs {
         )?;
         self.insert(job.clone());
         crate::serve::audit::append(project_dir, "job_started", &format!("init {}", job.id));
-        let job_for_task = job.clone();
+        let view = job.view();
         let project_dir = project_dir.to_path_buf();
-        std::thread::spawn(move || {
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                job_for_task.finish(
-                    JobState::Failed,
-                    Some("cannot start the job runtime".into()),
+        self.admit(
+            job,
+            Box::new(move |job| {
+                start_job_thread(
+                    job,
+                    Box::new(move |job| Box::pin(run_init_job(job, project_dir, options))),
                 );
-                return;
-            };
-            runtime.block_on(run_init_job(job_for_task, project_dir, options));
-        });
-        Ok(job.view())
+            }),
+        );
+        Ok(view)
     }
 
     pub fn start_revision(
@@ -367,9 +471,7 @@ impl Jobs {
         edits: &[Edit],
     ) -> Result<(JobView, String), RevisionError> {
         if self.active(&project.id) {
-            return Err(RevisionError::Message(
-                "este projeto já tem uma execução em andamento".into(),
-            ));
+            return Err(RevisionError::Conflict);
         }
         let base = project_dir.join("out").join(base_run_id);
         let workspace = Workspace::load(&base.join("workspace.json")).map_err(|e| {
@@ -378,6 +480,9 @@ impl Jobs {
         let account = revisions::apply(&workspace.account, &workspace.input, edits, 50)?;
         let mut workspace = workspace;
         workspace.account = account;
+        // The revision directory is numbered and created under the project lock,
+        // so two concurrent requests cannot both win `-r1`.
+        let lock = lock_project(project_dir).map_err(RevisionError::Message)?;
         let (run_id, _) = revisions::create(project_dir, base_run_id, &workspace, edits)
             .map_err(RevisionError::Message)?;
         crate::serve::audit::append(
@@ -385,19 +490,28 @@ impl Jobs {
             "revision_created",
             &format!("{base_run_id} -> {run_id} ({} edits)", edits.len()),
         );
-        let job = self
-            .start_export(
-                project,
-                project_dir,
-                &run_id,
-                ExportOptions {
-                    skip_url_check: false,
-                    layout: None,
-                    max_ad_groups: 50,
-                },
-            )
-            .map_err(RevisionError::Message)?;
-        Ok((job, run_id))
+        match self.begin_export(
+            project,
+            project_dir,
+            &run_id,
+            ExportOptions {
+                skip_url_check: false,
+                layout: None,
+                max_ad_groups: 50,
+            },
+            Some(lock),
+        ) {
+            Ok(job) => Ok((job, run_id)),
+            Err(e) => {
+                // The revision was created but its export cannot start; an empty
+                // sibling directory would only confuse the runs list.
+                let _ = fs::remove_dir_all(project_dir.join("out").join(&run_id));
+                Err(match e {
+                    JobError::Conflict => RevisionError::Conflict,
+                    JobError::Message(m) => RevisionError::Message(m),
+                })
+            }
+        }
     }
 
     pub fn start_export(
@@ -406,16 +520,30 @@ impl Jobs {
         project_dir: &Path,
         run_id: &str,
         options: ExportOptions,
-    ) -> Result<JobView, String> {
+    ) -> Result<JobView, JobError> {
         if self.active(&project.id) {
-            return Err("este projeto já tem uma execução em andamento".into());
+            return Err(JobError::Conflict);
         }
+        self.begin_export(project, project_dir, run_id, options, None)
+    }
+
+    fn begin_export(
+        &self,
+        project: &Project,
+        project_dir: &Path,
+        run_id: &str,
+        options: ExportOptions,
+        lock: Option<File>,
+    ) -> Result<JobView, JobError> {
         let run_dir = project_dir.join("out").join(run_id);
         if !run_dir.join("workspace.json").is_file() {
-            return Err("execução não encontrada".into());
+            return Err(JobError::Message("execução não encontrada".into()));
         }
         let log = run_dir.join("events.ndjson");
-        let lock = lock_project(project_dir)?;
+        let lock = match lock {
+            Some(lock) => lock,
+            None => lock_project(project_dir)?,
+        };
         let job = new_job(
             project_dir,
             &project.id,
@@ -428,28 +556,54 @@ impl Jobs {
         )?;
         self.insert(job.clone());
         crate::serve::audit::append(project_dir, "job_started", &format!("export {run_id}"));
-        let job_for_task = job.clone();
+        let view = job.view();
         let project_dir = project_dir.to_path_buf();
         let run_id = run_id.to_string();
-        std::thread::spawn(move || {
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                job_for_task.finish(
-                    JobState::Failed,
-                    Some("cannot start the job runtime".into()),
+        self.admit(
+            job,
+            Box::new(move |job| {
+                start_job_thread(
+                    job,
+                    Box::new(move |job| {
+                        Box::pin(run_export_job(job, project_dir, run_id, options))
+                    }),
                 );
-                return;
-            };
-            runtime.block_on(run_export_job(job_for_task, project_dir, run_id, options));
-        });
-        Ok(job.view())
+            }),
+        );
+        Ok(view)
+    }
+
+    fn admit(&self, job: Arc<Job>, spawn: Spawn) {
+        self.gate.admit(job, spawn);
     }
 
     fn insert(&self, job: Arc<Job>) {
-        if let Ok(mut map) = self.inner.lock() {
-            map.insert(job.id.clone(), job);
+        let mut map = match self.inner.lock() {
+            Ok(map) => map,
+            Err(_) => return,
+        };
+        map.insert(job.id.clone(), job);
+        if map.len() <= JOB_HISTORY * 2 {
+            return;
+        }
+        // Drop the oldest finished jobs so a long-lived server does not grow the
+        // registry forever.
+        let mut finished: Vec<(String, String)> = map
+            .values()
+            .filter_map(|job| {
+                let done = job.state.lock().is_ok_and(|s| {
+                    matches!(*s, JobState::Done | JobState::Failed | JobState::Cancelled)
+                });
+                let finished = job.finished.lock().ok().and_then(|f| f.clone());
+                done.then_some(finished)
+                    .flatten()
+                    .map(|f| (job.id.clone(), f))
+            })
+            .collect();
+        finished.sort_by(|a, b| a.1.cmp(&b.1));
+        let excess = map.len().saturating_sub(JOB_HISTORY);
+        for (id, _) in finished.into_iter().take(excess) {
+            map.remove(&id);
         }
     }
 }
@@ -792,14 +946,64 @@ async fn run_init_job(job: Arc<Job>, project_dir: PathBuf, options: InitOptions)
     cfg.focus = options.focus;
     cfg.control = job.control.clone();
 
-    let (events, rx) = EventSink::channel();
+    let (events, rx) = EventSink::channel_from(log_base(&job.log));
     let pump = spawn_pump(job.clone(), rx);
     let result = run_init(cfg, drivers.plan, site, events).await;
     let _ = pump.await;
+    if job.control.is_cancelled() {
+        job.finish(JobState::Cancelled, None);
+        return;
+    }
     match result {
         Ok(result) if result.exit_code == 0 => job.finish(JobState::Done, None),
-        Ok(_) => job.finish(JobState::Failed, None),
+        Ok(_) => job.finish(
+            JobState::Failed,
+            Some("a inicialização terminou com erros; veja o registro do job".into()),
+        ),
         Err(e) => job.finish(JobState::Failed, Some(e.to_string())),
+    }
+}
+
+/// Starts a job task on its own thread and current-thread runtime, so blocking
+/// core work never runs on the axum workers. The task must box its future at the
+/// call site: rustc cannot prove `Send` for an async-fn future through a generic
+/// bound (`implementation of Send is not general enough`).
+fn start_job_thread(job: Arc<Job>, task: JobTask) {
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            job.finish(
+                JobState::Failed,
+                Some("cannot start the job runtime".into()),
+            );
+            return;
+        };
+        runtime.block_on(task(job));
+    });
+}
+
+type JobTask =
+    Box<dyn FnOnce(Arc<Job>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> + Send>;
+
+/// The seq the new job's events must continue from: the last one already in the
+/// log. Without it a resume or export restarts at 1 and the SSE dedup on the
+/// reader side silently drops every live event.
+fn log_base(path: &Path) -> u64 {
+    let Ok(text) = fs::read_to_string(path) else {
+        return 0;
+    };
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    match lines
+        .last()
+        .and_then(|last| serde_json::from_str::<EventEnvelope>(last).ok())
+    {
+        Some(envelope) => envelope.seq,
+        None => lines.len() as u64,
     }
 }
 
@@ -833,6 +1037,7 @@ fn new_job(
         tx,
         log,
         _lock: Mutex::new(lock),
+        on_release: Mutex::new(None),
     }))
 }
 
@@ -909,7 +1114,7 @@ async fn run_generate_job(
     cfg.stop_after_plan = options.plan_review;
     cfg.control = job.control.clone();
 
-    let (events, rx) = EventSink::channel();
+    let (events, rx) = EventSink::channel_from(log_base(&job.log));
     let pump = spawn_pump(job.clone(), rx);
     let result = generate(input, drivers, web, cfg, events).await;
     let _ = pump.await;
@@ -923,10 +1128,24 @@ async fn run_generate_job(
             } else {
                 JobState::Failed
             };
-            job.finish(state, None);
+            let error = (result.exit_code != 0)
+                .then_some("a execução terminou com erros; veja o relatório".to_string());
+            job.finish(state, error);
         }
         Err(e) => job.finish(JobState::Failed, Some(e.to_string())),
     }
+}
+
+/// A resume opens the existing run directory before the generate pipeline runs.
+async fn run_resume_job(
+    job: Arc<Job>,
+    project_dir: PathBuf,
+    run_id: String,
+    input: Input,
+    options: GenerateOptions,
+) {
+    let run = RunDir::open(&project_dir.join("out").join(run_id)).ok();
+    run_generate_job(job, project_dir, run, input, options).await;
 }
 
 async fn run_export_job(
@@ -943,7 +1162,7 @@ async fn run_export_job(
             return;
         }
     };
-    let (events, rx) = EventSink::channel();
+    let (events, rx) = EventSink::channel_from(log_base(&job.log));
     let pump = spawn_pump(job.clone(), rx);
     let result = export_run(
         &run_dir,
@@ -952,10 +1171,15 @@ async fn run_export_job(
         options.max_ad_groups,
         options.layout,
         &events,
+        job.control.clone(),
     )
     .await;
     drop(events);
     let _ = pump.await;
+    if job.control.is_cancelled() {
+        job.finish(JobState::Cancelled, None);
+        return;
+    }
     match result {
         Ok(result) => {
             let state = if result.exit_code == 0 {
@@ -963,7 +1187,9 @@ async fn run_export_job(
             } else {
                 JobState::Failed
             };
-            job.finish(state, None);
+            let error = (result.exit_code != 0)
+                .then_some("a exportação terminou com erros; veja o relatório".to_string());
+            job.finish(state, error);
         }
         Err(e) => job.finish(JobState::Failed, Some(e.to_string())),
     }
@@ -1028,7 +1254,7 @@ fn prepare_run(project_dir: &Path, input: &mut Input) -> Result<RunDir, String> 
 fn lock_project(project_dir: &Path) -> Result<File, String> {
     let dir = project_dir.join(".mads");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = OpenOptions::new()
+    let mut file = OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
@@ -1037,6 +1263,15 @@ fn lock_project(project_dir: &Path) -> Result<File, String> {
         .map_err(|e| e.to_string())?;
     file.try_lock_exclusive()
         .map_err(|_| "outra execução está usando este projeto".to_string())?;
+    // Best-effort diagnostics: a contended lock tells whoever lost who holds it.
+    let _ = file.set_len(0);
+    let _ = file.seek(std::io::SeekFrom::Start(0));
+    let _ = writeln!(
+        &file,
+        "{{\"pid\": {}, \"ts\": \"{}\"}}",
+        std::process::id(),
+        clock()
+    );
     Ok(file)
 }
 

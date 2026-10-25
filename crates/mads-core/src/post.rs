@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use futures::{StreamExt, stream};
 
 use crate::{
+    agent::RunControl,
     events::{Event, EventSink},
     google::{Account, Intent, Issue, Keyword, MatchType, blocks, normalize},
     input::Business,
@@ -79,8 +80,18 @@ pub fn collect_urls(account: &Account) -> Vec<String> {
 }
 
 /// Checks the URLs with bounded concurrency; a network error is retried once.
-pub async fn check_urls(web: &dyn Web, urls: &[String], events: &EventSink) -> Vec<UrlResult> {
+/// The control is polled before each URL so a cancel stops the remaining checks.
+pub async fn check_urls(
+    web: &dyn Web,
+    urls: &[String],
+    events: &EventSink,
+    control: &RunControl,
+) -> Vec<UrlResult> {
     let mut results: Vec<UrlResult> = stream::iter(urls)
+        .take_while(|_| {
+            let go = !control.is_cancelled();
+            async move { go }
+        })
         .map(|url| async move {
             let first = web.check_url(url).await;
             let outcome = if first.is_err() {
@@ -329,7 +340,7 @@ mod tests {
             "https://a.com/ok".to_string(),
             "https://a.com/gone".to_string(),
         ];
-        let results = check_urls(&web, &urls, &events).await;
+        let results = check_urls(&web, &urls, &events, &RunControl::default()).await;
         assert_eq!(results.len(), 2);
         assert!(results.iter().find(|r| r.url.ends_with("ok")).unwrap().ok);
         let gone = results.iter().find(|r| r.url.ends_with("gone")).unwrap();
@@ -347,7 +358,13 @@ mod tests {
     async fn a_network_error_is_retried_once() {
         let web = FakeWeb::new(&[("https://a.com/x", vec![Err("timeout".into()), Ok(200)])]);
         let (events, _rx) = EventSink::channel();
-        let results = check_urls(&web, &["https://a.com/x".to_string()], &events).await;
+        let results = check_urls(
+            &web,
+            &["https://a.com/x".to_string()],
+            &events,
+            &RunControl::default(),
+        )
+        .await;
         assert!(results[0].ok);
         assert_eq!(web.total.load(Ordering::SeqCst), 2);
     }
@@ -356,7 +373,13 @@ mod tests {
     async fn two_network_errors_fail_the_url() {
         let web = FakeWeb::new(&[("https://a.com/x", vec![Err("timeout".into())])]);
         let (events, _rx) = EventSink::channel();
-        let results = check_urls(&web, &["https://a.com/x".to_string()], &events).await;
+        let results = check_urls(
+            &web,
+            &["https://a.com/x".to_string()],
+            &events,
+            &RunControl::default(),
+        )
+        .await;
         assert!(!results[0].ok);
         assert_eq!(results[0].status, None);
         assert_eq!(web.total.load(Ordering::SeqCst), 2);

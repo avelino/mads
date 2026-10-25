@@ -296,7 +296,7 @@ impl Runner {
             };
             let used = report.usage;
             self.update(&spec.id, |m| m.usage.add(&used)).await;
-            if self.control.is_cancelled() {
+            if report.outcome != MissionOutcome::Finished && self.control.is_cancelled() {
                 self.fail(&spec.id, "cancelled").await;
                 return false;
             }
@@ -324,6 +324,18 @@ impl Runner {
                     if attempt == allowed {
                         self.update(&spec.id, |m| m.status = MissionStatus::Failed { reason })
                             .await;
+                        return false;
+                    }
+                    // A cancelled attempt is over for good: retrying would emit a second
+                    // `MissionFinished` for the same mission on the next loop turn.
+                    if self.control.is_cancelled() {
+                        self.update(&spec.id, |m| {
+                            m.status = MissionStatus::Failed {
+                                reason: "cancelled".into(),
+                            }
+                        })
+                        .await;
+                        return false;
                     }
                 }
             }
@@ -469,14 +481,20 @@ pub async fn generate(
             .get("parent_run")
             .and_then(serde_json::Value::as_str)
             .map(str::to_string);
-        cfg.revision = previous
-            .get("revision")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0) as u32;
-        cfg.edits = previous
-            .get("edits")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0) as u32;
+        cfg.revision = u32::try_from(
+            previous
+                .get("revision")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        )
+        .unwrap_or(0);
+        cfg.edits = u32::try_from(
+            previous
+                .get("edits")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        )
+        .unwrap_or(0);
     }
     if cfg.origin == "agent" && workspace.live.is_some() {
         cfg.origin = "optimize".into();
@@ -531,6 +549,9 @@ pub async fn generate(
             &run.run_json_path(),
             &serde_json::to_vec_pretty(&json).map_err(io::Error::other)?,
         )?;
+        events.emit(Event::RunPaused {
+            totals: totals.clone(),
+        });
         return Ok(RunResult {
             run_dir: run.root().to_path_buf(),
             exit_code: 0,
@@ -555,6 +576,7 @@ pub async fn export_run(
     max_ad_groups: usize,
     layout: Option<ExportLayout>,
     events: &EventSink,
+    control: RunControl,
 ) -> Result<RunResult, RunError> {
     let run = RunDir::open(run_dir)?;
     let workspace = Workspace::load(&run.workspace_path())?;
@@ -582,17 +604,24 @@ pub async fn export_run(
     cfg.model = text("model");
     cfg.origin = text("origin").unwrap_or_else(|| "agent".into());
     cfg.parent_run = text("parent_run");
-    cfg.revision = previous
-        .get("revision")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0) as u32;
-    cfg.edits = previous
-        .get("edits")
-        .and_then(serde_json::Value::as_u64)
-        .unwrap_or(0) as u32;
+    cfg.revision = u32::try_from(
+        previous
+            .get("revision")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+    )
+    .unwrap_or(0);
+    cfg.edits = u32::try_from(
+        previous
+            .get("edits")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+    )
+    .unwrap_or(0);
     cfg.skip_url_check = skip_url_check;
     cfg.max_ad_groups = max_ad_groups;
     cfg.layout = layout;
+    cfg.control = control;
     events.emit(Event::RunStarted {
         run_id: run.id(),
         run_dir: run.root().display().to_string(),
@@ -613,10 +642,14 @@ pub async fn export_run(
 /// only held `account.csv` is removed, so a bulk run re-exported as drive-folders does not
 /// leave an empty folder behind. The automation package goes whole.
 /// Writes next to the target and renames, so a reader never sees half a file.
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// The temp file is removed when the write or the rename fails.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+    let res = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    res
 }
 
 fn remove_stale_csvs(dir: &Path) {
@@ -687,6 +720,7 @@ async fn images_step(
         model: image,
         max_new: cfg.max_images,
         parallel: cfg.parallel,
+        control: cfg.control.clone(),
     };
     run_image_step(ws, web, &step_cfg, events).await
 }
@@ -705,7 +739,10 @@ async fn conclude(
         .unwrap_or_default();
     let mut notes = Vec::new();
     let mut images = ImageStepResult::default();
-    let fin = if finish.missions_ok && !finish.cancelled {
+    // The flag is re-read between phases: cancelling during images or the URL
+    // check must stop spending before the next phase starts.
+    let mut cancelled = finish.cancelled;
+    let fin = if finish.missions_ok && !cancelled && !cfg.control.is_cancelled() {
         events.emit(Event::Step {
             name: "cross-negatives".into(),
             detail: "brand and competitor terms".into(),
@@ -716,25 +753,40 @@ async fn conclude(
             notes = cross_negatives(&mut w.account, &w.input.business);
             w.save(&run.workspace_path())?;
         };
-        images = images_step(run, ws, web, cfg, events, finish.image).await;
-        notes.extend(images.notes.iter().cloned());
-        let (input, account, live) = {
-            let w = ws.lock().await;
-            (w.input.clone(), w.account.clone(), w.live.clone())
-        };
-        finalize(
-            &input,
-            &account,
-            live.as_ref(),
-            web,
-            ExportOpts {
-                skip_url_check: cfg.skip_url_check,
-                max_ad_groups: cfg.max_ad_groups,
-                layout,
-            },
-            events,
-        )
-        .await
+        if !cfg.control.is_cancelled() {
+            images = images_step(run, ws, web, cfg, events, finish.image).await;
+            notes.extend(images.notes.iter().cloned());
+        }
+        if cfg.control.is_cancelled() {
+            cancelled = true;
+            Finalized {
+                exit_code: 1,
+                errors: Vec::new(),
+                warnings: Vec::new(),
+                urls: None,
+                csv: Vec::new(),
+                copies: Vec::new(),
+            }
+        } else {
+            let (input, account, live) = {
+                let w = ws.lock().await;
+                (w.input.clone(), w.account.clone(), w.live.clone())
+            };
+            finalize(
+                &input,
+                &account,
+                live.as_ref(),
+                web,
+                ExportOpts {
+                    skip_url_check: cfg.skip_url_check,
+                    max_ad_groups: cfg.max_ad_groups,
+                    layout,
+                    control: cfg.control.clone(),
+                },
+                events,
+            )
+            .await
+        }
     } else {
         Finalized {
             exit_code: 1,
@@ -745,6 +797,9 @@ async fn conclude(
             copies: Vec::new(),
         }
     };
+    if cfg.control.is_cancelled() {
+        cancelled = true;
+    }
 
     remove_stale_csvs(&run.platform_dir());
     for file in &fin.csv {
@@ -761,7 +816,7 @@ async fn conclude(
     let guard = ws.lock().await;
     guard.save(&run.workspace_path())?;
     let totals = totals_of(&guard);
-    let status = if finish.cancelled {
+    let status = if cancelled {
         ReportStatus::Cancelled
     } else {
         match fin.exit_code {
@@ -1197,6 +1252,7 @@ mod tests {
             50,
             Some(ExportLayout::Bulk),
             &events,
+            RunControl::default(),
         )
         .await
         .unwrap();
@@ -1227,6 +1283,7 @@ mod tests {
             50,
             Some(ExportLayout::DriveFolders),
             &events,
+            RunControl::default(),
         )
         .await
         .unwrap();
@@ -1236,9 +1293,17 @@ mod tests {
             .join("google-ads/automation/Vinellu Ads Automation/Structure/S1. New Campaigns.xlsx");
         assert!(b1.is_file());
 
-        let again = export_run(&first.run_dir, ok.as_ref(), true, 50, None, &events)
-            .await
-            .unwrap();
+        let again = export_run(
+            &first.run_dir,
+            ok.as_ref(),
+            true,
+            50,
+            None,
+            &events,
+            RunControl::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(again.exit_code, 0);
         assert!(
             b1.is_file(),
@@ -1253,6 +1318,7 @@ mod tests {
             50,
             Some(ExportLayout::Bulk),
             &events,
+            RunControl::default(),
         )
         .await
         .unwrap();
@@ -1276,6 +1342,7 @@ mod tests {
             50,
             Some(ExportLayout::Bulk),
             &events,
+            RunControl::default(),
         )
         .await
         .unwrap_err();
@@ -1295,7 +1362,8 @@ mod tests {
                 true,
                 50,
                 Some(ExportLayout::Bulk),
-                &events
+                &events,
+                RunControl::default(),
             )
             .await
             .is_err()
@@ -1320,6 +1388,7 @@ mod tests {
             50,
             Some(ExportLayout::Bulk),
             &events,
+            RunControl::default(),
         )
         .await
         .unwrap();
@@ -1344,6 +1413,7 @@ mod tests {
             1,
             Some(ExportLayout::Bulk),
             &events,
+            RunControl::default(),
         )
         .await
         .unwrap();
@@ -1536,6 +1606,7 @@ mod image_tests {
             50,
             Some(ExportLayout::Bulk),
             &events,
+            RunControl::default(),
         )
         .await
         .unwrap();
@@ -1558,6 +1629,7 @@ mod image_tests {
             50,
             Some(ExportLayout::Bulk),
             &events,
+            RunControl::default(),
         )
         .await
         .unwrap();

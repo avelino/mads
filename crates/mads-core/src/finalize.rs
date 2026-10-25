@@ -1,4 +1,5 @@
 use crate::{
+    agent::RunControl,
     events::{Event, EventSink},
     google::{
         Account, CsvFile, ExportError, ExportLayout, Issue, Rules, automation_warnings,
@@ -44,11 +45,13 @@ fn invalid(errors: Vec<Issue>, warnings: Vec<Issue>, urls: Option<Vec<UrlResult>
 }
 
 /// Knobs for validation and the CSV export.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ExportOpts {
     pub skip_url_check: bool,
     pub max_ad_groups: usize,
     pub layout: ExportLayout,
+    /// Polled between URL checks so a cancel stops the remaining network work.
+    pub control: RunControl,
 }
 
 /// Bulk upload files 1 to 5 for Search, then the Editor file for image campaigns.
@@ -92,10 +95,19 @@ pub async fn finalize(
     let urls = if opts.skip_url_check {
         step(events, "url-check", "skipped");
         None
+    } else if opts.control.is_cancelled() {
+        return Finalized {
+            exit_code: 1,
+            errors: Vec::new(),
+            warnings,
+            urls: None,
+            csv: Vec::new(),
+            copies: Vec::new(),
+        };
     } else {
         let list = collect_urls(account);
         step(events, "url-check", &format!("{} URLs", list.len()));
-        Some(check_urls(web, &list, events).await)
+        Some(check_urls(web, &list, events, &opts.control).await)
     };
     let url_errors = urls.as_deref().map(url_issues).unwrap_or_default();
     if !url_errors.is_empty() {
@@ -199,6 +211,7 @@ mod tests {
             skip_url_check,
             max_ad_groups,
             layout,
+            control: RunControl::default(),
         }
     }
 

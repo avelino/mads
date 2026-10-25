@@ -85,10 +85,6 @@ pub struct RunControl {
 }
 
 impl RunControl {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn cancel(&self) {
         self.cancel.cancel();
     }

@@ -272,7 +272,13 @@ pub(crate) fn image_model_with(
             ProviderError::Config(format!("--image-provider {provider} needs {var}"))
         })
     };
-    let base = |var: &str, default: &str| env(var).unwrap_or_else(|| default.to_string());
+    let base = |var: &str, default: &str| {
+        // The studio resolver only carries key variables, so a custom endpoint
+        // set in the server's own environment must still be honored here.
+        env(var)
+            .or_else(|| std::env::var(var).ok().filter(|v| !v.is_empty()))
+            .unwrap_or_else(|| default.to_string())
+    };
     let model_or = |default: &str| model.unwrap_or(default).to_string();
     let built: Arc<dyn ImageModel> = match provider {
         "" | "auto" => {

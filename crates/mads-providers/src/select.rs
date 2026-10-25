@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// What the user asked for on the command line or in `MADS_*` variables.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ProviderSelection {
     pub provider: String,
     pub model: Option<String>,
@@ -21,6 +21,21 @@ pub struct ProviderSelection {
     pub api_key: Option<String>,
     /// `replay` only: JSON script with recorded responses.
     pub script: Option<PathBuf>,
+}
+
+// The selection carries the API key: a derived `Debug` would print it in any
+// future log line.
+impl std::fmt::Debug for ProviderSelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderSelection")
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("plan_model", &self.plan_model)
+            .field("base_url", &self.base_url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "***"))
+            .field("script", &self.script)
+            .finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -207,11 +222,12 @@ fn api_drivers(sel: &ProviderSelection, provider: &str) -> Result<Drivers, Provi
                     "--base-url (or MADS_BASE_URL) is required for openai-compat".into(),
                 )
             })?;
-            GenaiChatModel::openai_compat(
-                base,
-                m,
-                std::env::var("MADS_API_KEY").ok().filter(|k| !k.is_empty()),
-            )
+            // The studio key wins, the variable is the CLI fallback.
+            let key = sel
+                .api_key
+                .clone()
+                .or_else(|| std::env::var("MADS_API_KEY").ok().filter(|k| !k.is_empty()));
+            GenaiChatModel::openai_compat(base, m, key)
         } else {
             GenaiChatModel::for_provider_with_key(provider, m, sel.api_key.as_deref())
                 .ok_or_else(|| ProviderError::NotAvailable(provider.into()))?

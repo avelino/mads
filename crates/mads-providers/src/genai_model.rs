@@ -61,7 +61,11 @@ impl GenaiChatModel {
     }
 
     /// Same as `for_provider`, but a key saved by the studio wins over the variable.
-    pub fn for_provider_with_key(provider: &str, model: &str, key: Option<&str>) -> Option<Self> {
+    pub(crate) fn for_provider_with_key(
+        provider: &str,
+        model: &str,
+        key: Option<&str>,
+    ) -> Option<Self> {
         let (namespace, env) = api_provider(provider)?;
         let mut builder = Client::builder();
         if let Some(key) = key.map(str::to_string) {

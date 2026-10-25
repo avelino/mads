@@ -9,7 +9,7 @@ use std::{
 use crate::{
     images::EDITOR_DIR,
     perf::{Live, Performance, ReportInput, digest, read_table},
-    run::{PLATFORM_DIR, RunDir, saved_layout},
+    run::{PLATFORM_DIR, RunDir, saved_layout, write_atomic},
     workspace::{MissionStatus, Workspace},
 };
 
@@ -85,9 +85,9 @@ pub fn prepare(base: &Path, reports: &Path, out: &Path) -> Result<Prepared, Opti
         "revision": 0,
         "edits": 0
     });
-    std::fs::write(
-        run.run_json_path(),
-        serde_json::to_vec_pretty(&meta).map_err(io::Error::other)?,
+    write_atomic(
+        &run.run_json_path(),
+        &serde_json::to_vec_pretty(&meta).map_err(io::Error::other)?,
     )?;
     Ok(Prepared {
         run_dir: run.root().to_path_buf(),

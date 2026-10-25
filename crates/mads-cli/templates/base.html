@@ -16,8 +16,8 @@
       <a href="/settings/connections" class="nav-link{% if chrome.active == "connections" %} is-active{% endif %}">{{ chrome.t("Conexões") }}</a>
     </nav>
     <div class="topbar-right">
-      <label class="lang" aria-label="Language">
-        <select data-language>
+      <label class="lang">
+        <select data-language aria-label="{{ chrome.t("Idioma") }}">
           <option value="pt-BR"{% if chrome.lang == "pt-BR" %} selected{% endif %}>Português (BR)</option>
           <option value="en"{% if chrome.lang == "en" %} selected{% endif %}>English</option>
         </select>

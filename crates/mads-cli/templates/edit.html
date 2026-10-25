@@ -13,7 +13,7 @@
 </section>
 
 {% if run.has_account %}
-<form class="panel form" data-revision-form data-action="/api/runs/{{ run.summary.id }}/revisions">
+<form class="panel form" data-revision-form data-action="/api/runs/{{ run.summary.id }}/revisions" data-account-hash="{{ run.account_hash }}">
   <div class="edit-list">
     {% for field in run.account.fields %}
     <div class="edit-row">

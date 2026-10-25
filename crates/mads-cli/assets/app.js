@@ -27,6 +27,15 @@
       "The job failed. Reload the page to see the full error.",
     "O job terminou. Recarregue a página para ver o resultado.":
       "The job finished. Reload the page to see the result.",
+    "Na fila": "Queued",
+    "Em execução": "Running",
+    "Parando": "Stopping",
+    "Cancelado": "Cancelled",
+    "Desfazer esta revisão? Uma nova revisão volta à conta anterior e é reexportada.":
+      "Undo this revision? A new revision restores the previous account and is exported again.",
+    "in,": "in,",
+    "out": "out",
+    "plano pronto": "plan ready",
   };
   const tr = (text) => (lang === "en" ? en[text] || text : text);
   const showError = (text) => {
@@ -45,6 +54,8 @@
         body: JSON.stringify({ token }),
       });
       if (!response.ok) {
+        // The token is wrong or the server restarted: never keep it in the URL.
+        history.replaceState(null, "", location.pathname + location.search);
         showError(tr("Token inválido ou expirado. Copie o endereço impresso no terminal e tente de novo."));
         return;
       }
@@ -80,12 +91,13 @@
     return meta ? meta.getAttribute("content") || "" : "";
   };
 
-  async function postJson(url, body) {
+  async function postJson(url, body, extraHeaders) {
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Mads-CSRF": csrf(),
+        ...(extraHeaders || {}),
       },
       body: JSON.stringify(body || {}),
     });
@@ -177,7 +189,12 @@
         return;
       }
       try {
-        const result = await postJson(revisionForm.dataset.action, { edits });
+        const ifMatch = revisionForm.dataset.accountHash;
+        const result = await postJson(
+          revisionForm.dataset.action,
+          { edits },
+          ifMatch ? { "If-Match": ifMatch } : undefined,
+        );
         location.href = `/jobs/${result.job_id}`;
       } catch (error) {
         if (errorNode) errorNode.textContent = error.message;
@@ -321,15 +338,36 @@
   document.querySelectorAll("[data-project-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
       const name = button.dataset.project || tr("este projeto");
-      if (!confirm(lang === "en" ? `Move ${name} to the trash?` : `Mover ${name} para a lixeira?`)) return;
+      const typed = window.prompt(
+        lang === "en"
+          ? `Type the project name "${name}" to move it to the trash:`
+          : `Digite o nome do projeto "${name}" para movê-lo à lixeira:`,
+      );
+      if (typed === null) return;
       try {
-        await postJson(button.dataset.projectDelete, {});
+        await postJson(button.dataset.projectDelete, { confirm: typed.trim() });
         location.href = "/";
       } catch (error) {
         alert(error.message);
       }
     });
   });
+
+  const renameForm = document.querySelector("[data-rename-form]");
+  if (renameForm) {
+    renameForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = renameForm.querySelector("[data-form-error]");
+      if (error) error.textContent = "";
+      const name = String(new FormData(renameForm).get("name") || "").trim();
+      try {
+        await postJson(renameForm.dataset.action, { name });
+        location.reload();
+      } catch (e) {
+        if (error) error.textContent = e.message;
+      }
+    });
+  }
 
   const importForm = document.querySelector("[data-project-import-form]");
   if (importForm) {
@@ -382,7 +420,7 @@
   const revert = document.querySelector("[data-revert-revision]");
   if (revert) {
     revert.addEventListener("click", async () => {
-      if (!confirm("Desfazer esta revisão? Uma nova revisão volta à conta anterior e é reexportada.")) return;
+      if (!confirm(tr("Desfazer esta revisão? Uma nova revisão volta à conta anterior e é reexportada."))) return;
       try {
         const result = await postJson(revert.dataset.action, {});
         location.href = `/jobs/${result.job_id}`;
@@ -400,8 +438,12 @@
     });
   });
   if (location.hash) {
-    const target = document.querySelector(location.hash);
-    if (target && target.tagName === "DETAILS") target.open = true;
+    try {
+      const target = document.querySelector(location.hash);
+      if (target && target.tagName === "DETAILS") target.open = true;
+    } catch {
+      // A fragment that is not a valid selector is only a bad anchor.
+    }
   }
 
   const language = document.querySelector("[data-language]");
@@ -633,8 +675,12 @@
 
     row.append(time, mission, kind, text);
     feed.append(row);
+    // A long run must not grow the DOM without bound.
+    while (feed.childElementCount > 500) {
+      feed.firstElementChild.remove();
+    }
     if (follow) {
-      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+      window.scrollTo({ top: document.body.scrollHeight });
     }
   };
 
@@ -651,7 +697,7 @@
       case "tool_finished":
         return `< ${event.ok ? "ok" : tr("erro")} ${event.tool} ${event.summary || ""}`;
       case "usage":
-        return `${event.input_tokens} in, ${event.output_tokens} out`;
+        return `${event.input_tokens} ${tr("in,")} ${event.output_tokens} ${tr("out")}`;
       case "step":
         return `${event.name}: ${event.detail || ""}`;
       case "validation":
@@ -660,6 +706,8 @@
         return `${event.url} ${event.status || tr("sem resposta")}`;
       case "artifact_written":
         return event.path;
+      case "run_paused":
+        return tr("plano pronto");
       case "run_finished":
         return `${tr("fim")} (exit ${event.exit_code})`;
       case "agent_text":

@@ -342,6 +342,71 @@ async fn the_events_api_replays_the_run_finished_event() {
 }
 
 #[tokio::test]
+async fn a_stale_if_match_is_a_conflict_and_a_fresh_one_passes() {
+    let (_temp, state) = fixture();
+    let edit = json!({"edits": [{"path": "campaigns[0].rationale", "value": "editado por voce"}]});
+    // No header: accepted (the browser always sends it, scripts may not).
+    let response = send(
+        &state,
+        post_json(&format!("/api/runs/{RUN_ID}/revisions"), edit.clone(), true),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let (_temp2, state) = fixture();
+    let response = send(
+        &state,
+        request_with_header(
+            post_json(&format!("/api/runs/{RUN_ID}/revisions"), edit, true),
+            header::IF_MATCH,
+            "deadbeef",
+        ),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let (_temp3, state) = fixture();
+    let account_response = send(&state, get(&format!("/api/runs/{RUN_ID}/account"), true)).await;
+    let account_text = body_text(account_response).await;
+    let account: serde_json::Value = serde_json::from_str(&account_text).unwrap();
+    let hash = account["account_hash"].as_str().unwrap().to_string();
+    let response = send(
+        &state,
+        request_with_header(
+            post_json(
+                &format!("/api/runs/{RUN_ID}/revisions"),
+                json!({"edits": [{"path": "campaigns[0].rationale", "value": "editado por todos"}]}),
+                true,
+            ),
+            header::IF_MATCH,
+            &hash,
+        ),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+}
+
+#[tokio::test]
+async fn the_run_stream_sends_unnamed_events() {
+    let (_temp, state) = fixture();
+    let response = send(&state, get(&format!("/api/runs/{RUN_ID}/stream"), true)).await;
+    let text = body_text(response).await;
+    // `onmessage` only receives unnamed events; the type stays in the payload.
+    assert!(text.contains("data:"));
+    assert!(
+        !text.contains("\nevent:"),
+        "named events never reach onmessage: {text}"
+    );
+}
+
+fn request_with_header(
+    mut request: Request<Body>,
+    name: header::HeaderName,
+    value: &str,
+) -> Request<Body> {
+    request.headers_mut().insert(name, value.parse().unwrap());
+    request
+}
+
+#[tokio::test]
 async fn the_sse_stream_replays_and_closes() {
     let (_temp, state) = fixture();
     let response = send(&state, get(&format!("/api/runs/{RUN_ID}/stream"), true)).await;

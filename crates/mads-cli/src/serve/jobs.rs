@@ -304,6 +304,23 @@ impl Jobs {
         Some((job.tx.subscribe(), job.log.clone()))
     }
 
+    /// How many jobs are queued, running or cancelling right now.
+    pub fn active_count(&self) -> usize {
+        self.inner
+            .lock()
+            .map(|map| {
+                map.values()
+                    .filter(|job| {
+                        matches!(
+                            *job.state.lock().unwrap_or_else(|e| e.into_inner()),
+                            JobState::Queued | JobState::Running | JobState::Cancelling
+                        )
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
     pub fn active(&self, project_id: &str) -> bool {
         self.inner.lock().is_ok_and(|map| {
             map.values().any(|job| {
@@ -477,18 +494,18 @@ impl Jobs {
         let workspace = Workspace::load(&base.join("workspace.json")).map_err(|e| {
             RevisionError::Message(format!("não foi possível abrir a execução: {e}"))
         })?;
-        let account = revisions::apply(&workspace.account, &workspace.input, edits, 50)?;
+        let (account, records) = revisions::apply(&workspace.account, &workspace.input, edits, 50)?;
         let mut workspace = workspace;
         workspace.account = account;
         // The revision directory is numbered and created under the project lock,
         // so two concurrent requests cannot both win `-r1`.
         let lock = lock_project(project_dir).map_err(RevisionError::Message)?;
-        let (run_id, _) = revisions::create(project_dir, base_run_id, &workspace, edits)
+        let (run_id, _) = revisions::create(project_dir, base_run_id, &workspace, &records)
             .map_err(RevisionError::Message)?;
         crate::serve::audit::append(
             project_dir,
             "revision_created",
-            &format!("{base_run_id} -> {run_id} ({} edits)", edits.len()),
+            &format!("{base_run_id} -> {run_id} ({} edits)", records.len()),
         );
         match self.begin_export(
             project,

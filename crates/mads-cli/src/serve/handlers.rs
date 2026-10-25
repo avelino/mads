@@ -10,7 +10,7 @@ use axum::{
     },
 };
 use mads_core::{
-    events::{Event, EventEnvelope},
+    events::Event,
     input::{normalize_url, slugify},
     optimize,
 };
@@ -271,15 +271,17 @@ pub async fn start_init_project(
         Ok(options) => options,
         Err(message) => return bad_request(message),
     };
-    if let Err(e) = write_init_meta(&dir, &project.name, &meta) {
-        return bad_request(e);
-    }
     match state.jobs.start_init(&project, &dir, options) {
-        Ok(job) => (
-            StatusCode::ACCEPTED,
-            Json(json!({"job_id": job.id, "project_id": project.id})),
-        )
-            .into_response(),
+        Ok(job) => {
+            if let Err(e) = write_init_meta(&dir, &meta) {
+                crate::serve::audit::append(&dir, "init_meta_write_failed", &e);
+            }
+            (
+                StatusCode::ACCEPTED,
+                Json(json!({"job_id": job.id, "project_id": project.id})),
+            )
+                .into_response()
+        }
         Err(error) => job_error(error),
     }
 }
@@ -290,10 +292,25 @@ fn read_init_meta(dir: &std::path::Path) -> Option<InitMeta> {
     serde_json::from_value(value.get("init")?.clone()).ok()
 }
 
-fn write_init_meta(dir: &std::path::Path, name: &str, meta: &InitMeta) -> Result<(), String> {
-    let text = serde_json::to_vec_pretty(&json!({"name": name, "init": meta}))
-        .map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("project.json"), text).map_err(|e| e.to_string())
+fn write_init_meta(dir: &std::path::Path, meta: &InitMeta) -> Result<(), String> {
+    // Read-modify-write so `name` and any future key survive; atomic rename so a
+    // crash cannot leave a torn project.json (which would un-archive the project).
+    let path = dir.join("project.json");
+    let mut object = match std::fs::read_to_string(&path) {
+        Ok(text) if !text.trim().is_empty() => {
+            match serde_json::from_str::<serde_json::Value>(&text) {
+                Ok(value @ serde_json::Value::Object(_)) => value,
+                _ => return Err("project.json precisa ser um objeto JSON".into()),
+            }
+        }
+        Ok(_) => json!({}),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(e) => return Err(e.to_string()),
+    };
+    let value = serde_json::to_value(meta).map_err(|e| e.to_string())?;
+    object["init"] = value;
+    let text = serde_json::to_vec_pretty(&object).map_err(|e| e.to_string())?;
+    crate::serve::project_admin::write_atomic(&path, &text)
 }
 
 pub async fn draft_page(
@@ -548,25 +565,15 @@ pub async fn create_project(
     if base.is_empty() {
         return bad_request("o nome precisa de letras ou números".into());
     }
-    let mut id = base.clone();
-    for attempt in 2..100 {
-        if !state.root().join(&id).exists() {
-            break;
-        }
-        id = format!("{base}-{attempt}");
-    }
-    if state.root().join(&id).exists() {
-        return bad_request("já existe um projeto com este nome".into());
-    }
-    let dir = state.root().join(&id);
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        return bad_request(format!("não foi possível criar o projeto: {e}"));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-    }
+    let Some(id) = crate::serve::project_admin::next_project_id(state.root(), &base) else {
+        return bad_request("já existem 99 projetos com este nome; escolha outro nome".into());
+    };
+    // Exclusive create: two simultaneous submissions cannot share one
+    // directory, so the cleanup below can never delete the other's project.
+    let dir = match crate::serve::project_admin::create_project_dir(state.root(), &id) {
+        Ok(dir) => dir,
+        Err(message) => return bad_request(message),
+    };
     let meta = InitMeta {
         start_url: request.start_url.trim().to_string(),
         daily: request.daily,
@@ -589,7 +596,10 @@ pub async fn create_project(
         max_tokens: request.max_tokens.unwrap_or(4_000_000),
         retries: request.retries.unwrap_or(1),
     };
-    if let Err(e) = write_init_meta(&dir, &name, &meta) {
+    if let Err(e) =
+        crate::serve::project_admin::write_project_json(&dir, json!({"name": name.clone()}))
+    {
+        let _ = std::fs::remove_dir_all(&dir);
         return bad_request(e);
     }
     crate::serve::audit::append(&dir, "project_created", &name);
@@ -606,11 +616,18 @@ pub async fn create_project(
         }
     };
     match state.jobs.start_init(&project, &dir, options) {
-        Ok(job) => (
-            StatusCode::ACCEPTED,
-            Json(json!({"job_id": job.id, "project_id": id})),
-        )
-            .into_response(),
+        Ok(job) => {
+            // Persisted only once the job is accepted: a rejected init must
+            // leave no half-written metadata behind.
+            if let Err(e) = write_init_meta(&dir, &meta) {
+                crate::serve::audit::append(&dir, "init_meta_write_failed", &e);
+            }
+            (
+                StatusCode::ACCEPTED,
+                Json(json!({"job_id": job.id, "project_id": id})),
+            )
+                .into_response()
+        }
         Err(error) => {
             let _ = std::fs::remove_dir_all(&dir);
             job_error(error)
@@ -802,6 +819,29 @@ pub async fn create_revision(
     let Some((project_id, project_name, run)) = store::find_run(state.root(), &id) else {
         return api_not_found();
     };
+    // Optimistic concurrency: a stale tab must not compose its edits over a
+    // workspace another tab or export already rewrote.
+    if let Some(expected) = headers
+        .get(header::IF_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let current = mads_core::workspace::Workspace::load(&run.dir.join("workspace.json"))
+            .ok()
+            .map(|ws| store::account_hash(&ws.account))
+            .unwrap_or_default();
+        if !crate::serve::auth::same(expected, &current) {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": {"code": "CONFLICT", "message": "a conta mudou desde que você abriu; recarregue a página"},
+                    "current_hash": current,
+                })),
+            )
+                .into_response();
+        }
+    }
     let project = store::Project {
         id: project_id.clone(),
         name: project_name,
@@ -844,6 +884,9 @@ pub async fn revert_revision(
         return bad_request("esta execução não é uma revisão".into());
     }
     let parent_id = run.summary.parent.clone();
+    if !store::valid_run_id(&parent_id) {
+        return bad_request("a execução anterior tem um id inválido".into());
+    }
     let parent_dir = run.dir.parent().map(|dir| dir.join(&parent_id));
     let Some(parent_dir) = parent_dir.filter(|dir| dir.is_dir()) else {
         return api_not_found();
@@ -881,7 +924,11 @@ pub async fn revert_revision(
             Json(json!({"job_id": job.id, "run_id": run_id})),
         )
             .into_response(),
-        Err(error) => job_error(error),
+        Err(error) => {
+            // An export that cannot start leaves an empty -rN sibling behind.
+            let _ = std::fs::remove_dir_all(project_dir.join("out").join(&run_id));
+            job_error(error)
+        }
     }
 }
 
@@ -907,8 +954,10 @@ pub async fn cancel_job(
     if let Err(response) = mutation_identity(&state, &headers) {
         return *response;
     }
-    let cancelled = state.jobs.cancel(&id);
-    Json(json!({"cancelled": cancelled})).into_response()
+    if !state.jobs.cancel(&id) {
+        return api_not_found();
+    }
+    Json(json!({"cancelled": true})).into_response()
 }
 
 pub async fn job_stream(
@@ -1233,7 +1282,9 @@ pub async fn set_language(
     state.auth.set_language(&headers, lang);
     let next = query
         .next
-        .filter(|value| value.starts_with('/') && !value.starts_with("//"))
+        .filter(|value| {
+            value.starts_with('/') && !value.starts_with("//") && !value.starts_with("/\\")
+        })
         .unwrap_or_else(|| "/".into());
     let mut response = axum::response::Redirect::to(&next).into_response();
     if let Ok(cookie) = HeaderValue::from_str(&crate::serve::i18n::cookie(lang)) {
@@ -1246,7 +1297,8 @@ pub async fn health(State(state): State<AppState>) -> Response {
     Json(json!({
         "name": "mads studio",
         "version": env!("CARGO_PKG_VERSION"),
-        "root": state.root().display().to_string(),
+        "uptime_secs": state.started.elapsed().as_secs(),
+        "active_jobs": state.jobs.active_count(),
         "address": format!("{}:{}", state.config.bind, state.config.port),
     }))
     .into_response()
@@ -1351,6 +1403,7 @@ pub async fn api_account(
             "project": project_name,
             "run": run.summary,
             "account": workspace.account,
+            "account_hash": store::account_hash(&workspace.account),
         }))
         .into_response(),
         Err(error) => bad_request(format!("workspace não carrega: {error}")),
@@ -1516,12 +1569,10 @@ pub async fn stream(
                     continue;
                 }
                 sent = envelope.seq;
-                let name = event_name(&envelope.event);
+                // Unnamed events reach `onmessage`, which is all the frontend
+                // listens to; the type stays inside the JSON payload.
                 let data = serde_json::to_string(envelope).unwrap_or_default();
-                let event = SseEvent::default()
-                    .id(envelope.seq.to_string())
-                    .event(name)
-                    .data(data);
+                let event = SseEvent::default().id(envelope.seq.to_string()).data(data);
                 if tx.send(Ok(event)).await.is_err() {
                     return;
                 }
@@ -1638,7 +1689,7 @@ pub(crate) fn mutation_identity(
         .get(CSRF_HEADER)
         .and_then(|h| h.to_str().ok())
         .unwrap_or_default();
-    if token == identity.csrf {
+    if crate::serve::auth::same(token, &identity.csrf) {
         Ok(identity)
     } else {
         Err(Box::new(
@@ -1691,27 +1742,4 @@ pub(crate) fn api_not_found() -> Response {
         Json(json!({"error": {"code": "NOT_FOUND", "message": "execução não encontrada"}})),
     )
         .into_response()
-}
-
-fn event_name(event: &Event) -> &'static str {
-    match event {
-        Event::RunStarted { .. } => "run_started",
-        Event::MissionStarted { .. } => "mission_started",
-        Event::AgentText { .. } => "agent_text",
-        Event::ToolCalled { .. } => "tool_called",
-        Event::ToolFinished { .. } => "tool_finished",
-        Event::Usage { .. } => "usage",
-        Event::MissionFinished { .. } => "mission_finished",
-        Event::Step { .. } => "step",
-        Event::Validation { .. } => "validation",
-        Event::UrlChecked { .. } => "url_checked",
-        Event::ArtifactWritten { .. } => "artifact_written",
-        Event::RunPaused { .. } => "run_paused",
-        Event::RunFinished { .. } => "run_finished",
-    }
-}
-
-#[allow(dead_code)]
-fn envelope_json(envelope: &EventEnvelope) -> String {
-    serde_json::to_string(envelope).unwrap_or_default()
 }

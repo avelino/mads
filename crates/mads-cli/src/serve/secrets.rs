@@ -131,6 +131,7 @@ impl Secrets {
         if !PROVIDERS.iter().any(|(name, _)| *name == provider) {
             return Err("provedor desconhecido".into());
         }
+        self.require_loaded()?;
         let mut keys = self.keys.lock().map_err(|_| "store indisponível")?;
         keys.insert(provider.to_string(), value.to_string());
         write(&self.path, &keys)?;
@@ -141,9 +142,24 @@ impl Secrets {
     }
 
     pub fn remove(&self, provider: &str) -> Result<(), String> {
+        if !PROVIDERS.iter().any(|(name, _)| *name == provider) {
+            return Err("provedor desconhecido".into());
+        }
+        self.require_loaded()?;
         let mut keys = self.keys.lock().map_err(|_| "store indisponível")?;
         keys.remove(provider);
         write(&self.path, &keys)
+    }
+
+    /// A store that failed to load holds an empty map: writing it over the real
+    /// file would silently destroy every saved key.
+    fn require_loaded(&self) -> Result<(), String> {
+        match self.error() {
+            None => Ok(()),
+            Some(error) => Err(format!(
+                "o arquivo de chaves não foi carregado; resolva o problema antes de salvar: {error}"
+            )),
+        }
     }
 
     fn stored(&self, provider: &str) -> Option<String> {
@@ -221,12 +237,23 @@ fn write(path: &Path, keys: &BTreeMap<String, String>) -> Result<(), String> {
     }
     let text = toml::to_string(&KeyFile { keys: keys.clone() }).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("tmp");
-    fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    // The temp file holds key material: create it 0600, never write first and
+    // tighten later.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut file| file.write_all(text.as_bytes()))
+            .map_err(|e| e.to_string())?;
     }
+    #[cfg(not(unix))]
+    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
     fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 

@@ -217,6 +217,8 @@ pub struct RunDetail {
     pub files: Vec<FileRow>,
     pub account: AccountView,
     pub has_account: bool,
+    /// Hash of the account for optimistic concurrency (`If-Match` on edits).
+    pub account_hash: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -227,22 +229,28 @@ struct ProjectMeta {
 }
 
 /// Every project under the root. Hidden directories and symlinks are ignored.
+/// A directory the studio treats as a project: no symlink, with the
+/// `business.toml` or `project.json` marker.
+fn is_project_dir(path: &Path) -> bool {
+    path.join("business.toml").is_file() || path.join("project.json").is_file()
+}
+
 pub fn projects(root: &Path) -> Vec<Project> {
     let mut projects = Vec::new();
     let Ok(entries) = fs::read_dir(root) else {
         return projects;
     };
     for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
+        // Symlinked directories are ignored: a link must not pull a path
+        // outside the root into the project list.
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
         }
+        let path = entry.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if name.starts_with('.')
-            || (!path.join("business.toml").is_file() && !path.join("project.json").is_file())
-        {
+        if name.starts_with('.') || !is_project_dir(&path) {
             continue;
         }
         let Some(project) = load_project(&path, name) else {
@@ -269,14 +277,14 @@ pub fn find_run(root: &Path, run_id: &str) -> Option<(String, String, RunDetail)
     }
     let entries = fs::read_dir(root).ok()?;
     for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
         }
+        let path = entry.path();
         let Some(project_id) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if project_id.starts_with('.') {
+        if project_id.starts_with('.') || !is_project_dir(&path) {
             continue;
         }
         let run_dir = path.join("out").join(run_id);
@@ -537,9 +545,13 @@ fn run_detail_from(project: &Project, run_dir: &Path, summary: RunSummary) -> Ru
         },
     };
     let urls = last_urls(&events);
-    let (account, has_account) = match workspace.as_ref() {
-        Some(ws) => (account_view(&ws.account, &ws.input, &summary.id), true),
-        None => (AccountView::default(), false),
+    let (account, has_account, account_hash) = match workspace.as_ref() {
+        Some(ws) => (
+            account_view(&ws.account, &ws.input, &summary.id),
+            true,
+            account_hash(&ws.account),
+        ),
+        None => (AccountView::default(), false, String::new()),
     };
     let last_seq = events.last().map_or(0, |e| e.seq);
     let run_id = summary.id.clone();
@@ -559,7 +571,23 @@ fn run_detail_from(project: &Project, run_dir: &Path, summary: RunSummary) -> Ru
         files: list_files(run_dir, &run_id),
         account,
         has_account,
+        account_hash,
     }
+}
+
+/// A preview needs the first lines, never the whole file in memory.
+const PREVIEW_BYTES: u64 = 64 * 1024;
+
+/// Deterministic hash of the serialized account. Clients send it back in
+/// `If-Match`; a mismatch answers 409 instead of composing stale edits.
+pub fn account_hash(account: &Account) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    match serde_json::to_value(account) {
+        Ok(value) => value.hash(&mut hasher),
+        Err(_) => return String::new(),
+    }
+    format!("{:016x}", hasher.finish())
 }
 
 fn read_events(path: &Path) -> Vec<EventEnvelope> {
@@ -814,8 +842,15 @@ fn file_row(path: String, full: &Path, size: u64, run_id: &str) -> FileRow {
         "CSV" | "MD" | "TXT" | "JSON" | "NDJSON" | "JSONL" | "TOML"
     );
     let preview = if text_like {
-        fs::read(full)
+        // A preview needs the first lines, not a multi-megabyte CSV in memory.
+        fs::File::open(full)
             .ok()
+            .and_then(|file| {
+                use std::io::Read;
+                let mut bytes = Vec::new();
+                file.take(PREVIEW_BYTES).read_to_end(&mut bytes).ok()?;
+                Some(bytes)
+            })
             .and_then(|bytes| decode_text(&bytes))
             .map(|text| text.lines().take(12).collect::<Vec<_>>().join("\n"))
             .unwrap_or_default()
@@ -1496,7 +1531,7 @@ fn valid_project_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
-fn valid_run_id(id: &str) -> bool {
+pub(crate) fn valid_run_id(id: &str) -> bool {
     !id.is_empty()
         && !id.starts_with('.')
         && id
@@ -1516,6 +1551,43 @@ fn pretty_slug(id: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Marks the missions of runs from a previous server life as interrupted. The
+/// in-memory job registry dies with the process, so a run left with `Running`
+/// missions would otherwise show "Em execução" forever, with no stop and no
+/// resume button. Core already counts anything not `Finished` as unfinished, so
+/// the resume path picks these up.
+pub fn sweep_interrupted_runs(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for project in entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+    {
+        let Ok(runs) = fs::read_dir(project.path().join("out")) else {
+            continue;
+        };
+        for run in runs.flatten() {
+            let workspace_path = run.path().join("workspace.json");
+            let Ok(mut workspace) = Workspace::load(&workspace_path) else {
+                continue;
+            };
+            let mut changed = false;
+            for mission in workspace.missions.values_mut() {
+                if mission.status == MissionStatus::Running {
+                    mission.status = MissionStatus::Failed {
+                        reason: "interrupted".into(),
+                    };
+                    changed = true;
+                }
+            }
+            if changed {
+                let _ = workspace.save(&workspace_path);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1573,42 +1645,5 @@ mod tests {
         assert_eq!(compact(999), "999");
         assert_eq!(compact(1_500), "1.5k");
         assert_eq!(compact(2_000_000), "2.0M");
-    }
-}
-
-/// Marks the missions of runs from a previous server life as interrupted. The
-/// in-memory job registry dies with the process, so a run left with `Running`
-/// missions would otherwise show "Em execução" forever, with no stop and no
-/// resume button. Core already counts anything not `Finished` as unfinished, so
-/// the resume path picks these up.
-pub fn sweep_interrupted_runs(root: &Path) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
-    for project in entries
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-    {
-        let Ok(runs) = fs::read_dir(project.path().join("out")) else {
-            continue;
-        };
-        for run in runs.flatten() {
-            let workspace_path = run.path().join("workspace.json");
-            let Ok(mut workspace) = Workspace::load(&workspace_path) else {
-                continue;
-            };
-            let mut changed = false;
-            for mission in workspace.missions.values_mut() {
-                if mission.status == MissionStatus::Running {
-                    mission.status = MissionStatus::Failed {
-                        reason: "interrupted".into(),
-                    };
-                    changed = true;
-                }
-            }
-            if changed {
-                let _ = workspace.save(&workspace_path);
-            }
-        }
     }
 }

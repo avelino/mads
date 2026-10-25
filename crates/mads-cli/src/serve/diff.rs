@@ -18,7 +18,7 @@ use axum::{
     routing::get,
 };
 use mads_core::{
-    google::{Account, AdGroup, Campaign, Intent, Keyword, MatchType},
+    google::{Account, AdGroup, Assets, Campaign, Intent, Keyword, MatchType, SnippetHeader},
     workspace::Workspace,
 };
 
@@ -48,6 +48,20 @@ const DESCRIPTION_ADDED: &str = "Descrição adicionada";
 const DESCRIPTION_REMOVED: &str = "Descrição removida";
 const PATH1: &str = "Caminho 1";
 const PATH2: &str = "Caminho 2";
+const ASSET_GROUP: &str = "Grupo de assets";
+const BUSINESS_NAME: &str = "Nome da empresa";
+const SEARCH_THEME_ADDED: &str = "Tema de busca adicionado";
+const SEARCH_THEME_REMOVED: &str = "Tema de busca removido";
+const LONG_HEADLINE_ADDED: &str = "Título longo adicionado";
+const LONG_HEADLINE_REMOVED: &str = "Título longo removido";
+const SITELINK_ADDED: &str = "Link do site adicionado";
+const SITELINK_REMOVED: &str = "Link do site removido";
+const SITELINK_URL: &str = "URL do link do site";
+const CALLOUT_ADDED: &str = "Extensão de chamada adicionada";
+const CALLOUT_REMOVED: &str = "Extensão de chamada removida";
+const SNIPPET_ADDED: &str = "Snippet adicionado";
+const SNIPPET_REMOVED: &str = "Snippet removido";
+const SNIPPET_VALUES: &str = "Valores do snippet";
 
 /// One line of the comparison table. An empty side renders as a dash in the page.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +169,199 @@ fn compare_campaign(rows: &mut Vec<ChangeRow>, scope: &str, before: &Campaign, a
         NEGATIVE_REMOVED,
     );
     compare_groups(rows, &before.name, &before.ad_groups, &after.ad_groups);
+    compare_asset_groups(
+        rows,
+        &before.name,
+        &before.asset_groups,
+        &after.asset_groups,
+    );
+    compare_assets(rows, scope, before.assets.as_ref(), after.assets.as_ref());
+}
+
+fn asset_group_scope(campaign: &str, group: &str) -> String {
+    format!("Grupo de assets: {group} · Campanha: {campaign}")
+}
+
+fn compare_asset_groups(
+    rows: &mut Vec<ChangeRow>,
+    campaign: &str,
+    before: &[mads_core::google::AssetGroup],
+    after: &[mads_core::google::AssetGroup],
+) {
+    let before_groups = asset_groups_by_name(before);
+    let after_groups = asset_groups_by_name(after);
+    let names: BTreeSet<&str> = before_groups
+        .keys()
+        .chain(after_groups.keys())
+        .copied()
+        .collect();
+    for name in names {
+        let scope = asset_group_scope(campaign, name);
+        match (before_groups.get(name), after_groups.get(name)) {
+            (None, Some(_)) => field(rows, &scope, ASSET_GROUP, "", "adicionado"),
+            (Some(_), None) => field(rows, &scope, ASSET_GROUP, "removido", ""),
+            (Some(old), Some(new)) => {
+                field(
+                    rows,
+                    &scope,
+                    FINAL_URL,
+                    old.final_url.as_str(),
+                    new.final_url.as_str(),
+                );
+                field(
+                    rows,
+                    &scope,
+                    BUSINESS_NAME,
+                    old.business_name.as_str(),
+                    new.business_name.as_str(),
+                );
+                compare_texts(
+                    rows,
+                    &scope,
+                    &old.headlines,
+                    &new.headlines,
+                    HEADLINE_ADDED,
+                    HEADLINE_REMOVED,
+                );
+                compare_texts(
+                    rows,
+                    &scope,
+                    &old.long_headlines,
+                    &new.long_headlines,
+                    LONG_HEADLINE_ADDED,
+                    LONG_HEADLINE_REMOVED,
+                );
+                compare_texts(
+                    rows,
+                    &scope,
+                    &old.descriptions,
+                    &new.descriptions,
+                    DESCRIPTION_ADDED,
+                    DESCRIPTION_REMOVED,
+                );
+                compare_texts(
+                    rows,
+                    &scope,
+                    &old.search_themes,
+                    &new.search_themes,
+                    SEARCH_THEME_ADDED,
+                    SEARCH_THEME_REMOVED,
+                );
+            }
+            (None, None) => {}
+        }
+    }
+}
+
+fn asset_groups_by_name(
+    groups: &[mads_core::google::AssetGroup],
+) -> BTreeMap<&str, &mads_core::google::AssetGroup> {
+    groups.iter().map(|g| (g.name.as_str(), g)).collect()
+}
+
+fn compare_assets(
+    rows: &mut Vec<ChangeRow>,
+    scope: &str,
+    before: Option<&Assets>,
+    after: Option<&Assets>,
+) {
+    let empty = Assets {
+        sitelinks: Vec::new(),
+        callouts: Vec::new(),
+        snippets: Vec::new(),
+    };
+    let before = before.unwrap_or(&empty);
+    let after = after.unwrap_or(&empty);
+    let before_links = sitelinks_by_text(&before.sitelinks);
+    let after_links = sitelinks_by_text(&after.sitelinks);
+    let texts: BTreeSet<&str> = before_links
+        .keys()
+        .chain(after_links.keys())
+        .copied()
+        .collect();
+    for text in texts {
+        match (before_links.get(text), after_links.get(text)) {
+            (None, Some(link)) => field(rows, scope, SITELINK_ADDED, "", sitelink_label(link)),
+            (Some(link), None) => field(rows, scope, SITELINK_REMOVED, sitelink_label(link), ""),
+            (Some(old), Some(new)) => {
+                field(
+                    rows,
+                    scope,
+                    &format!("{SITELINK_URL} · {text}"),
+                    old.url.as_str(),
+                    new.url.as_str(),
+                );
+            }
+            (None, None) => {}
+        }
+    }
+    compare_texts(
+        rows,
+        scope,
+        &before.callouts,
+        &after.callouts,
+        CALLOUT_ADDED,
+        CALLOUT_REMOVED,
+    );
+    let before_snippets = snippets_by_header(&before.snippets);
+    let after_snippets = snippets_by_header(&after.snippets);
+    let headers: BTreeSet<&str> = before_snippets
+        .keys()
+        .chain(after_snippets.keys())
+        .copied()
+        .collect();
+    for header in headers {
+        match (before_snippets.get(header), after_snippets.get(header)) {
+            (None, Some(values)) => {
+                field(rows, scope, SNIPPET_ADDED, "", values.join(", "));
+            }
+            (Some(values), None) => {
+                field(rows, scope, SNIPPET_REMOVED, values.join(", "), "");
+            }
+            (Some(old), Some(new)) => {
+                field(
+                    rows,
+                    scope,
+                    &format!("{SNIPPET_VALUES} · {header}"),
+                    old.join(", "),
+                    new.join(", "),
+                );
+            }
+            (None, None) => {}
+        }
+    }
+}
+
+fn sitelinks_by_text(
+    links: &[mads_core::google::Sitelink],
+) -> BTreeMap<&str, &mads_core::google::Sitelink> {
+    links
+        .iter()
+        .map(|link| (link.text.as_str(), link))
+        .collect()
+}
+
+fn sitelink_label(link: &mads_core::google::Sitelink) -> String {
+    match (&link.description1, &link.description2) {
+        (None, None) => link.text.clone(),
+        _ => format!("{} · {}", link.text, link.url),
+    }
+}
+
+fn snippets_by_header(snippets: &[mads_core::google::Snippet]) -> BTreeMap<&str, &[String]> {
+    snippets
+        .iter()
+        .map(|snippet| {
+            (
+                snippet_header_label(snippet.header),
+                snippet.values.as_slice(),
+            )
+        })
+        .collect()
+}
+
+fn snippet_header_label(header: SnippetHeader) -> &'static str {
+    header.label()
 }
 
 fn compare_groups(

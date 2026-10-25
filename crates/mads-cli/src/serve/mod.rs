@@ -25,7 +25,7 @@ use std::{
 
 use axum::{
     Router,
-    extract::{Request, State},
+    extract::{DefaultBodyLimit, Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -50,6 +50,7 @@ pub struct AppState {
     pub jobs: jobs::Jobs,
     pub secrets: Arc<secrets::Secrets>,
     pub limit: Arc<limit::RateLimiter>,
+    pub started: std::time::Instant,
 }
 
 impl AppState {
@@ -61,6 +62,7 @@ impl AppState {
             jobs: jobs::Jobs::default(),
             secrets: Arc::new(secrets::Secrets::new()),
             limit: Arc::new(limit::RateLimiter::default()),
+            started: std::time::Instant::now(),
         }
     }
 
@@ -157,7 +159,10 @@ pub fn app(state: AppState) -> Router {
         .merge(diff::router())
         .merge(project_admin::router())
         .fallback(handlers::not_found);
+    // Multipart uploads (optimize reports up to 20 MB, logos) must survive the
+    // 2 MB default; the handlers still enforce their own per-route caps.
     secured
+        .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), security))
         .with_state(state)
 }
@@ -221,7 +226,18 @@ fn open_browser(url: &str) {
 }
 
 async fn shutdown() {
-    let _ = tokio::signal::ctrl_c().await;
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("cannot listen for SIGTERM");
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = term.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = ctrl_c.await;
 }
 
 async fn security(State(state): State<AppState>, request: Request, next: Next) -> Response {
@@ -256,7 +272,7 @@ async fn security(State(state): State<AppState>, request: Request, next: Next) -
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
-            "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+            "default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
         ),
     );
     headers.insert(
@@ -289,8 +305,10 @@ fn host_allowed(state: &AppState, headers: &HeaderMap) -> bool {
     if state.config.allow_remote {
         return true;
     }
+    // Fail closed: a client that sends no usable Host must not bypass the
+    // rebinding check.
     let Some(host) = headers.get(header::HOST).and_then(|h| h.to_str().ok()) else {
-        return true;
+        return false;
     };
     let port = state.config.port;
     let allowed = [

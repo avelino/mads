@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
 };
 
 use mads_core::{
@@ -139,10 +139,15 @@ pub fn load(project_dir: &Path) -> DraftView {
     }
     let text = fs::read_to_string(&business).unwrap_or_default();
     let file = parse_input_toml(&text);
+    // A hand-edited TOML may point the catalog anywhere: keep the read inside
+    // the project, like save does.
     let catalog_file = file
         .as_ref()
         .ok()
         .and_then(|f| f.catalog_file.clone())
+        .map(|f| safe_relative(&f))
+        .transpose()
+        .unwrap_or(None)
         .unwrap_or_else(|| "catalog.csv".into());
     let catalog_text = fs::read_to_string(project_dir.join(&catalog_file)).unwrap_or_default();
     let mut draft = DraftView {
@@ -422,32 +427,22 @@ pub fn save(project_dir: &Path, payload: &DraftPayload) -> Result<(), String> {
     };
 
     let toml_text = toml::to_string_pretty(&root).map_err(|e| e.to_string())?;
-    let staging = project_dir
-        .join(".mads")
-        .join("staging")
-        .join(Uuid::new_v4().simple().to_string());
-    fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    if let Err(e) = copy_project(project_dir, &staging) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(e);
-    }
-    fs::write(staging.join("business.toml"), &toml_text).map_err(|e| e.to_string())?;
+    let staging = StagingGuard::new(project_dir)?;
+    copy_project(project_dir, staging.path())?;
+    fs::write(staging.path().join("business.toml"), &toml_text).map_err(|e| e.to_string())?;
     if !payload.catalog_text.trim().is_empty() {
-        let target = staging.join(&catalog_file);
+        let target = staging.path().join(&catalog_file);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         fs::write(target, payload.catalog_text.as_bytes()).map_err(|e| e.to_string())?;
     }
-    match load_input(&staging.join("business.toml")) {
+    match load_input(staging.path().join("business.toml").as_path()) {
         Ok(_) => {}
-        Err(e) => {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(e.to_string());
-        }
+        Err(e) => return Err(e.to_string()),
     }
-    let _ = fs::remove_dir_all(&staging);
-    write_atomic(&business, toml_text.as_bytes())?;
+    // The catalog moves first and the TOML is the commit point: a crash in
+    // between leaves the old TOML with the new catalog, never the reverse.
     if !payload.catalog_text.trim().is_empty() {
         let target = project_dir.join(&catalog_file);
         if let Some(parent) = target.parent() {
@@ -455,7 +450,7 @@ pub fn save(project_dir: &Path, payload: &DraftPayload) -> Result<(), String> {
         }
         write_atomic(&target, payload.catalog_text.as_bytes())?;
     }
-    Ok(())
+    write_atomic(&business, toml_text.as_bytes())
 }
 
 pub fn save_research(project_dir: &Path, text: &str) -> Result<(), String> {
@@ -487,37 +482,25 @@ fn save_text(
         .unwrap_or_else(|| default_file.to_string());
     insert_string(table, "file", &file);
     let toml_text = toml::to_string_pretty(&root).map_err(|e| e.to_string())?;
-    let staging = project_dir
-        .join(".mads")
-        .join("staging")
-        .join(Uuid::new_v4().simple().to_string());
-    fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    if let Err(e) = copy_project(project_dir, &staging) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(e);
-    }
-    let staged_toml = staging.join("business.toml");
+    let staging = StagingGuard::new(project_dir)?;
+    copy_project(project_dir, staging.path())?;
+    let staged_toml = staging.path().join("business.toml");
     fs::write(&staged_toml, &toml_text).map_err(|e| e.to_string())?;
-    let staged_file = staging.join(&file);
+    let staged_file = staging.path().join(&file);
     if let Some(parent) = staged_file.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::write(&staged_file, text.as_bytes()).map_err(|e| e.to_string())?;
-    match load_input(&staged_toml) {
-        Ok(_) => {}
-        Err(e) => {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(e.to_string());
-        }
+    if let Err(e) = load_input(&staged_toml) {
+        return Err(e.to_string());
     }
-    let _ = fs::remove_dir_all(&staging);
-    write_atomic(&business, toml_text.as_bytes())?;
+    // Asset first, TOML last: the TOML rename is the commit point.
     let target = project_dir.join(&file);
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     write_atomic(&target, text.as_bytes())?;
-    Ok(())
+    write_atomic(&business, toml_text.as_bytes())
 }
 
 pub fn save_logo(project_dir: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -531,30 +514,18 @@ pub fn save_logo(project_dir: &Path, bytes: &[u8]) -> Result<(), String> {
     let brand = table(&mut root, "brand")?;
     insert_string(brand, "logo", "brand/logo.png");
     let toml_text = toml::to_string_pretty(&root).map_err(|e| e.to_string())?;
-    let staging = project_dir
-        .join(".mads")
-        .join("staging")
-        .join(Uuid::new_v4().simple().to_string());
-    fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    if let Err(e) = copy_project(project_dir, &staging) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(e);
-    }
-    let staged_toml = staging.join("business.toml");
+    let staging = StagingGuard::new(project_dir)?;
+    copy_project(project_dir, staging.path())?;
+    let staged_toml = staging.path().join("business.toml");
     fs::write(&staged_toml, &toml_text).map_err(|e| e.to_string())?;
-    let staged_logo = staging.join("brand/logo.png");
+    let staged_logo = staging.path().join("brand/logo.png");
     if let Some(parent) = staged_logo.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::write(&staged_logo, &png).map_err(|e| e.to_string())?;
-    match load_input(&staged_toml) {
-        Ok(_) => {}
-        Err(e) => {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(e.to_string());
-        }
+    if let Err(e) = load_input(&staged_toml) {
+        return Err(e.to_string());
     }
-    let _ = fs::remove_dir_all(&staging);
     write_atomic(&business, toml_text.as_bytes())?;
     let target = project_dir.join("brand/logo.png");
     if let Some(parent) = target.parent() {
@@ -599,6 +570,31 @@ fn insert_list(table: &mut toml::Table, key: &str, value: &str) {
     }
 }
 
+/// Removes the staging directory unless the save completed. A failed write in
+/// the middle of `save` must not leak a full project copy.
+struct StagingGuard(PathBuf);
+
+impl StagingGuard {
+    fn new(project_dir: &Path) -> Result<Self, String> {
+        let dir = project_dir
+            .join(".mads")
+            .join("staging")
+            .join(Uuid::new_v4().simple().to_string());
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        Ok(Self(dir))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for StagingGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn safe_relative(value: &str) -> Result<String, String> {
     let path = Path::new(value);
     if path.is_absolute()
@@ -635,9 +631,13 @@ fn copy_project(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| e.to_string())
+    // A unique temp name: two concurrent saves must not share one temp file.
+    let tmp = path.with_extension(format!("tmp.{}", Uuid::new_v4().simple()));
+    let result = fs::write(&tmp, bytes).and_then(|()| fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

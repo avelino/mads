@@ -27,7 +27,30 @@ pub fn lang_of(headers: &HeaderMap) -> String {
             return PT_BR.into();
         }
     }
+    // The session cookie wins, the browser preference decides otherwise. Only
+    // exact `en` matches select English; anything else stays pt-BR.
+    if let Some(value) = headers.get(axum::http::header::ACCEPT_LANGUAGE)
+        && let Ok(value) = value.to_str()
+        && parse_accept_language(value) == EN
+    {
+        return EN.into();
+    }
     PT_BR.into()
+}
+
+/// The highest-preference `en` or `pt-BR` tag in an `Accept-Language` header,
+/// ignoring q-weighting nuances beyond the order the browser sent.
+fn parse_accept_language(value: &str) -> &'static str {
+    for part in value.split(',') {
+        let tag = part.split(';').next().unwrap_or("").trim().to_lowercase();
+        if tag == "en" || tag.starts_with("en-") {
+            return EN;
+        }
+        if tag == "pt" || tag.starts_with("pt-") {
+            return PT_BR;
+        }
+    }
+    PT_BR
 }
 
 pub fn cookie(lang: &str) -> String {
@@ -35,6 +58,12 @@ pub fn cookie(lang: &str) -> String {
 }
 
 const EN_TEXT: &[(&str, &str)] = &[
+    ("Renomear", "Rename"),
+    (
+        "O nome aparece na lista. A pasta do projeto não muda.",
+        "The name shows in the list. The project folder does not change.",
+    ),
+    ("Salvar nome", "Save name"),
     // Chrome and navigation.
     ("Projetos", "Projects"),
     ("Conexões", "Connections"),
@@ -106,7 +135,6 @@ const EN_TEXT: &[(&str, &str)] = &[
     ("Gerar campanhas", "Generate campaigns"),
     ("Revisar e iniciar", "Review and start"),
     ("Execução", "Run"),
-    ("Execuções", "Runs"),
     ("Trabalho", "Job"),
     ("Ao vivo", "Live"),
     ("Iniciar", "Start"),
@@ -121,7 +149,6 @@ const EN_TEXT: &[(&str, &str)] = &[
     ("Esta página não existe.", "This page does not exist."),
     ("Projeto não encontrado", "Project not found"),
     ("Execução não encontrada", "Run not found"),
-    ("Não encontrado", "Not found"),
     ("projeto(s)", "project(s)"),
     ("execução(ões)", "run(s)"),
     ("atualizado em", "updated"),
@@ -193,10 +220,6 @@ const EN_TEXT: &[(&str, &str)] = &[
     ("status do processo", "process status"),
     ("Provedor", "Provider"),
     ("Remover", "Remove"),
-    (
-        "Provedores de texto e de imagem. As chaves ficam no servidor, nunca no navegador.",
-        "Text and image providers. Keys stay on the server, never in the browser.",
-    ),
     ("Estudar o site", "Study the site"),
     (
         "Nenhuma execução neste projeto. Gere a primeira conta em Nova execução.",
@@ -290,7 +313,6 @@ const EN_TEXT: &[(&str, &str)] = &[
     ("Parando", "Stopping"),
     ("Concluído", "Done"),
     ("Falhou", "Failed"),
-    ("Rascunho", "Draft"),
     // Common labels.
     ("Por que", "Why"),
     ("Anúncio (merge real)", "Ad (real merge)"),
@@ -319,8 +341,6 @@ const EN_TEXT: &[(&str, &str)] = &[
     ("não precisa", "not needed"),
     ("Verificação de URL", "URL check"),
     ("Como corrigir", "How to fix"),
-    ("Erros", "Errors"),
-    ("Avisos", "Warnings"),
     // Project admin, import and manual creation.
     (
         ", mas a pasta dessa execução não está neste projeto. Nada a comparar.",
@@ -830,5 +850,52 @@ mod tests {
         for (key, _) in CRITICAL {
             assert_eq!(t(PT_BR, key), *key);
         }
+    }
+
+    #[test]
+    fn the_english_catalog_has_no_duplicates() {
+        let mut seen = std::collections::BTreeSet::new();
+        for (key, _) in EN_TEXT {
+            assert!(seen.insert(*key), "duplicated catalog key: {key:?}");
+        }
+    }
+
+    /// Spec section 13: no user-facing string lives in a template without an
+    /// English translation. This fails when a template gains a
+    /// `chrome.t("...")` whose key is not in `EN_TEXT`.
+    #[test]
+    fn every_template_key_has_an_english_translation() {
+        let templates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        let mut checked = 0usize;
+        let mut files = 0usize;
+        let entries =
+            std::fs::read_dir(&templates).expect("the templates directory ships with the crate");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("html") {
+                continue;
+            }
+            files += 1;
+            let text = std::fs::read_to_string(&path).unwrap();
+            let bytes = text.as_bytes();
+            let mut i = 0;
+            while let Some(dot) = text[i..].find(".t(\"") {
+                let start = i + dot + 4;
+                let Some(len) = bytes[start..].iter().position(|&b| b == b'"') else {
+                    break;
+                };
+                let key = &text[start..start + len];
+                assert!(
+                    EN_TEXT.iter().any(|(pt, _)| *pt == key),
+                    "{}: {:?} has no English translation",
+                    path.display(),
+                    key
+                );
+                checked += 1;
+                i = start + len;
+            }
+        }
+        assert!(files > 0, "no templates found");
+        assert!(checked > 300, "only {checked} keys found; the scan broke");
     }
 }

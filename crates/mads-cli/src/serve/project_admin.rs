@@ -29,7 +29,7 @@ use crate::serve::{
     AppState, audit,
     auth::Identity,
     draft::{self, DraftPayload},
-    handlers::{api_not_found, bad_request, mutation_identity},
+    handlers::{api_not_found, bad_request, conflict, mutation_identity},
     store::{self, Project},
     views::{Chrome, Html},
 };
@@ -43,6 +43,7 @@ pub fn router() -> axum::Router<crate::serve::AppState> {
         .route("/api/projects/import", post(import_project))
         .route("/api/projects/manual", post(manual_project))
         .route("/api/projects/{id}/archive", post(archive_project))
+        .route("/api/projects/{id}/rename", post(rename_project))
         .route("/api/projects/{id}/delete", post(delete_project))
 }
 
@@ -118,6 +119,62 @@ pub async fn manual_page(State(state): State<AppState>, headers: HeaderMap) -> R
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DeleteRequest {
+    confirm: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameRequest {
+    name: String,
+}
+
+/// Renames the display name of a project. The directory slug never changes.
+pub async fn rename_project(
+    State(state): State<AppState>,
+    RoutePath(id): RoutePath<String>,
+    headers: HeaderMap,
+    payload: Result<Json<RenameRequest>, JsonRejection>,
+) -> Response {
+    if let Err(response) = mutation_identity(&state, &headers) {
+        return *response;
+    }
+    let request = match json_body(payload) {
+        Ok(request) => request,
+        Err(response) => return *response,
+    };
+    let name = request.name.trim().to_string();
+    if !(1..=80).contains(&name.chars().count()) {
+        return bad_request("o nome precisa de 1 a 80 caracteres".into());
+    }
+    let Some(dir) = safe_project_dir(state.root(), &id) else {
+        return api_not_found();
+    };
+    if let Err(message) = set_name(&dir, &name) {
+        return bad_request(message);
+    }
+    audit::append(&dir, "project_renamed", &name);
+    Json(json!({"ok": true, "project_id": id, "name": name})).into_response()
+}
+
+/// Updates only `name` in `project.json`, keeping every other key.
+fn set_name(dir: &Path, name: &str) -> Result<(), String> {
+    let path = dir.join("project.json");
+    let mut object = match fs::read_to_string(&path) {
+        Ok(text) if !text.trim().is_empty() => match serde_json::from_str::<Value>(&text) {
+            Ok(Value::Object(object)) => object,
+            Ok(_) => return Err("project.json precisa ser um objeto JSON".into()),
+            Err(e) => return Err(format!("project.json inválido: {e}")),
+        },
+        Ok(_) => Map::new(),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Map::new(),
+        Err(e) => return Err(format!("não foi possível ler project.json: {e}")),
+    };
+    object.insert("name".into(), Value::String(name.to_string()));
+    let text = serde_json::to_vec_pretty(&Value::Object(object)).map_err(|e| e.to_string())?;
+    write_atomic(&path, &text)
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ArchiveRequest {
     archived: bool,
 }
@@ -162,17 +219,28 @@ pub async fn delete_project(
     State(state): State<AppState>,
     RoutePath(id): RoutePath<String>,
     headers: HeaderMap,
-    payload: Result<Json<Value>, JsonRejection>,
+    payload: Result<Json<DeleteRequest>, JsonRejection>,
 ) -> Response {
     if let Err(response) = mutation_identity(&state, &headers) {
         return *response;
     }
-    if let Err(response) = json_body(payload) {
-        return *response;
-    }
+    let request = match json_body::<DeleteRequest>(payload) {
+        Ok(request) => request,
+        Err(response) => return *response,
+    };
     let Some(dir) = safe_project_dir(state.root(), &id) else {
         return api_not_found();
     };
+    let Some(project) = store::project(state.root(), &id) else {
+        return api_not_found();
+    };
+    if state.jobs.active(&project.id) {
+        return conflict("pare a execução em andamento antes de excluir o projeto".into());
+    }
+    // The typed confirmation is enforced here, not only in the browser.
+    if request.confirm.trim() != project.name {
+        return bad_request("a confirmação precisa ser exatamente o nome do projeto".into());
+    }
     let trash = state.root().join(".trash");
     if let Err(e) = fs::create_dir_all(&trash) {
         return bad_request(format!("não foi possível criar a lixeira: {e}"));
@@ -454,7 +522,7 @@ fn safe_project_dir(root: &Path, id: &str) -> Option<PathBuf> {
 }
 
 /// The first free `base`, `base-2` … `base-99` id. `None` means the range is full.
-fn next_project_id(root: &Path, base: &str) -> Option<String> {
+pub(crate) fn next_project_id(root: &Path, base: &str) -> Option<String> {
     let first = base.to_string();
     if !root.join(&first).exists() {
         return Some(first);
@@ -468,7 +536,7 @@ fn next_project_id(root: &Path, base: &str) -> Option<String> {
     None
 }
 
-fn create_project_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
+pub(crate) fn create_project_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
     if !valid_project_id(id) {
         return Err("id de projeto inválido".into());
     }
@@ -518,12 +586,12 @@ fn set_archived(dir: &Path, archived: bool) -> Result<(), String> {
     write_atomic(&path, &text)
 }
 
-fn write_project_json(dir: &Path, value: Value) -> Result<(), String> {
+pub(crate) fn write_project_json(dir: &Path, value: Value) -> Result<(), String> {
     let text = serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?;
     write_atomic(&dir.join("project.json"), &text)
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut temporary = path.as_os_str().to_owned();
     temporary.push(".tmp");
     let temporary = PathBuf::from(temporary);
@@ -727,7 +795,7 @@ currency = "BRL"
             test_state(root.path()),
             "POST",
             "/api/projects/acme/delete",
-            Some("{}"),
+            Some(r#"{"confirm":"Acme"}"#),
         )
         .await;
 
@@ -842,10 +910,62 @@ currency = "BRL"
             test_state(root.path()),
             "POST",
             "/api/projects/nope/delete",
-            Some("{}"),
+            Some(r#"{"confirm":"nope"}"#),
         )
         .await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_wrong_delete_confirmation_is_refused_and_the_project_stays() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("acme");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(project.join("business.toml"), BUSINESS).unwrap();
+        let response = send(
+            test_state(root.path()),
+            "POST",
+            "/api/projects/acme/delete",
+            Some(r#"{"confirm":"Other"}"#),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(project.exists());
+    }
+
+    #[tokio::test]
+    async fn the_rename_endpoint_updates_only_the_name() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("acme");
+        fs::create_dir_all(&project).unwrap();
+        let init = json!({"start_url": "https://acme.com"});
+        fs::write(
+            project.join("project.json"),
+            json!({"name": "Acme", "init": init}).to_string(),
+        )
+        .unwrap();
+        let response = send(
+            test_state(root.path()),
+            "POST",
+            "/api/projects/acme/rename",
+            Some(r#"{"name":"Acme Vinhos"}"#),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let value: Value =
+            serde_json::from_str(&fs::read_to_string(project.join("project.json")).unwrap())
+                .unwrap();
+        assert_eq!(value["name"], "Acme Vinhos");
+        assert_eq!(value["init"], init);
+        assert!(project.exists(), "the folder slug never changes");
+        let response = send(
+            test_state(root.path()),
+            "POST",
+            "/api/projects/acme/rename",
+            Some(r#"{"name":"  "}"#),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]

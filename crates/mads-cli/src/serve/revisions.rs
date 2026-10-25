@@ -6,13 +6,21 @@ use mads_core::{
     run::RunDir,
     workspace::Workspace,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Edit {
     pub path: String,
     pub value: Value,
+}
+
+/// What one edit changed, recorded in `edits.ndjson` so the UI can diff and undo.
+#[derive(Debug, Clone, Serialize)]
+pub struct RecordedEdit {
+    pub path: String,
+    pub before: Value,
+    pub after: Value,
 }
 
 #[derive(Debug)]
@@ -37,30 +45,98 @@ impl RevisionError {
 }
 
 /// Applies edits to a copy of the account and validates it with the real rules.
+/// Returns the edited account plus a before/after record of every edit.
 pub fn apply(
     account: &Account,
     input: &Input,
     edits: &[Edit],
     max_ad_groups: usize,
-) -> Result<Account, RevisionError> {
+) -> Result<(Account, Vec<RecordedEdit>), RevisionError> {
     if edits.is_empty() {
         return Err(RevisionError::Message("nenhuma edição enviada".into()));
     }
     let mut value = serde_json::to_value(account)
         .map_err(|e| RevisionError::Message(format!("conta inválida: {e}")))?;
+    let mut records = Vec::with_capacity(edits.len());
     for edit in edits {
+        let segments = parse_path(&edit.path)?;
+        ensure_editable(&edit.path, &segments)?;
         let normalized = normalize_value(&edit.path, &edit.value)?;
-        set_path(&mut value, &edit.path, normalized)?;
+        let before = get_path(&value, &segments).cloned().unwrap_or(Value::Null);
+        set_path(&mut value, &edit.path, normalized.clone())?;
+        records.push(RecordedEdit {
+            path: edit.path.clone(),
+            before,
+            after: normalized,
+        });
     }
     let edited: Account = serde_json::from_value(value)
         .map_err(|e| RevisionError::Message(format!("edição inválida: {e}")))?;
     let issues = Rules::new(input, max_ad_groups).account(&edited, false);
     let errors: Vec<Issue> = issues.into_iter().filter(Issue::is_error).collect();
     if errors.is_empty() {
-        Ok(edited)
+        Ok((edited, records))
     } else {
         Err(RevisionError::Invalid(errors))
     }
+}
+
+/// V1 edits values only: text, budgets, CPCs, URLs, keywords, negatives and
+/// assets. Adding or removing campaigns, groups or fields is a new run. The
+/// path is flattened with `#` for indexes and matched against that shape.
+fn ensure_editable(path: &str, segments: &[Segment]) -> Result<(), RevisionError> {
+    let signature = segments
+        .iter()
+        .map(|segment| match segment {
+            Segment::Key(key) => key.as_str().to_string(),
+            Segment::Index(_) => "#".to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(".");
+    let allowed = matches!(
+        signature.as_str(),
+        "campaigns.#.rationale"
+            | "campaigns.#.daily_budget"
+            | "campaigns.#.negatives.#.text"
+            | "campaigns.#.ad_groups.#.default_cpc"
+            | "campaigns.#.ad_groups.#.final_url"
+            | "campaigns.#.ad_groups.#.keywords.#.text"
+            | "campaigns.#.ad_groups.#.negatives.#.text"
+            | "campaigns.#.ad_groups.#.rsa.path1"
+            | "campaigns.#.ad_groups.#.rsa.path2"
+            | "campaigns.#.ad_groups.#.rsa.headlines.#"
+            | "campaigns.#.ad_groups.#.rsa.descriptions.#"
+            | "campaigns.#.asset_groups.#.business_name"
+            | "campaigns.#.asset_groups.#.final_url"
+            | "campaigns.#.asset_groups.#.headlines.#"
+            | "campaigns.#.asset_groups.#.long_headlines.#"
+            | "campaigns.#.asset_groups.#.descriptions.#"
+            | "campaigns.#.asset_groups.#.search_themes.#"
+            | "campaigns.#.assets.sitelinks.#.text"
+            | "campaigns.#.assets.sitelinks.#.url"
+            | "campaigns.#.assets.sitelinks.#.description1"
+            | "campaigns.#.assets.sitelinks.#.description2"
+            | "campaigns.#.assets.callouts.#"
+            | "campaigns.#.assets.snippets.#.values.#"
+    );
+    if allowed {
+        Ok(())
+    } else {
+        Err(RevisionError::Message(format!(
+            "{path} não pode ser editado; mudanças de estrutura precisam de outra execução"
+        )))
+    }
+}
+
+fn get_path<'a>(root: &'a Value, segments: &[Segment]) -> Option<&'a Value> {
+    let mut current = root;
+    for segment in segments {
+        current = match segment {
+            Segment::Key(key) => current.get(key)?,
+            Segment::Index(index) => current.get(*index)?,
+        };
+    }
+    Some(current)
 }
 
 /// Creates a sibling run `<base>-rN` and returns its id and revision number.
@@ -68,7 +144,7 @@ pub fn create(
     project_dir: &Path,
     base_run_id: &str,
     workspace: &Workspace,
-    edits: &[Edit],
+    records: &[RecordedEdit],
 ) -> Result<(String, u32), String> {
     let base = project_dir.join("out").join(base_run_id);
     if !base.is_dir() {
@@ -90,7 +166,9 @@ pub fn create(
     let target = project_dir.join("out").join(&id);
     fs::create_dir_all(&target).map_err(|e| e.to_string())?;
     for folder in ["input", "transcripts", "google-ads/editor/images"] {
-        copy_dir(&base.join(folder), &target.join(folder))?;
+        // Images cost money: hard link them when the filesystem allows, so a
+        // revision does not duplicate every picture.
+        link_dir(&base.join(folder), &target.join(folder))?;
     }
     let run = RunDir::open(&target).map_err(|e| e.to_string())?;
     workspace
@@ -123,18 +201,25 @@ pub fn create(
         "origin": "human",
         "parent_run": base_run_id,
         "revision": revision,
-        "edits": edits.len()
+        "edits": records.len()
     });
-    fs::write(
-        run.run_json_path(),
-        serde_json::to_vec_pretty(&meta).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    let audit: Vec<String> = edits
+    crate::serve::project_admin::write_atomic(
+        &run.run_json_path(),
+        &serde_json::to_vec_pretty(&meta).map_err(|e| e.to_string())?,
+    )?;
+    let ts = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
+    let audit: Vec<String> = records
         .iter()
-        .map(|edit| {
-            serde_json::to_string(&json!({"ts": null, "path": edit.path, "value": edit.value}))
-                .unwrap_or_default()
+        .map(|record| {
+            serde_json::to_string(&json!({
+                "ts": ts,
+                "path": record.path,
+                "before": record.before,
+                "after": record.after,
+            }))
+            .unwrap_or_default()
         })
         .collect();
     let audit_dir = target.join(".mads");
@@ -237,7 +322,10 @@ fn set_path(root: &mut Value, path: &str, value: Value) -> Result<(), RevisionEr
     Ok(())
 }
 
-fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
+/// Copies a tree, hard linking files when the filesystem allows. A hard link
+/// keeps the revision honest (same bytes, no duplicate storage) and falls back
+/// to a copy across devices.
+fn link_dir(from: &Path, to: &Path) -> Result<(), String> {
     let Ok(entries) = fs::read_dir(from) else {
         return Ok(());
     };
@@ -249,8 +337,8 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
             continue;
         };
         if meta.is_dir() {
-            copy_dir(&path, &target)?;
-        } else if meta.is_file() {
+            link_dir(&path, &target)?;
+        } else if meta.is_file() && fs::hard_link(&path, &target).is_err() {
             fs::copy(&path, &target)
                 .map_err(|e| format!("não foi possível copiar {}: {e}", path.display()))?;
         }
@@ -310,7 +398,7 @@ currency = "BRL"
         .unwrap();
         let input = load_input(&business).unwrap();
         let account = account();
-        let edited = apply(
+        let (edited, records) = apply(
             &account,
             &input,
             &[Edit {
@@ -321,6 +409,51 @@ currency = "BRL"
         )
         .unwrap();
         assert_eq!(edited.campaigns[0].rationale, "porque sim");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].before, json!(""));
+        assert_eq!(records[0].after, json!("porque sim"));
+    }
+
+    #[test]
+    fn a_structural_edit_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let business = dir.path().join("business.toml");
+        fs::write(
+            &business,
+            r#"
+[business]
+name = "Acme"
+url = "https://acme.com"
+language = "pt-BR"
+locations = ["Brazil"]
+goal = "vender"
+description = "Uma descrição com mais de vinte caracteres para o teste."
+[budget]
+daily = 50
+currency = "BRL"
+"#,
+        )
+        .unwrap();
+        let input = load_input(&business).unwrap();
+        for path in [
+            "campaigns[0].slug",
+            "campaigns[0].name",
+            "campaigns[0].intent",
+            "campaigns[0].ad_groups[0].name",
+            "campaigns[0].unknown",
+        ] {
+            let error = apply(
+                &account(),
+                &input,
+                &[Edit {
+                    path: path.into(),
+                    value: json!("x"),
+                }],
+                50,
+            )
+            .unwrap_err();
+            assert!(error.message().contains("não pode ser editado"), "{path}");
+        }
     }
 
     #[test]
@@ -344,7 +477,7 @@ currency = "BRL"
         )
         .unwrap();
         let input = load_input(&business).unwrap();
-        let edited = apply(
+        let (edited, records) = apply(
             &account(),
             &input,
             &[Edit {
@@ -355,5 +488,7 @@ currency = "BRL"
         )
         .unwrap();
         assert_eq!(edited.campaigns[0].daily_budget, Cents(5000));
+        assert_eq!(records[0].before, json!(5000));
+        assert_eq!(records[0].after, json!(5000));
     }
 }

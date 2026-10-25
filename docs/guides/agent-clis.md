@@ -39,6 +39,16 @@ gemini-cli       cli   `gemini` not found in PATH
 
 mads does not manage logins. Log in with the CLI itself first. `--model` is optional. Without it the CLI picks its own default.
 
+## In the container image
+
+The published Docker image ships all three CLIs (`claude`, `codex`, `gemini`) next to the `mads` binary, so every cli provider reports ready inside the container. A CLI agent reads and writes login state under `$HOME`: mount a small volume for it when you run with a custom user.
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD:/work" -v "$HOME/.claude:/home/mads/.claude" \
+  ghcr.io/avelino/mads:latest generate business.toml --provider claude-cli
+```
+
 ```bash
 mads generate business.toml --provider claude-cli
 mads generate business.toml --provider claude-cli --model <model-id>

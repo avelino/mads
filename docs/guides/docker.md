@@ -34,6 +34,10 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -e ANTHROPIC_API_KEY 
   --provider anthropic --model <model-id>
 ```
 
+## Agent CLIs
+
+The image includes `claude`, `codex` and `gemini`, so the `claude-cli`, `codex-cli` and `gemini-cli` providers work without installing anything else. Login state lives under `$HOME` in the container; mount it if the agent should reuse your existing login, see [Agent CLIs](agent-clis.md).
+
 ## Studio
 
 The image contains the same `mads` binary, so `serve` is available. A container needs a non-loopback bind and a token.

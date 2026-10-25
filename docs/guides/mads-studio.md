@@ -138,7 +138,11 @@ GET    /api/projects/:id/logo
 POST   /api/projects/:id/logo
 PUT    /api/projects/:id/research
 PUT    /api/projects/:id/design
+GET    /api/secrets
+PUT    /api/secrets/:name
+DELETE /api/secrets/:name
 POST   /api/projects/:id/archive
+POST   /api/projects/:id/rename
 POST   /api/projects/:id/delete
 POST   /api/projects/import
 POST   /api/projects/manual
@@ -163,6 +167,14 @@ GET    /api/runs/:id/files/*path
 ```
 
 The HTML pages are not an API contract. The JSON fields follow the workspace types and can change before 1.0.
+
+Two more rules apply to mutations:
+
+- A second job for a project that already has one queued or running answers `409`, not `400`.
+- `POST /api/runs/:id/revisions` accepts an `If-Match` header with the account hash from `GET /api/runs/:id/account`. A stale hash answers `409` with the current hash, so two tabs cannot compose edits over each other.
+- Deleting a project requires `{"confirm": "<project name>"}`; the typed confirmation is checked on the server, not only in the browser.
+
+The server runs at most two jobs at once. A third waits in a FIFO queue and the job page shows it as `Na fila`. The queue, the run list and the event stream survive a page reload through `Last-Event-ID`.
 
 ## CLI parity
 

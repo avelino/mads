@@ -31,6 +31,7 @@
 ## How-to
 
 * [Troubleshooting](howto/troubleshooting.md)
+* [mads studio troubleshooting](guides/mads-studio-troubleshooting.md)
 * [Run with Ollama](howto/ollama-local.md)
 * [Use an OpenAI-compatible server](howto/openai-compatible.md)
 * [Google Ads bulk upload format](howto/google-ads-bulk-upload-format.md)

@@ -578,3 +578,20 @@ Open questions for later versions:
 - A desktop wrapper that starts `mads serve`.
 - Google Ads API integration.
 - A second ad platform.
+
+## 17. Implementation notes (2026-10-25)
+
+Written when the branch landed, so the spec and the code tell the same story.
+
+- The session token is 64 hex characters (two UUIDv4s, 244 bits), not 256. Still CSPRNG-backed and compared in constant time.
+- The startup sweep marks the `Running` missions of runs from a previous server life as `Failed { reason: "interrupted" }`; the run page offers resume for that status. `run.json` itself does not record the sweep.
+- Routes that differ from the section 11 table:
+  - `PATCH /api/projects/:id` became `POST /api/projects/:id/archive` and `POST /api/projects/:id/rename` (rename was missing in V1 code and is now in).
+  - `POST /api/projects/:id/assets` became `POST /api/projects/:id/logo`, plus a `GET` for the image.
+  - `GET /api/projects/:id`, `GET /api/me`, `GET /api/providers`, `POST /api/projects/:id/draft/validate`, `GET /api/runs/:id/download` and `GET /api/runs/:id/transcripts/:mission` are not separate endpoints: the HTML pages and `GET /api/runs/:id/files/*path` cover their roles. Transcript validation lives in the file route.
+  - `POST /api/runs/:run/start` is folded into `POST /api/runs/:id/resume`, which starts a prepared optimize run.
+  - `GET /api/runs/:id/diff` exists only as the page `/runs/{id}/diff`, always against `parent_run`.
+- `If-Match` on `POST /api/runs/:id/revisions` is enforced whenever the header is present; the browser always sends it. `GET /api/runs/:id/account` returns the hash as `account_hash`.
+- Audit events implemented: `job_started`, `job_finished`, `draft_saved`, `research_saved`, `design_saved`, `revision_created`, `revision_reverted`, `optimize_prepared`, `key_saved`, `key_removed`, `project_created`, `project_imported`, `project_archived`, `project_renamed`, `project_deleted`, `logo_saved`. Session creation, failed authentication and cancellation are still not recorded (follow-up).
+- The draft save writes the catalog first and commits with the TOML rename; a crash can leave the old TOML with the new catalog, never the reverse.
+- Revision images are hard linked with a copy fallback across devices.

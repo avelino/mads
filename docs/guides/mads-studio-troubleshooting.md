@@ -1,5 +1,7 @@
 
-## mads studio
+# mads studio troubleshooting
+
+Studio-specific problems. For generation and export issues, see [Troubleshooting](../howto/troubleshooting.md).
 
 ```text
 error: cannot bind 127.0.0.1:4780: Address already in use

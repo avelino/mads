@@ -34,7 +34,7 @@ Stop the server with Ctrl-C.
 
 Open **Novo projeto**. The form asks for the business name, the site, the daily budget, the currency, the provider and the model.
 
-The provider select lists only the providers that are configured in **Conexões** (or present in the environment). When you pick one, the form asks the provider's own API for its model list and offers the ids in the model field; typing an id by hand always works. For `openai-compat` the endpoint field comes prefilled with `MADS_BASE_URL` when the server has one, and you can edit it.
+The provider select lists only the providers that are configured in **Conexões** (or present in the environment). When you pick one, the form asks the provider's own API for its model list and offers the ids in the model field; typing an id by hand always works. The endpoint field comes prefilled with the provider's documented default (or `MADS_BASE_URL` for `openai-compat`, when the server has one) and stays editable; a value you typed is never overwritten.
 
 **Estudar site** runs `mads init`. The agent reads the site, may search the web and writes `business.toml`, `catalog.csv` and `research.md`. The job page shows the tool calls and the token use.
 

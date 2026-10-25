@@ -454,9 +454,25 @@
     const hint = form && form.querySelector("[data-model-hint]");
     const baseUrl = form && form.querySelector("[data-base-url]");
     if (!datalist) return;
+    // Fills the endpoint field with the provider's documented default. A value
+    // the user typed (or edited) is never overwritten.
+    const prefillEndpoint = () => {
+      if (!baseUrl) return;
+      const option = select.selectedOptions[0];
+      const fallback = option ? option.dataset.defaultEndpoint : "";
+      if (!fallback) return;
+      const previous = baseUrl.dataset.autoFilled || "";
+      if (baseUrl.value.trim() === "" || baseUrl.value.trim() === previous) {
+        baseUrl.value = fallback;
+        baseUrl.dataset.autoFilled = fallback;
+      }
+    };
+    prefillEndpoint();
+
     const load = async () => {
       const provider = select.value;
       const cliProvider = provider.endsWith("-cli");
+      prefillEndpoint();
       if (!provider || cliProvider) {
         datalist.replaceChildren();
         if (hint) {

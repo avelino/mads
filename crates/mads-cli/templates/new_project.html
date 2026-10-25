@@ -29,7 +29,7 @@
       <select name="provider" data-provider-select required>
         <option value="">{{ chrome.t("configure um provedor em Conexões") }}</option>
         {% for provider in providers %}{% if provider.ready %}
-        <option value="{{ provider.name }}"{% if provider.name == default_provider %} selected{% endif %}>{{ provider.name }}</option>
+        <option value="{{ provider.name }}"{% if provider.name == default_provider %} selected{% endif %} data-default-endpoint="{{ provider.default_endpoint }}">{{ provider.name }}</option>
         {% endif %}{% endfor %}
       </select>
     </label>
@@ -39,8 +39,9 @@
       <datalist id="model-options"></datalist>
       <span class="muted small" data-model-hint></span>
     </label>
-    <label>Endpoint (openai-compat)
+    <label>{{ chrome.t("Endpoint") }}
       <input name="base_url" value="{{ default_base_url }}" placeholder="http://localhost:8000/v1" data-base-url>
+      <span class="muted small">{{ chrome.t("o default do provedor é preenchido e você pode editar; o openai-compat usa este endpoint") }}</span>
     </label>
     <label>{{ chrome.t("Itens do catálogo") }}
       <input name="catalog_limit" type="number" min="0" value="50">

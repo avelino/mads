@@ -17,7 +17,7 @@
       <select name="provider" data-provider-select required>
         <option value="">{{ chrome.t("configure um provedor em Conexões") }}</option>
         {% for provider in providers %}{% if provider.ready %}
-        <option value="{{ provider.name }}"{% if provider.name == default_provider %} selected{% endif %}>{{ provider.name }}</option>
+        <option value="{{ provider.name }}"{% if provider.name == default_provider %} selected{% endif %} data-default-endpoint="{{ provider.default_endpoint }}">{{ provider.name }}</option>
         {% endif %}{% endfor %}
       </select>
     </label>
@@ -30,8 +30,9 @@
     <label>{{ chrome.t("Modelo do plano (opcional)") }}
       <input name="plan_model" list="model-options" placeholder="{{ chrome.t("um modelo mais forte só para o plano") }}">
     </label>
-    <label>Endpoint (openai-compat)
+    <label>{{ chrome.t("Endpoint") }}
       <input name="base_url" value="{{ default_base_url }}" placeholder="http://localhost:8000/v1" data-base-url>
+      <span class="muted small">{{ chrome.t("o default do provedor é preenchido e você pode editar; o openai-compat usa este endpoint") }}</span>
     </label>
     <label>{{ chrome.t("Provedor de imagens") }}
       <select name="image_provider">

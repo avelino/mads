@@ -385,6 +385,25 @@ async fn a_stale_if_match_is_a_conflict_and_a_fresh_one_passes() {
 }
 
 #[tokio::test]
+async fn the_project_form_carries_each_provider_default_endpoint() {
+    let (_temp, state) = fixture();
+    let response = send(
+        &state,
+        put_json("/api/secrets/anthropic", json!({"value": "sk-x"}), true),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let page = body_text(send(&state, get("/projects/new", true)).await).await;
+    assert!(
+        page.contains("data-default-endpoint=\"https://api.anthropic.com\""),
+        "the anthropic default endpoint ships with the option"
+    );
+    // openai-compat has no default: the attribute stays empty and the field
+    // keeps the server's MADS_BASE_URL.
+    assert!(page.contains("data-default-endpoint=\"\""));
+}
+
+#[tokio::test]
 async fn the_models_endpoint_reports_cli_and_unknown_providers() {
     let (_temp, state) = fixture();
     let response = send(&state, get("/api/providers/claude-cli/models", true)).await;

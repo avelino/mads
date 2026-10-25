@@ -58,6 +58,11 @@ pub fn cookie(lang: &str) -> String {
 }
 
 const EN_TEXT: &[(&str, &str)] = &[
+    ("Endpoint", "Endpoint"),
+    (
+        "o default do provedor é preenchido e você pode editar; o openai-compat usa este endpoint",
+        "the provider default is prefilled and editable; openai-compat calls this endpoint",
+    ),
     (
         "configure um provedor em Conexões",
         "configure a provider in Connections",

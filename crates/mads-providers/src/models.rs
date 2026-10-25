@@ -87,6 +87,22 @@ pub async fn list_models(
     Ok(models_from_json(provider, &json))
 }
 
+/// The documented API root of each provider, for the studio endpoint field.
+/// `openai-compat` has no default: the endpoint is the user's own service.
+pub fn default_endpoint(provider: &str) -> Option<&'static str> {
+    match provider {
+        "anthropic" => Some("https://api.anthropic.com"),
+        "openai" => Some("https://api.openai.com/v1"),
+        "openrouter" => Some("https://openrouter.ai/api/v1"),
+        "groq" => Some("https://api.groq.com/openai/v1"),
+        "deepseek" => Some("https://api.deepseek.com"),
+        "xai" => Some("https://api.x.ai/v1"),
+        "gemini" => Some("https://generativelanguage.googleapis.com"),
+        "ollama" => Some("http://127.0.0.1:11434"),
+        _ => None,
+    }
+}
+
 fn bearer_get(url: impl Into<String>, key: &str) -> reqwest::RequestBuilder {
     reqwest::Client::new().get(url.into()).bearer_auth(key)
 }
@@ -139,6 +155,17 @@ mod tests {
     fn an_empty_or_foreign_shape_is_an_empty_list() {
         assert!(models_from_json("openai", &json!({"error": "x"})).is_empty());
         assert!(models_from_json("openai", &json!([])).is_empty());
+    }
+
+    #[test]
+    fn known_providers_have_a_default_endpoint_and_compat_does_not() {
+        assert_eq!(
+            default_endpoint("openai"),
+            Some("https://api.openai.com/v1")
+        );
+        assert_eq!(default_endpoint("openai-compat"), None);
+        assert_eq!(default_endpoint("claude-cli"), None);
+        assert_eq!(default_endpoint("nope"), None);
     }
 
     #[tokio::test]

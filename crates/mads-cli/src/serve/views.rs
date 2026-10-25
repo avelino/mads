@@ -238,6 +238,8 @@ pub struct ProviderRow {
     pub kind: String,
     pub status: String,
     pub ready: bool,
+    /// The documented API root, prefilled in the endpoint field and editable.
+    pub default_endpoint: String,
 }
 
 #[derive(Debug, Clone)]
@@ -304,6 +306,9 @@ pub fn providers() -> (Vec<ProviderRow>, Vec<ImageProviderRow>) {
             },
             status: describe(&p.status),
             ready: p.status == ProviderStatus::Ready,
+            default_endpoint: mads_providers::default_endpoint(p.name)
+                .unwrap_or_default()
+                .to_string(),
         })
         .collect();
     let images = list_image_providers()

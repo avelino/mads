@@ -216,7 +216,7 @@ async fn bearer_opens_the_dashboard() {
     let response = send(&state, get("/", true)).await;
     assert_eq!(response.status(), StatusCode::OK);
     let text = body_text(response).await;
-    assert!(text.contains("Projetos"));
+    assert!(text.contains("Projects"));
     assert!(text.contains("Acme"));
 }
 
@@ -708,7 +708,7 @@ async fn the_new_project_page_is_served() {
     let response = send(&state, get("/projects/new", true)).await;
     assert_eq!(response.status(), StatusCode::OK);
     let text = body_text(response).await;
-    assert!(text.contains("Novo projeto"));
+    assert!(text.contains("New project"));
     assert!(text.contains("Study site"));
 }
 
@@ -827,7 +827,7 @@ async fn the_draft_page_saves_business_fields() {
     let response = send(&state, get("/projects/acme/draft", true)).await;
     assert_eq!(response.status(), StatusCode::OK);
     let page = body_text(response).await;
-    assert!(page.contains("Rascunho"));
+    assert!(page.contains("Draft"));
     assert!(page.contains("Acme"));
 
     let response = send(

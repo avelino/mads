@@ -31,6 +31,11 @@ use crate::serve::{
 
 const CSRF_HEADER: &str = "x-mads-csrf";
 
+/// The page title in the session language. The key is the Portuguese string.
+fn tt(lang: &str, pt: &str) -> String {
+    crate::serve::i18n::t(lang, pt)
+}
+
 pub async fn index(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let Some(identity) = state.auth.authenticate(&headers) else {
         return bootstrap(&headers);
@@ -38,7 +43,7 @@ pub async fn index(State(state): State<AppState>, headers: HeaderMap) -> Respons
     let projects = store::projects(state.root());
     Html(views::ProjectsPage {
         chrome: Chrome::new(identity.csrf.clone(), "projects", &identity.lang),
-        title: "Projetos".into(),
+        title: tt(&identity.lang, "Projetos"),
         projects,
     })
     .into_response()
@@ -102,7 +107,7 @@ pub async fn account_page(
         .with_run(&run.summary.id);
     Html(views::AccountPage {
         chrome,
-        title: format!("Conta {}", run.summary.id),
+        title: format!("{} {}", tt(&identity.lang, "Conta"), run.summary.id),
         run,
     })
     .into_response()
@@ -124,7 +129,7 @@ pub async fn edit_page(
         .with_run(&run.summary.id);
     Html(views::EditPage {
         chrome,
-        title: format!("Corrigir {}", run.summary.id),
+        title: format!("{} {}", tt(&identity.lang, "Corrigir"), run.summary.id),
         run,
     })
     .into_response()
@@ -146,7 +151,7 @@ pub async fn validation_page(
         .with_run(&run.summary.id);
     Html(views::ValidationPage {
         chrome,
-        title: format!("Validação {}", run.summary.id),
+        title: format!("{} {}", tt(&identity.lang, "Validação"), run.summary.id),
         run,
     })
     .into_response()
@@ -168,7 +173,7 @@ pub async fn report_page(
         .with_run(&run.summary.id);
     Html(views::ReportPage {
         chrome,
-        title: format!("Relatório {}", run.summary.id),
+        title: format!("{} {}", tt(&identity.lang, "Relatório"), run.summary.id),
         run,
     })
     .into_response()
@@ -190,7 +195,7 @@ pub async fn files_page(
         .with_run(&run.summary.id);
     Html(views::FilesPage {
         chrome,
-        title: format!("Arquivos {}", run.summary.id),
+        title: format!("{} {}", tt(&identity.lang, "Arquivos"), run.summary.id),
         run,
     })
     .into_response()
@@ -212,7 +217,7 @@ pub async fn events_page(
         .with_run(&run.summary.id);
     Html(views::EventsPage {
         chrome,
-        title: format!("Eventos {}", run.summary.id),
+        title: format!("{} {}", tt(&identity.lang, "Eventos"), run.summary.id),
         run,
     })
     .into_response()
@@ -245,7 +250,7 @@ pub async fn init_project_page(
     Html(views::InitProjectPage {
         chrome: Chrome::new(identity.csrf.clone(), "init", &identity.lang)
             .with_project(&project.name),
-        title: format!("Estudar site · {}", project.name),
+        title: format!("{} · {}", tt(&identity.lang, "Estudar site"), project.name),
         project,
         meta,
         model_text,
@@ -328,7 +333,7 @@ pub async fn draft_page(
     Html(views::DraftPage {
         chrome: Chrome::new(identity.csrf.clone(), "draft", &identity.lang)
             .with_project(&project.name),
-        title: format!("Rascunho · {}", project.name),
+        title: format!("{} · {}", tt(&identity.lang, "Rascunho"), project.name),
         project,
         draft,
     })
@@ -501,7 +506,7 @@ pub async fn new_project_page(State(state): State<AppState>, headers: HeaderMap)
     let (providers, _) = views::providers_with(&state.secrets);
     Html(views::NewProjectPage {
         chrome: Chrome::new(identity.csrf.clone(), "new-project", &identity.lang),
-        title: "Novo projeto".into(),
+        title: tt(&identity.lang, "Novo projeto"),
         providers,
         default_provider: std::env::var("MADS_PROVIDER").unwrap_or_default(),
         default_model: std::env::var("MADS_MODEL").unwrap_or_default(),
@@ -660,7 +665,7 @@ pub async fn new_run_page(
     Html(views::NewRunPage {
         chrome: Chrome::new(identity.csrf.clone(), "project", &identity.lang)
             .with_project(&project.name),
-        title: format!("Nova execução · {}", project.name),
+        title: format!("{} · {}", tt(&identity.lang, "Nova execução"), project.name),
         project,
         providers,
         default_provider: std::env::var("MADS_PROVIDER").unwrap_or_default(),
@@ -676,7 +681,7 @@ pub async fn jobs_page(State(state): State<AppState>, headers: HeaderMap) -> Res
     };
     Html(views::JobsPage {
         chrome: Chrome::new(identity.csrf.clone(), "jobs", &identity.lang),
-        title: "Jobs".into(),
+        title: tt(&identity.lang, "Jobs"),
         jobs: state.jobs.views(),
     })
     .into_response()
@@ -696,7 +701,7 @@ pub async fn job_page(
     Html(views::JobPage {
         chrome: Chrome::new(identity.csrf.clone(), "job", &identity.lang)
             .with_project(&job.project_name),
-        title: format!("Job {}", job.id),
+        title: format!("{} {}", tt(&identity.lang, "Job"), job.id),
         job,
     })
     .into_response()
@@ -1064,7 +1069,7 @@ pub async fn optimize_page(
         .with_run(&run.summary.id);
     Html(views::OptimizePage {
         chrome,
-        title: format!("Otimizar {}", run.summary.id),
+        title: format!("{} {}", tt(&identity.lang, "Otimizar"), run.summary.id),
         run,
     })
     .into_response()
@@ -1087,7 +1092,11 @@ pub async fn optimize_review_page(
         .with_run(&run.summary.id);
     Html(views::OptimizeReviewPage {
         chrome,
-        title: format!("Revisar otimização {}", run.summary.id),
+        title: format!(
+            "{} {}",
+            tt(&identity.lang, "Revisar otimização"),
+            run.summary.id
+        ),
         run,
         performance_json: performance,
         default_provider: std::env::var("MADS_PROVIDER").unwrap_or_default(),
@@ -1197,7 +1206,7 @@ pub async fn connections_page(State(state): State<AppState>, headers: HeaderMap)
     let keys = state.secrets.statuses();
     Html(views::ConnectionsPage {
         chrome: Chrome::new(identity.csrf.clone(), "connections", &identity.lang),
-        title: "Conexões".into(),
+        title: tt(&identity.lang, "Conexões"),
         providers,
         image_providers,
         key_file: state.secrets.path().display().to_string(),

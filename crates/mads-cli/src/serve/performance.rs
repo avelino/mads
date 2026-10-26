@@ -63,7 +63,11 @@ pub async fn performance_page(
         .with_run(&run.summary.id);
     Html(PerformancePage {
         chrome,
-        title: format!("Performance {}", run.summary.id),
+        title: format!(
+            "{} {}",
+            crate::serve::i18n::t(&identity.lang, "Performance"),
+            run.summary.id
+        ),
         run,
         view,
     })
@@ -75,7 +79,7 @@ fn not_found(identity: &Identity, message: &str) -> Response {
         StatusCode::NOT_FOUND,
         Html(views::ErrorPage {
             chrome: Chrome::new(identity.csrf.clone(), "performance", &identity.lang),
-            title: "Não encontrado".into(),
+            title: crate::serve::i18n::t(&identity.lang, "Não encontrado"),
             message: message.into(),
         }),
     )

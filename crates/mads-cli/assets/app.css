@@ -486,7 +486,7 @@ input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visibl
 
 .form { padding: 20px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 18px; }
-.form-grid label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+.form-grid label { display: grid; gap: 6px; align-content: start; font-size: 13px; color: var(--muted); }
 .form-grid input, .form-grid select {
   min-height: 38px;
   padding: 7px 9px;
@@ -498,6 +498,13 @@ input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visibl
   font-size: 14px;
 }
 .check-row { display: flex; flex-wrap: wrap; gap: 14px 24px; margin: 18px 0 6px; }
+[data-model-hint] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 .check { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink); }
 .check input { width: 16px; height: 16px; }
 .form-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 18px; }

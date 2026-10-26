@@ -652,7 +652,7 @@ fn not_found_page(identity: &crate::serve::auth::Identity, message: &str) -> Res
         StatusCode::NOT_FOUND,
         Html(ErrorPage {
             chrome: Chrome::new(identity.csrf.clone(), "not-found", &identity.lang),
-            title: "Não encontrado".into(),
+            title: crate::serve::i18n::t(&identity.lang, "Não encontrado"),
             message: message.into(),
         }),
     )

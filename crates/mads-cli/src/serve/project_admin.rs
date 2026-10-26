@@ -88,7 +88,11 @@ pub async fn settings_page(
     Html(SettingsPage {
         chrome: Chrome::new(identity.csrf.clone(), "project", &identity.lang)
             .with_project(&project.name),
-        title: format!("Configurações · {}", project.name),
+        title: format!(
+            "{} · {}",
+            crate::serve::i18n::t(&identity.lang, "Configurações"),
+            project.name
+        ),
         project,
         path,
         trash,
@@ -102,7 +106,7 @@ pub async fn import_page(State(state): State<AppState>, headers: HeaderMap) -> R
     };
     Html(ImportPage {
         chrome: Chrome::new(identity.csrf.clone(), "new-project", &identity.lang),
-        title: "Importar projeto".into(),
+        title: crate::serve::i18n::t(&identity.lang, "Importar projeto"),
     })
     .into_response()
 }
@@ -113,7 +117,7 @@ pub async fn manual_page(State(state): State<AppState>, headers: HeaderMap) -> R
     };
     Html(ManualPage {
         chrome: Chrome::new(identity.csrf.clone(), "new-project", &identity.lang),
-        title: "Novo projeto manual".into(),
+        title: crate::serve::i18n::t(&identity.lang, "Novo projeto manual"),
     })
     .into_response()
 }
@@ -489,7 +493,7 @@ fn not_found_page(identity: &Identity, message: &str) -> Response {
         StatusCode::NOT_FOUND,
         Html(crate::serve::views::ErrorPage {
             chrome: Chrome::new(identity.csrf.clone(), "not-found", &identity.lang),
-            title: "Não encontrado".into(),
+            title: crate::serve::i18n::t(&identity.lang, "Não encontrado"),
             message: message.into(),
         }),
     )

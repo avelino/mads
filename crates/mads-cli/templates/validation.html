@@ -32,7 +32,7 @@
         <div class="issue-head"><span class="code">{{ group.code }}</span><span class="muted">{{ group.count }} {{ chrome.t("ocorrência(s)") }}</span></div>
         <ul class="issues">
           {% for issue in group.items %}
-          <li><span class="mono path">{{ issue.path }}</span><span>{{ issue.message }}</span></li>
+          <li><a class="mono path" href="/runs/{{ run.summary.id }}/edit#{{ issue.path }}" title="{{ chrome.t("abrir o campo em Corrigir") }}">{{ issue.path }}</a><span>{{ issue.message }}</span></li>
           {% endfor %}
         </ul>
       </div>
@@ -48,7 +48,7 @@
         <div class="issue-head"><span class="code warn-code">{{ group.code }}</span><span class="muted">{{ group.count }} {{ chrome.t("ocorrência(s)") }}</span></div>
         <ul class="issues">
           {% for issue in group.items %}
-          <li><span class="mono path">{{ issue.path }}</span><span>{{ issue.message }}</span></li>
+          <li><a class="mono path" href="/runs/{{ run.summary.id }}/edit#{{ issue.path }}" title="{{ chrome.t("abrir o campo em Corrigir") }}">{{ issue.path }}</a><span>{{ issue.message }}</span></li>
           {% endfor %}
         </ul>
       </div>

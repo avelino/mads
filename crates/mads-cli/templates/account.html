@@ -62,28 +62,28 @@
     <div class="inline-list">
       <span class="muted small">{{ chrome.t("Sitelinks") }}</span>
       {% for link in campaign.sitelinks %}
-      <span class="chip" title="{{ link.url }} · {{ link.description }}">{{ link.text }}</span>
+      <span class="chip unexported" title="{{ link.url }} · {{ link.description }} · {{ chrome.t("validado, mas não vai no upload nesta versão") }}">{{ link.text }}</span>
       {% endfor %}
     </div>
     {% endif %}
     {% if campaign.callouts.len() > 0 %}
     <div class="inline-list">
       <span class="muted small">{{ chrome.t("Callouts") }}</span>
-      {% for callout in campaign.callouts %}<span class="chip">{{ callout }}</span>{% endfor %}
+      {% for callout in campaign.callouts %}<span class="chip unexported" title="{{ chrome.t("validado, mas não vai no upload nesta versão") }}">{{ callout }}</span>{% endfor %}
     </div>
     {% endif %}
     {% if campaign.snippets.len() > 0 %}
     <div class="inline-list">
       <span class="muted small">{{ chrome.t("Snippets") }}</span>
-      {% for snippet in campaign.snippets %}<span class="chip">{{ snippet.header }}: {{ snippet.values }}</span>{% endfor %}
+      {% for snippet in campaign.snippets %}<span class="chip unexported" title="{{ chrome.t("validado, mas não vai no upload nesta versão") }}">{{ snippet.header }}: {{ snippet.values }}</span>{% endfor %}
     </div>
     {% endif %}
-    <p class="muted small">{{ chrome.t("Sitelinks, callouts e snippets são validados, mas não exportados nesta versão.") }}</p>
+    <p class="muted small">{{ chrome.t("Itens pontilhados são validados, mas não vão no upload nesta versão.") }}</p>
   </div>
   {% endif %}
 
   {% for group in campaign.ad_groups %}
-  <details class="adgroup" open>
+  <details class="adgroup"{% if loop.first %} open{% endif %}>
     <summary>
       <span class="mono strong">{{ group.name }}</span>
       <span class="muted">CPC {{ group.cpc }}</span>

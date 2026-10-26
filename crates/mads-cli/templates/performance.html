@@ -61,7 +61,7 @@
     {% if view.campaigns.len() == 0 %}
     <div class="empty small-empty"><p>{{ chrome.t("Nenhuma campanha nos relatórios.") }}</p></div>
     {% else %}
-    <table class="table">
+    <table class="table" data-sortable>
       <thead>
         <tr>
           <th>{{ chrome.t("Campanha") }}</th>
@@ -91,7 +91,7 @@
             <span class="status status-{{ campaign.status_class }}">{{ campaign.live_status }}</span>
             {% if campaign.flags.len() > 0 %}
             <div class="meta-row">
-              {% for flag in campaign.flags %}<span class="chip">{{ flag }}</span>{% endfor %}
+              {% for flag in campaign.flags %}<span class="chip" data-flag="{{ flag }}">{{ chrome.t(flag) }}</span>{% endfor %}
             </div>
             {% endif %}
           </td>

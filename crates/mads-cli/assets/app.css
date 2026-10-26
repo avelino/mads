@@ -498,6 +498,16 @@ input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visibl
   font-size: 14px;
 }
 .check-row { display: flex; flex-wrap: wrap; gap: 14px 24px; margin: 18px 0 6px; }
+.chip.unexported { border-style: dashed; color: var(--muted); }
+.anchor-details { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.anchor-details summary { cursor: pointer; }
+.anchor-details ol { margin: 8px 0 0 18px; display: grid; gap: 4px; }
+.field-target { outline: 2px solid var(--warn, #b8860b); outline-offset: 2px; }
+table[data-sortable] thead th.sortable { cursor: pointer; user-select: none; }
+table[data-sortable] thead th.sortable:hover { color: var(--ink); }
+table[data-sortable] thead th[data-dir="asc"]::after { content: " ▲"; }
+table[data-sortable] thead th[data-dir="desc"]::after { content: " ▼"; }
+
 [data-model-hint] {
   display: -webkit-box;
   -webkit-box-orient: vertical;

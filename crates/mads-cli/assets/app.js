@@ -444,7 +444,65 @@
     } catch {
       // A fragment that is not a valid selector is only a bad anchor.
     }
+    // A validation issue path lands on the matching field in Correct.
+    const fieldPath = decodeURIComponent(location.hash.slice(1));
+    const input = Array.from(document.querySelectorAll("[data-path]"))
+      .find((node) => node.dataset.path === fieldPath);
+    if (input) {
+      input.scrollIntoView({ block: "center" });
+      input.focus({ preventScroll: true });
+      input.classList.add("field-target");
+      setTimeout(() => input.classList.remove("field-target"), 3000);
+    }
   }
+
+  // Performance flags carry their practitioner rationale on hover.
+  const flagHints = {
+    thin: tr("poucos sinais: pouco tráfego na janela para julgar a campanha"),
+    stalled: tr("parada: ligada sem anúncios, ou 7 dias sem uma impressão"),
+    untracked: tr("sem conversão medida: 100+ cliques e nenhuma conversão enquanto outra campanha converte"),
+    "no limite": tr("no limite: o orçamento já equivale ao que ela gastou por dia"),
+    "termos ocultos": tr("termos ocultos: o Google omite alguns termos de busca por privacidade; os números são parciais"),
+  };
+  document.querySelectorAll(".chip[data-flag]").forEach((chip) => {
+    const hint = flagHints[chip.dataset.flag];
+    if (hint) chip.title = hint;
+  });
+
+  // Click a header to sort a data-sortable table; numbers compare numerically.
+  document.querySelectorAll("table[data-sortable] thead th").forEach((th, index) => {
+    th.classList.add("sortable");
+    th.addEventListener("click", () => {
+      const table = th.closest("table");
+      const tbody = table.tBodies[0];
+      const direction = th.dataset.dir === "asc" ? "desc" : "asc";
+      table.querySelectorAll("thead th").forEach((other) => {
+        other.removeAttribute("data-dir");
+        other.removeAttribute("aria-sort");
+      });
+      th.dataset.dir = direction;
+      th.setAttribute("aria-sort", direction === "asc" ? "ascending" : "descending");
+      const number = (cell) => {
+        const text = cell.textContent.trim().replace(/\s+/g, " ");
+        if (!/\d/.test(text) || /^n\/a$/.test(text)) return null;
+        const cleaned = text.replace(/[^\d.,-]/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", ".");
+        const value = parseFloat(cleaned);
+        return Number.isFinite(value) ? value : null;
+      };
+      const rows = Array.from(tbody.rows);
+      rows.sort((a, b) => {
+        const va = number(a.cells[index]);
+        const vb = number(b.cells[index]);
+        let cmp;
+        if (va !== null && vb !== null) cmp = va - vb;
+        else if (va !== null) cmp = -1;
+        else if (vb !== null) cmp = 1;
+        else cmp = a.cells[index].textContent.trim().localeCompare(b.cells[index].textContent.trim());
+        return direction === "asc" ? cmp : -cmp;
+      });
+      rows.forEach((row) => tbody.append(row));
+    });
+  });
 
   // Fills the model datalist from the provider's own models endpoint. A free
   // text id always works; the list is a convenience.

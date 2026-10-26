@@ -58,6 +58,35 @@ pub fn cookie(lang: &str) -> String {
 }
 
 const EN_TEXT: &[(&str, &str)] = &[
+    (
+        "Como exportar os relatórios do Google Ads",
+        "How to export the Google Ads reports",
+    ),
+    (
+        "No Google Ads, abra o menu Relatórios (Reporting).",
+        "In Google Ads, open the Reports menu.",
+    ),
+    (
+        "Escolha Campanhas, Palavras-chave, Termos de busca ou Anúncios e baixe cada um como CSV.",
+        "Pick Campaigns, Keywords, Search terms or Ads and download each one as CSV.",
+    ),
+    (
+        "Use uma janela só para todos os relatórios; janelas diferentes geram um aviso.",
+        "Use one date window for every report; mixed windows raise a warning.",
+    ),
+    (
+        "O relatório de campanhas por dia vem de Campanhas com a coluna Dia.",
+        "The campaigns-per-day report is Campaigns with the Day column.",
+    ),
+    ("abrir o campo em Corrigir", "open the field in Correct"),
+    (
+        "validado, mas não vai no upload nesta versão",
+        "validated, but not uploaded in this version",
+    ),
+    (
+        "Itens pontilhados são validados, mas não vão no upload nesta versão.",
+        "Dashed items are validated, but not uploaded in this version.",
+    ),
     ("configurar em Conexões", "configure in Connections"),
     (
         "Nenhum provedor configurado ainda.",

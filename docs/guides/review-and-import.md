@@ -111,4 +111,4 @@ Performance Max, Demand Gen and App campaigns are not in files 1 to 5. `google-a
 
 The run page opens the account, the validation, the report and the files. The files page previews text files and pictures. The import checklist is the same. The studio does not upload. Use Google Ads or Google Ads Editor.
 
-After the review, **Corrigir** creates a revision with validated edits and exports again without a model call.
+After the review, **Correct** creates a revision with validated edits and exports again without a model call.

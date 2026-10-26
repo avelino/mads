@@ -45,6 +45,7 @@ The published Docker image ships all three CLIs (`claude`, `codex`, `gemini`) ne
 
 ```bash
 docker run --rm --user "$(id -u):$(id -g)" \
+  -e HOME=/home/mads \
   -v "$PWD:/work" -v "$HOME/.claude:/home/mads/.claude" \
   ghcr.io/avelino/mads:latest generate business.toml --provider claude-cli
 ```

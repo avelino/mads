@@ -61,7 +61,7 @@ The server runs the same code as the CLI in the same process. It can start missi
 
 It cannot upload to Google Ads, read a Google Ads account or change Google Ads credentials.
 
-**Importar** reads a path typed by the user, canonicalizes it and copies regular files into `--root`. It rejects symlinks and skips `.git` and `.mads`. The token therefore grants access to every file the server process can read; run the studio as a user that only sees the projects you want to expose.
+**Import** reads a path typed by the user, canonicalizes it and copies regular files into `--root`. It rejects symlinks and skips `.git` and `.mads`. The token therefore grants access to every file the server process can read; run the studio as a user that only sees the projects you want to expose.
 
 ## Data at rest
 
@@ -78,7 +78,7 @@ The staging directory used by the draft save is removed after validation. Upload
 
 ## Logs and audit
 
-`.mads/audit.ndjson` records project creation, draft saves, job starts and finishes, revisions, optimization prepares and key changes. It never contains a key value.
+`.mads/audit.ndjson` records project creation, import, rename, archive and delete, draft, research, design and logo saves, job starts and finishes, revisions and reverts, optimization prepares, and key saves and removals. It never contains a key value.
 
 `.mads/jobs/<job-id>/events.ndjson` records the events of jobs that have no run directory. A run keeps its own `events.ndjson`. Neither contains API keys.
 
@@ -86,7 +86,7 @@ The process writes logs to stderr. Do not run it with `RUST_LOG=debug` while ent
 
 ## No telemetry
 
-mads studio sends nothing to a remote service. The only network calls are the provider calls, the URL check, the site read in `init` and the image model.
+mads studio sends nothing to a remote service. The only network calls are the provider calls (including the model list the project and run forms load), the URL check, the site read in `init` and the image model.
 
 ## Reporting
 

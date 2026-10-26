@@ -133,4 +133,4 @@ Both exit with code `2`.
 
 ## In the studio
 
-**Conexões** saves an API key in `~/.config/mads/secrets.toml` with mode `0600`. The key is used by the next job without restarting the server. An environment variable still wins. The browser never receives the key. See [mads studio security](mads-studio-security.md#api-keys).
+**Connections** saves an API key in `~/.config/mads/secrets.toml` with mode `0600`. The key is used by the next job without restarting the server. An environment variable still wins. The browser never receives the key. See [mads studio security](mads-studio-security.md#api-keys).

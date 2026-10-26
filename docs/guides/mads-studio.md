@@ -32,19 +32,19 @@ Stop the server with Ctrl-C.
 
 ## Create a project
 
-Open **Novo projeto**. The form asks for the business name, the site, the daily budget, the currency, the provider and the model.
+Open **New project**. The form asks for the business name, the site, the daily budget, the currency, the provider and the model.
 
-The provider select lists only the providers that are configured in **Conexões** (or present in the environment). When you pick one, the form asks the provider's own API for its model list and offers the ids in the model field; typing an id by hand always works. The endpoint field comes prefilled with the provider's documented default (or `MADS_BASE_URL` for `openai-compat`, when the server has one) and stays editable; a value you typed is never overwritten.
+The provider select lists only the providers that are configured in **Connections** (or present in the environment). When you pick one, the form asks the provider's own API for its model list and offers the ids in the model field; typing an id by hand always works. The endpoint field comes prefilled with the provider's documented default (or `MADS_BASE_URL` for `openai-compat`, when the server has one) and stays editable; a value you typed is never overwritten.
 
-**Estudar site** runs `mads init`. The agent reads the site, may search the web and writes `business.toml`, `catalog.csv` and `research.md`. The job page shows the tool calls and the token use.
+**Study site** runs `mads init`. The agent reads the site, may search the web and writes `business.toml`, `catalog.csv` and `research.md`. The job page shows the tool calls and the token use.
 
-When init finishes, open **Rascunho**.
+When init finishes, open **Draft**.
 
-If init fails, the project stays in the list with the error. Open the project and choose **Estudar o site de novo**. The last init settings are prefilled. The retry form has a **Substituir arquivos existentes** option for a project that already has files.
+If init fails, the project stays in the list with the error. Open the project and choose **Study the site again**. The last init settings are prefilled. The retry form has a **Replace existing files** option for a project that already has files.
 
-You can also import an existing folder from the server with **Importar**, or create a valid draft without the agent with **Criar manualmente**. A directory with `business.toml` under `--root` appears on the dashboard.
+You can also import an existing folder from the server with **Import**, or create a valid draft without the agent with **Create manually**. A directory with `business.toml` under `--root` appears on the dashboard.
 
-Open **Configurações** in a project to archive it, reactivate it or move it to `<root>/.trash/`. Archive hides the project from the dashboard; the files stay in place.
+Open **Settings** in a project to archive it, reactivate it or move it to `<root>/.trash/`. Archive hides the project from the dashboard; the files stay in place.
 
 ## Review the draft
 
@@ -64,15 +64,15 @@ A saved draft does not change earlier runs. Each run keeps its own copy in `inpu
 
 ## Generate
 
-Open a project and choose **Nova execução**.
+Open a project and choose **New run**.
 
 - Pick the provider and model. The list shows only the configured providers; the model field loads the ids the provider's API serves, and a hand-typed id always works. API providers need a key, see [Connections](#connections).
 - Choose the file set. `bulk` writes files 1 to 5 and the Editor file. `drive-folders` writes the automation package.
 - Set the token cap, the turns per mission, the timeout and the retries.
-- Keep **Revisar o plano** on. The run stops after the plan and shows campaigns, budgets and groups before campaign missions spend tokens.
+- Keep **Review the plan** on. The run stops after the plan and shows campaigns, budgets and groups before campaign missions spend tokens.
 - Read the cost notice and confirm.
 
-The job page streams the mission events. **Parar** cancels the run. The workspace and the pictures stay. **Retomar** runs the unfinished missions. The top bar **Jobs** page lists the jobs this server process started; history stays in each project folder.
+The job page streams the mission events. **Stop** cancels the run. The workspace and the pictures stay. **Resume missions** retries the unfinished ones. The top bar **Jobs** page lists the jobs this server process started; history stays in each project folder.
 
 ## Review the account
 
@@ -85,7 +85,7 @@ The run page links to the account, the validation, the report, the files and the
 
 ## Correct without calling the model
 
-Open **Corrigir** on a finished run.
+Open **Correct** on a finished run.
 
 - Edit texts, budgets, CPCs, final URLs, keywords, negatives, asset groups and campaign assets.
 - Save creates a human revision in `out/<run-id>-rN`. The original run is not changed.
@@ -95,22 +95,22 @@ Open **Corrigir** on a finished run.
 
 The correction page edits existing rows. Adding or removing campaigns and ad groups is still structural, so generate another run for that.
 
-Open **Alterações** on a revision to compare its account with the parent. The diff links back to both runs. **Desfazer revisão** creates a new revision from the parent account and exports it again, without touching the original or the revision you are undoing.
+Open **Changes** on a revision to compare its account with the parent. The diff links back to both runs. **Revert revision** creates a new revision from the parent account and exports it again, without touching the original or the revision you are undoing.
 
 ## Optimize
 
-Open **Otimizar** on a finished run, or **Otimizar** on the run page.
+Open **Optimize** on a finished run, or **Optimize** on the run page.
 
 1. Upload the CSV reports exported from Google Ads. Up to 20 files and 20 MB.
 2. The server reads the reports and creates a derived run with the performance digest.
 3. Read the digest. It shows spend, clicks, conversions, lost impression share, thin, stalled and untracked campaigns, idle budget and missing reports. After the run, **Performance** shows the same digest as a table.
 4. Choose the provider and model and start the missions.
 
-The base run is not changed. The optimized run records its parent. **Alterações** compares the optimized account with the base. Import the result only with Google Ads Editor. Do not upload files 1 to 5 over a live account.
+The base run is not changed. The optimized run records its parent. **Changes** compares the optimized account with the base. Import the result only with Google Ads Editor. Do not upload files 1 to 5 over a live account.
 
 ## Connections
 
-Open **Conexões** to see the providers and save API keys.
+Open **Connections** to see the providers and save API keys.
 
 Keys are stored in `~/.config/mads/secrets.toml` with mode `0600`. On Windows the path is `%APPDATA%\mads\secrets.toml`. The browser never receives a key. Environment variables win over the file. A saved key is used by text and image jobs, including `init` and `generate`; there is no need to restart the server or export the variable.
 
@@ -171,13 +171,13 @@ GET    /api/runs/:id/files/*path
 
 The HTML pages are not an API contract. The JSON fields follow the workspace types and can change before 1.0.
 
-Two more rules apply to mutations:
+Three more rules apply to mutations:
 
 - A second job for a project that already has one queued or running answers `409`, not `400`.
 - `POST /api/runs/:id/revisions` accepts an `If-Match` header with the account hash from `GET /api/runs/:id/account`. A stale hash answers `409` with the current hash, so two tabs cannot compose edits over each other.
 - Deleting a project requires `{"confirm": "<project name>"}`; the typed confirmation is checked on the server, not only in the browser.
 
-The server runs at most two jobs at once. A third waits in a FIFO queue and the job page shows it as `Na fila`. The queue, the run list and the event stream survive a page reload through `Last-Event-ID`.
+The server runs at most two jobs at once. A third waits in a FIFO queue and the job page shows it as Queued. The queue lives in the server, so it survives a page reload; the event stream resumes where it stopped through `Last-Event-ID`.
 
 ## CLI parity
 

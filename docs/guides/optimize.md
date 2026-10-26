@@ -94,6 +94,6 @@ The folder has no CSV, or none of them is a report mads knows. The message lists
 
 ## In the studio
 
-`mads serve` has an **Otimizar** page for a finished run. It uploads the same report CSVs, calls `optimize::prepare`, shows the performance digest before spending tokens and then starts the same missions.
+`mads serve` has an **Optimize** page for a finished run. It uploads the same report CSVs, calls `optimize::prepare`, shows the performance digest before spending tokens and then starts the same missions.
 
 The base run is not changed. The optimized run records `parent_run` in `run.json`. Import the result only with Google Ads Editor. See [mads studio](mads-studio.md#optimize).

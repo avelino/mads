@@ -94,6 +94,6 @@ API providers report tokens only, so cost shows `n/a`. `claude-cli` reports cost
 
 ## In the studio
 
-The generate form shows the provider, the model, the token cap, the turns, the timeout, the retries and the image cap before the run starts. The plan review is on by default, so campaign missions wait for a second confirmation. **Parar** cancels the run between turns and missions. A cancelled run keeps its workspace and pictures and can be retried.
+The generate form shows the provider, the model, the token cap, the turns, the timeout, the retries and the image cap before the run starts. The plan review is on by default, so campaign missions wait for a second confirmation. **Stop** cancels the run between turns and missions. A cancelled run keeps its workspace and pictures and can be retried.
 
 The studio never shows a price it does not know. It shows the tokens and, when the provider reports it, the cost.

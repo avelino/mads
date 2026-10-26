@@ -25,13 +25,13 @@
 * [Optimize a live account](guides/optimize.md)
 * [Cost and limits](guides/cost-and-limits.md)
 * [mads studio security](guides/mads-studio-security.md)
+* [mads studio troubleshooting](guides/mads-studio-troubleshooting.md)
 * [Docker](guides/docker.md)
 * [GitHub Actions](guides/github-actions.md)
 
 ## How-to
 
 * [Troubleshooting](howto/troubleshooting.md)
-* [mads studio troubleshooting](guides/mads-studio-troubleshooting.md)
 * [Run with Ollama](howto/ollama-local.md)
 * [Use an OpenAI-compatible server](howto/openai-compatible.md)
 * [Google Ads bulk upload format](howto/google-ads-bulk-upload-format.md)

@@ -46,6 +46,8 @@ pub struct KeyStatus {
     pub source_label: String,
     pub ready: bool,
     pub needs_key: bool,
+    /// A key is stored in the file, so Remove means something.
+    pub saved: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default)]
@@ -96,6 +98,7 @@ impl Secrets {
             source_label: source.label().to_string(),
             ready: matches!(source, Source::Env | Source::File | Source::NotNeeded),
             needs_key: env.is_some(),
+            saved: self.stored(provider).is_some(),
         }
     }
 

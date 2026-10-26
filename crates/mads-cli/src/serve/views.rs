@@ -206,6 +206,9 @@ pub struct ValidationPage {
     pub chrome: Chrome,
     pub title: String,
     pub run: RunDetail,
+    /// The run can take a human revision (success or invalid), so the issue
+    /// paths link into Correct; an unfinished run must be resumed instead.
+    pub fixable: bool,
 }
 
 #[derive(Template)]

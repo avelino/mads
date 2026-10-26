@@ -32,7 +32,11 @@
         <div class="issue-head"><span class="code">{{ group.code }}</span><span class="muted">{{ group.count }} {{ chrome.t("ocorrência(s)") }}</span></div>
         <ul class="issues">
           {% for issue in group.items %}
+          {% if fixable %}
           <li><a class="mono path" href="/runs/{{ run.summary.id }}/edit#{{ issue.path }}" title="{{ chrome.t("abrir o campo em Corrigir") }}">{{ issue.path }}</a><span>{{ issue.message }}</span></li>
+          {% else %}
+          <li><span class="mono path">{{ issue.path }}</span><span>{{ issue.message }}</span></li>
+          {% endif %}
           {% endfor %}
         </ul>
       </div>
@@ -48,7 +52,11 @@
         <div class="issue-head"><span class="code warn-code">{{ group.code }}</span><span class="muted">{{ group.count }} {{ chrome.t("ocorrência(s)") }}</span></div>
         <ul class="issues">
           {% for issue in group.items %}
+          {% if fixable %}
           <li><a class="mono path" href="/runs/{{ run.summary.id }}/edit#{{ issue.path }}" title="{{ chrome.t("abrir o campo em Corrigir") }}">{{ issue.path }}</a><span>{{ issue.message }}</span></li>
+          {% else %}
+          <li><span class="mono path">{{ issue.path }}</span><span>{{ issue.message }}</span></li>
+          {% endif %}
           {% endfor %}
         </ul>
       </div>
@@ -77,7 +85,11 @@
     </div>
     <div class="panel">
       <h3>{{ chrome.t("Como corrigir") }}</h3>
+      {% if fixable %}
       <p class="small">{{ chrome.t("Abra") }} <strong>{{ chrome.t("Corrigir") }}</strong> {{ chrome.t("para editar a conta e reexportar sem chamar a IA. Para mudar o rascunho e gerar outra execução, edite o Rascunho.") }}</p>
+      {% else %}
+      <p class="small">{{ chrome.t("Esta execução não terminou, então ainda não há uma conta completa para corrigir.") }} <a href="/runs/{{ run.summary.id }}">{{ chrome.t("Abra a execução e retome as missões") }}</a>{{ chrome.t("; Corrigir abre quando ela terminar.") }}</p>
+      {% endif %}
     </div>
   </aside>
 </div>

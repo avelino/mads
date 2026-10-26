@@ -68,7 +68,7 @@
           <tbody>
           {% for change in changes %}
           <tr>
-            <td class="mono">{{ change.scope }}</td>
+            <td class="mono">{{ chrome.t(change.scope_kind) }}: {{ change.scope_name }}{% if change.scope_campaign != "" %} · {{ chrome.t("Campanha") }}: {{ change.scope_campaign }}{% endif %}</td>
             <td>{{ chrome.t(change.field) }}</td>
             <td class="break">{% if change.before != "" %}{{ change.before }}{% else %}<span class="muted">—</span>{% endif %}</td>
             <td class="break">{% if change.after != "" %}{{ change.after }}{% else %}<span class="muted">—</span>{% endif %}</td>

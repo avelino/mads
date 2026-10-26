@@ -144,7 +144,7 @@
       {% for report in view.reports %}
         <tr>
           <td class="mono small break">{{ report.file }}</td>
-          <td><span class="chip">{{ report.kind }}</span></td>
+          <td><span class="chip">{{ chrome.t(report.kind) }}</span></td>
           <td class="mono">{{ report.rows }}</td>
           <td class="mono small">{{ report.window }}</td>
         </tr>
@@ -167,7 +167,7 @@
       <h3>{{ chrome.t("Relatórios faltando") }}</h3>
       <p class="small muted">{{ chrome.t("Sem estes relatórios, as decisões de palavra-chave ficam cegas.") }}</p>
       <div class="inline-list">
-        {% for kind in view.missing_reports %}<span class="status status-warn">{{ kind }}</span>{% endfor %}
+        {% for kind in view.missing_reports %}<span class="status status-warn">{{ chrome.t(kind) }}</span>{% endfor %}
       </div>
     </div>
     {% endif %}

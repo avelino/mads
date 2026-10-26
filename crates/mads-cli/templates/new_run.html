@@ -13,10 +13,13 @@
 
 <form class="panel form" data-run-form data-action="/api/projects/{{ project.id }}/runs">
   <div class="form-grid">
-    <label>{{ chrome.t("Provedor") }}
-      <a class="small" href="/settings/connections">{{ chrome.t("configurar em Conexões") }}</a>
+    <label>
+      <span class="label-row">
+        <span>{{ chrome.t("Provedor") }}</span>
+        <a class="small" href="/settings/connections">{{ chrome.t("configurar em Conexões") }}</a>
+      </span>
       <select name="provider" data-provider-select required>
-        <option value="">{{ chrome.t("configure um provedor em Conexões") }}</option>
+        <option value="">{{ chrome.t("escolha um provedor") }}</option>
         {% for provider in providers %}{% if provider.ready %}
         <option value="{{ provider.name }}"{% if provider.name == default_provider %} selected{% endif %} data-default-endpoint="{{ provider.default_endpoint }}">{{ provider.name }}</option>
         {% endif %}{% endfor %}

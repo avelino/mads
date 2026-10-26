@@ -17,7 +17,7 @@
   <div class="edit-list">
     {% for field in run.account.fields %}
     <div class="edit-row">
-      <label for="f{{ loop.index }}">{{ field.label }}</label>
+      <label for="f{{ loop.index }}">{% if field.scope != "" %}<span class="muted">{{ field.scope }} · </span>{% endif %}{{ chrome.t(field.noun) }}{% if field.ordinal != "" %} {{ field.ordinal }}{% endif %}</label>
       <input id="f{{ loop.index }}"
              data-path="{{ field.path }}"
              data-kind="{{ field.kind }}"

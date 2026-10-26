@@ -66,8 +66,11 @@
     }
   }
 
+  // Only a token-shaped fragment is a bootstrap token. A validation path such
+  // as `campaigns[0].rsa.headlines[1]` is longer than the minimum token length
+  // and must stay in the URL for the deep link to the fix field.
   const fragment = location.hash.slice(1);
-  if (fragment.length >= 32) {
+  if (/^[A-Za-z0-9_-]{32,}$/.test(fragment)) {
     login(fragment);
   }
 
@@ -452,7 +455,7 @@
       input.scrollIntoView({ block: "center" });
       input.focus({ preventScroll: true });
       input.classList.add("field-target");
-      setTimeout(() => input.classList.remove("field-target"), 3000);
+      setTimeout(() => input.classList.remove("field-target"), 6000);
     }
   }
 

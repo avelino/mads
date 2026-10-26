@@ -66,7 +66,12 @@ const SNIPPET_VALUES: &str = "Valores do snippet";
 /// One line of the comparison table. An empty side renders as a dash in the page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeRow {
-    pub scope: String,
+    /// "Campanha", "Grupo" or "Grupo de assets": translated by the page.
+    pub scope_kind: String,
+    /// The campaign or group names, never translated.
+    pub scope_name: String,
+    /// The campaign a group belongs to; empty for campaign-level rows.
+    pub scope_campaign: String,
     pub field: String,
     pub before: String,
     pub after: String,
@@ -121,8 +126,17 @@ fn field(
     let before = before.into();
     let after = after.into();
     if before != after {
+        // The scope was built as "[kind]: [name] · Campanha: [campaign]". The
+        // kind is a fixed word and goes through the catalog; the names do not.
+        let (kind, rest) = scope.split_once(": ").unwrap_or(("", scope));
+        let (scope_name, scope_campaign) = match rest.split_once(" · Campanha: ") {
+            Some((name, campaign)) => (name.to_string(), campaign.to_string()),
+            None => (rest.to_string(), String::new()),
+        };
         rows.push(ChangeRow {
-            scope: scope.to_string(),
+            scope_kind: kind.to_string(),
+            scope_name,
+            scope_campaign,
             field: name.to_string(),
             before,
             after,
@@ -794,7 +808,13 @@ mod tests {
         let removed = changes(&before, &Account::default());
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].field, CAMPAIGN);
-        assert_eq!(removed[0].scope, "Campanha: Acme - Marca");
+        assert_eq!(
+            (
+                removed[0].scope_kind.as_str(),
+                removed[0].scope_name.as_str()
+            ),
+            ("Campanha", "Acme - Marca")
+        );
         assert_eq!(removed[0].before, "removida");
         assert!(removed[0].after.is_empty());
 
@@ -814,7 +834,14 @@ mod tests {
         let rows = changes(&before, &after);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].field, GROUP);
-        assert_eq!(rows[0].scope, "Grupo: marca · Campanha: Acme - Marca");
+        assert_eq!(
+            (
+                rows[0].scope_kind.as_str(),
+                rows[0].scope_name.as_str(),
+                rows[0].scope_campaign.as_str()
+            ),
+            ("Grupo", "marca", "Acme - Marca")
+        );
         assert_eq!(rows[0].before, "removido");
         assert!(rows[0].after.is_empty());
 

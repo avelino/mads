@@ -58,6 +58,33 @@ pub fn cookie(lang: &str) -> String {
 }
 
 const EN_TEXT: &[(&str, &str)] = &[
+    ("Termos de busca", "Search terms"),
+    ("Campanhas por dia", "Campaigns by day"),
+    ("Anúncios", "Ads"),
+    ("palavra", "keyword"),
+    ("título", "headline"),
+    ("descrição", "description"),
+    ("negativa", "negative"),
+    ("tema", "search theme"),
+    ("sitelink", "sitelink"),
+    ("callout", "callout"),
+    ("snippet", "snippet"),
+    ("valor", "value"),
+    ("orçamento diário", "daily budget"),
+    ("nome da empresa", "business name"),
+    (
+        "Esta execução não terminou, então ainda não há uma conta completa para corrigir.",
+        "This run did not finish, so there is no complete account to correct yet.",
+    ),
+    (
+        "Abra a execução e retome as missões",
+        "Open the run and resume the missions",
+    ),
+    (
+        "; Corrigir abre quando ela terminar.",
+        "; Correct opens when it finishes.",
+    ),
+    ("escolha um provedor", "choose a provider"),
     (
         "Como exportar os relatórios do Google Ads",
         "How to export the Google Ads reports",

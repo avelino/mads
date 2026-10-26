@@ -52,7 +52,7 @@
           <form class="key-form" data-key-form data-provider="{{ key.provider }}">
             <input name="value" type="password" autocomplete="off" spellcheck="false" placeholder="{{ chrome.t("cole a chave") }}">
             <button class="button" type="submit">{{ chrome.t("Salvar") }}</button>
-            <button class="button danger" type="button" data-key-delete="{{ key.provider }}">{{ chrome.t("Remover") }}</button>
+            {% if key.saved %}<button class="button danger" type="button" data-key-delete="{{ key.provider }}">{{ chrome.t("Remover") }}</button>{% endif %}
             <span class="small error" data-key-error role="alert"></span>
           </form>
           {% else %}

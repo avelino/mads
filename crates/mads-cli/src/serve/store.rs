@@ -182,7 +182,12 @@ pub struct CampaignRow {
 #[derive(Debug, Clone)]
 pub struct EditField {
     pub path: String,
-    pub label: String,
+    /// "Campaign / Group" or "Brand kit": user names, never translated.
+    pub scope: String,
+    /// The field noun ("palavra"), translated by the page.
+    pub noun: String,
+    /// The 1-based position inside a list, when the field is one of many.
+    pub ordinal: String,
     pub value: String,
     pub kind: String,
     pub limit: usize,
@@ -616,7 +621,7 @@ fn last_urls(events: &[EventEnvelope]) -> Vec<UrlRow> {
     rows.into_iter()
         .map(|(url, (status, ok))| UrlRow {
             url,
-            status: status.map_or("sem resposta".into(), |s| s.to_string()),
+            status: status.map_or("no response".into(), |s| s.to_string()),
             ok,
         })
         .collect()
@@ -658,15 +663,15 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
             "run".to_string(),
             "run_started".to_string(),
             format!(
-                "início da execução {run_id} ({provider}, {})",
-                model.as_deref().unwrap_or("modelo padrão")
+                "run started {run_id} ({provider}, {})",
+                model.as_deref().unwrap_or("default model")
             ),
             "muted",
         ),
         Event::MissionStarted { mission, attempt } => (
             mission.clone(),
             "mission_started".to_string(),
-            format!("início da missão (tentativa {attempt})"),
+            format!("mission started (attempt {attempt})"),
             "running",
         ),
         Event::AgentText { mission, text } => (
@@ -693,7 +698,7 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
         } => (
             mission.clone(),
             "tool_finished".to_string(),
-            format!("< {} {tool} {summary}", if *ok { "ok" } else { "erro" }),
+            format!("< {} {tool} {summary}", if *ok { "ok" } else { "error" }),
             if *ok { "ok" } else { "error" },
         ),
         Event::Usage {
@@ -705,7 +710,7 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
             mission.clone(),
             "usage".to_string(),
             format!(
-                "{input_tokens} in, {output_tokens} out, custo {}",
+                "{input_tokens} in, {output_tokens} out, cost {}",
                 cost_usd.map_or("n/a".into(), |c| format!("${c:.4}"))
             ),
             "muted",
@@ -718,8 +723,8 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
             mission.clone(),
             "mission_finished".to_string(),
             match reason {
-                Some(reason) => format!("falhou: {reason}"),
-                None => "concluída".into(),
+                Some(reason) => format!("failed: {reason}"),
+                None => "finished".into(),
             },
             if *ok { "ok" } else { "error" },
         ),
@@ -732,7 +737,7 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
         Event::Validation { errors, warnings } => (
             "run".into(),
             "validation".to_string(),
-            format!("{} erros, {} avisos", errors.len(), warnings.len()),
+            format!("{} errors, {} warnings", errors.len(), warnings.len()),
             if errors.is_empty() { "ok" } else { "error" },
         ),
         Event::UrlChecked { url, status, ok } => (
@@ -740,7 +745,7 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
             "url_checked".to_string(),
             format!(
                 "{url} {}",
-                status.map_or("sem resposta".into(), |s| s.to_string())
+                status.map_or("no response".into(), |s| s.to_string())
             ),
             if *ok { "ok" } else { "error" },
         ),
@@ -754,7 +759,7 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
             "run".into(),
             "run_paused".to_string(),
             format!(
-                "plano pronto, campanhas pendentes: {} in, {} out",
+                "plan ready, campaigns pending: {} in, {} out",
                 totals.input_tokens, totals.output_tokens
             ),
             "warn",
@@ -767,7 +772,7 @@ fn event_row(envelope: &EventEnvelope) -> EventRow {
             "run".into(),
             "run_finished".to_string(),
             format!(
-                "fim (exit {exit_code}): {} in, {} out, {} missões",
+                "end (exit {exit_code}): {} in, {} out, {} missions",
                 totals.input_tokens, totals.output_tokens, totals.missions
             ),
             if *ok { "ok" } else { "error" },
@@ -1320,13 +1325,34 @@ fn account_view(account: &Account, input: &Input, run_id: &str) -> AccountView {
 }
 
 fn edit_field(path: String, label: String, value: &str, kind: &str, limit: usize) -> EditField {
+    // The label is "Scope · noun N". The scope carries user names and stays as
+    // typed; the noun goes through the catalog and the number follows it, so
+    // the English page does not show Portuguese labels.
+    let (scope, tail) = match label.rsplit_once(" · ") {
+        Some((scope, tail)) => (scope.to_string(), tail.to_string()),
+        None => (String::new(), label),
+    };
+    let (noun, ordinal) = split_ordinal(&tail);
     EditField {
         path,
-        label,
+        scope,
+        noun,
+        ordinal,
         value: value.to_string(),
         kind: kind.to_string(),
         limit,
     }
+}
+
+/// `palavra 3` gives `("palavra", "3")`; `CPC` gives `("CPC", "")`.
+fn split_ordinal(tail: &str) -> (String, String) {
+    if let Some((head, last)) = tail.rsplit_once(' ')
+        && !last.is_empty()
+        && last.chars().all(|c| c.is_ascii_digit())
+    {
+        return (head.to_string(), last.to_string());
+    }
+    (tail.to_string(), String::new())
 }
 
 fn text_row(text: &str, limit: usize) -> TextRow {

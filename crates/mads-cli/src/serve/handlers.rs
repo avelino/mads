@@ -149,10 +149,12 @@ pub async fn validation_page(
     let chrome = Chrome::new(identity.csrf.clone(), "validation", &identity.lang)
         .with_project(&project_name)
         .with_run(&run.summary.id);
+    let fixable = matches!(run.summary.status.as_str(), "success" | "invalid");
     Html(views::ValidationPage {
         chrome,
         title: format!("{} {}", tt(&identity.lang, "Validação"), run.summary.id),
         run,
+        fixable,
     })
     .into_response()
 }

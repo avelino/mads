@@ -309,6 +309,8 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 .issues li:first-child { border-top: 0; }
 .path { color: var(--muted); overflow-wrap: anywhere; }
+.issues a.path { text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+.issues a.path:hover { color: var(--ink); }
 
 .table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .table th, .table td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -487,6 +489,9 @@ input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visibl
 .form { padding: 20px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 18px; }
 .form-grid label { display: grid; gap: 6px; align-content: start; font-size: 13px; color: var(--muted); }
+.label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.label-row a { text-decoration: none; }
+.label-row a:hover { text-decoration: underline; }
 .form-grid input, .form-grid select {
   min-height: 38px;
   padding: 7px 9px;
@@ -522,8 +527,9 @@ table[data-sortable] thead th[data-dir="desc"]::after { content: " ▼"; }
 .notice.warn { border-color: color-mix(in srgb, var(--warn) 30%, white); background: color-mix(in srgb, var(--warn) 5%, white); }
 
 
-.key-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.key-form input { min-width: 220px; min-height: 34px; }
+.key-form { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
+.key-form input { flex: 1 1 auto; min-width: 140px; min-height: 34px; }
+.key-form .error { flex-basis: 100%; }
 
 
 .form-grid .full { grid-column: 1 / -1; }

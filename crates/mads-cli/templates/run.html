@@ -25,8 +25,8 @@
     {% if run.summary.status == "success" || run.summary.status == "invalid" %}
     <a class="button" href="/runs/{{ run.summary.id }}/optimize">{{ chrome.t("Otimizar") }}</a>
     {% endif %}
+    {% if run.summary.status == "success" || run.summary.status == "invalid" %}
     <a class="button" href="/runs/{{ run.summary.id }}/edit">{{ chrome.t("Corrigir") }}</a>
-    {% if run.summary.status != "planned" && run.summary.status != "prepared" %}
     <button class="button" type="button" data-run-action="export" data-run="{{ run.summary.id }}">{{ chrome.t("Reexportar sem IA") }}</button>
     {% endif %}
     {% if run.has_report %}<a class="button" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}

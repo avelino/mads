@@ -27,15 +27,15 @@ pub fn lang_of(headers: &HeaderMap) -> String {
             return PT_BR.into();
         }
     }
-    // The session cookie wins, the browser preference decides otherwise. Only
-    // exact `en` matches select English; anything else stays pt-BR.
+    // English is the default. Only an explicit pt-BR preference, cookie or
+    // browser, switches the interface to Portuguese.
     if let Some(value) = headers.get(axum::http::header::ACCEPT_LANGUAGE)
         && let Ok(value) = value.to_str()
-        && parse_accept_language(value) == EN
+        && parse_accept_language(value) == PT_BR
     {
-        return EN.into();
+        return PT_BR.into();
     }
-    PT_BR.into()
+    EN.into()
 }
 
 /// The highest-preference `en` or `pt-BR` tag in an `Accept-Language` header,
@@ -58,6 +58,54 @@ pub fn cookie(lang: &str) -> String {
 }
 
 const EN_TEXT: &[(&str, &str)] = &[
+    ("configurar em Conexões", "configure in Connections"),
+    (
+        "Nenhum provedor configurado ainda.",
+        "No provider configured yet.",
+    ),
+    (
+        "Abra as Conexões para salvar uma chave de API e volte aqui.",
+        "Open Connections to save an API key, then come back.",
+    ),
+    (
+        "a chave foi rejeitada pelo provedor; confira em Conexões",
+        "the key was rejected by the provider; check Connections",
+    ),
+    // Diff table field labels (crates/mads-cli/src/serve/diff.rs).
+    ("CPC padrão", "Default CPC"),
+    ("Caminho 1", "Path 1"),
+    ("Caminho 2", "Path 2"),
+    ("Descrição adicionada", "Description added"),
+    ("Descrição removida", "Description removed"),
+    ("Estratégia de lance", "Bid strategy"),
+    ("Extensão de chamada adicionada", "Callout added"),
+    ("Extensão de chamada removida", "Callout removed"),
+    ("Grupo", "Group"),
+    ("Grupo de assets", "Asset group"),
+    ("Intenção", "Intent"),
+    ("Justificativa", "Rationale"),
+    ("Justificativa do CPC", "CPC rationale"),
+    ("Link do site adicionado", "Sitelink added"),
+    ("Link do site removido", "Sitelink removed"),
+    ("Negativa adicionada", "Negative added"),
+    ("Negativa removida", "Negative removed"),
+    ("Nome da empresa", "Business name"),
+    ("Palavra-chave adicionada", "Keyword added"),
+    ("Palavra-chave removida", "Keyword removed"),
+    ("Snippet adicionado", "Snippet added"),
+    ("Snippet removido", "Snippet removed"),
+    ("Tema de busca adicionada", "Search theme added"),
+    ("Tema de busca adicionado", "Search theme added"),
+    ("Tema de busca removida", "Search theme removed"),
+    ("Tema de busca removido", "Search theme removed"),
+    ("Título adicionado", "Headline added"),
+    ("Título longo adicionado", "Long headline added"),
+    ("Título longo removido", "Long headline removed"),
+    ("Título removido", "Headline removed"),
+    ("URL do link do site", "Sitelink URL"),
+    ("URL final", "Final URL"),
+    ("Valores do snippet", "Snippet values"),
+    // Provider status strings (Source::label and ProviderStatus::describe).
     ("Job", "Job"),
     ("Revisar otimização", "Review optimization"),
     ("Endpoint", "Endpoint"),

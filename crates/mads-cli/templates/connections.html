@@ -18,7 +18,7 @@
       <tr>
         <td class="mono">{{ provider.name }}</td>
         <td><span class="chip">{{ provider.kind }}</span></td>
-        <td><span class="status {% if provider.ready %}status-ok{% else %}status-warn{% endif %}">{{ provider.status }}</span></td>
+        <td><span class="status {% if provider.ready %}status-ok{% else %}status-warn{% endif %}">{{ chrome.t(provider.status) }}</span></td>
       </tr>
       {% endfor %}
       </tbody>
@@ -31,7 +31,7 @@
       {% for provider in image_providers %}
       <tr>
         <td class="mono">{{ provider.name }}</td>
-        <td><span class="status {% if provider.ready %}status-ok{% else %}status-warn{% endif %}">{{ provider.status }}</span></td>
+        <td><span class="status {% if provider.ready %}status-ok{% else %}status-warn{% endif %}">{{ chrome.t(provider.status) }}</span></td>
       </tr>
       {% endfor %}
       </tbody>

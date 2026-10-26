@@ -205,9 +205,39 @@ fn get(uri: &str, bearer: bool) -> Request<Body> {
 async fn bootstrap_is_served_without_a_session() {
     let (_temp, state) = fixture();
     let response = send(&state, get("/", false)).await;
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    // The sign-in page is a page, not an API error.
+    assert_eq!(response.status(), StatusCode::OK);
     let text = body_text(response).await;
-    assert!(text.contains("Abra o estúdio"));
+    assert!(text.contains("Open the studio"));
+}
+
+#[tokio::test]
+async fn a_planned_run_hides_the_actions_a_partial_run_cannot_take() {
+    let (_temp, state) = fixture();
+    let edit = json!({"edits": [{"path": "campaigns[0].rationale", "value": "editado por voce"}]});
+    let response = send(
+        &state,
+        post_json(&format!("/api/runs/{RUN_ID}/revisions"), edit, true),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let text = body_text(response).await;
+    let job_id = serde_json::from_str::<serde_json::Value>(&text).unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let revision_id = serde_json::from_str::<serde_json::Value>(&text).unwrap()["run_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let _ = job_id;
+    // The finished fixture run offers both actions.
+    let page = body_text(send(&state, get(&format!("/runs/{RUN_ID}"), true)).await).await;
+    assert!(page.contains("Correct"));
+    assert!(page.contains("Re-export without AI"));
+    // The fresh revision (status incomplete) hides them.
+    let page = body_text(send(&state, get(&format!("/runs/{revision_id}"), true)).await).await;
+    assert!(!page.contains("Re-export without AI"), "{page}");
 }
 
 #[tokio::test]
@@ -415,6 +445,9 @@ async fn the_models_endpoint_reports_cli_and_unknown_providers() {
 
 #[tokio::test]
 async fn the_models_endpoint_reads_the_openai_compat_shape() {
+    // The stub lives on loopback, which the endpoint guard refuses by default.
+    // Safety: test process; this is the only test touching this variable.
+    unsafe { std::env::set_var("MADS_ALLOW_PRIVATE_HOSTS", "1") };
     // A stub provider on loopback answers the same JSON shape OpenAI uses.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -1170,7 +1203,7 @@ async fn the_performance_and_diff_pages_explain_non_optimized_runs() {
     let response = send(&state, get(&format!("/runs/{RUN_ID}/diff"), true)).await;
     assert_eq!(response.status(), StatusCode::OK);
     let page = body_text(response).await;
-    assert!(page.contains("revisão") || page.contains("Alterações"));
+    assert!(page.contains("revision") || page.contains("Changes"));
 }
 
 #[tokio::test]

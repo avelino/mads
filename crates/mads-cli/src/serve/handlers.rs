@@ -1261,6 +1261,18 @@ pub async fn api_models(
     if !known {
         return api_not_found();
     }
+    // Every request here becomes one call to the provider's API with the
+    // operator's key: keep a tab or a script from hammering it.
+    if !state
+        .limit
+        .allow("provider-models", 30, std::time::Duration::from_secs(60))
+    {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": {"code": "RATE_LIMITED", "message": "muitas consultas de modelos; aguarde um minuto"}})),
+        )
+            .into_response();
+    }
     let key = crate::serve::secrets::env_for(&name)
         .and_then(|var| state.secrets.resolved().get(var).cloned());
     // The endpoint falls back to the server's own variable, then the user edits
@@ -1701,14 +1713,13 @@ pub async fn not_found(State(state): State<AppState>, headers: HeaderMap) -> Res
 }
 
 fn bootstrap(headers: &HeaderMap) -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        Html(views::BootstrapPage {
-            title: "mads studio".into(),
-            lang: crate::serve::i18n::lang_of(headers),
-        }),
-    )
-        .into_response()
+    // The sign-in page is a page, not an API error: a 200 keeps the browser
+    // console clean on first visit.
+    Html(views::BootstrapPage {
+        title: "mads studio".into(),
+        lang: crate::serve::i18n::lang_of(headers),
+    })
+    .into_response()
 }
 
 fn not_found_page(identity: &Identity, message: &str) -> Response {

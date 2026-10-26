@@ -47,6 +47,7 @@ pub async fn list_models(
                 .map(str::trim)
                 .filter(|base| !base.is_empty())
                 .ok_or("the endpoint (base URL) is missing for openai-compat")?;
+            check_base_url(base)?;
             bearer_get(
                 format!("{}/models", base.trim_end_matches('/')),
                 key.ok_or("MADS_API_KEY is missing")?,
@@ -57,6 +58,7 @@ pub async fn list_models(
                 .map(str::trim)
                 .filter(|base| !base.is_empty())
                 .unwrap_or("http://127.0.0.1:11434");
+            check_base_url(base)?;
             reqwest::Client::new().get(format!("{}/api/tags", base.trim_end_matches('/')))
         }
         p if p.ends_with("-cli") => {
@@ -101,6 +103,50 @@ pub fn default_endpoint(provider: &str) -> Option<&'static str> {
         "ollama" => Some("http://127.0.0.1:11434"),
         _ => None,
     }
+}
+
+/// The endpoint URLs are caller supplied, so the studio must not become a
+/// proxy into the network it runs on: http(s) only, and private, loopback and
+/// link-local addresses are refused unless `MADS_ALLOW_PRIVATE_HOSTS` is set
+/// (the same escape hatch the site fetcher honors). A public hostname that
+/// resolves private is still possible; the single-operator threat model
+/// accepts that.
+fn check_base_url(base: &str) -> Result<(), String> {
+    let url =
+        reqwest::Url::parse(base).map_err(|_| "the endpoint must be a valid URL".to_string())?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("the endpoint must be an http(s) URL".into());
+    }
+    let host = url.host_str().unwrap_or_default().trim_end_matches('.');
+    if host.is_empty() {
+        return Err("the endpoint has no host".into());
+    }
+    if std::env::var_os("MADS_ALLOW_PRIVATE_HOSTS").is_some_and(|v| !v.is_empty()) {
+        return Ok(());
+    }
+    let blocked = host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+        || host.parse::<std::net::IpAddr>().is_ok_and(|ip| match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified()
+                    || v4.is_broadcast()
+            }
+            std::net::IpAddr::V6(v6) => {
+                v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local()
+            }
+        });
+    if blocked {
+        return Err(
+            "the endpoint cannot point to a private address; set MADS_ALLOW_PRIVATE_HOSTS to allow it"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 fn bearer_get(url: impl Into<String>, key: &str) -> reqwest::RequestBuilder {
@@ -168,6 +214,18 @@ mod tests {
         assert_eq!(default_endpoint("nope"), None);
     }
 
+    #[test]
+    fn the_endpoint_guard_refuses_private_targets_and_bad_schemes() {
+        assert!(check_base_url("http://localhost:8000/v1").is_err());
+        assert!(check_base_url("http://127.0.0.1:8000/v1").is_err());
+        assert!(check_base_url("http://10.0.0.5:8000/v1").is_err());
+        assert!(check_base_url("http://192.168.1.10/v1").is_err());
+        assert!(check_base_url("file:///etc/passwd").is_err());
+        assert!(check_base_url("not a url").is_err());
+        // Public endpoints pass; the request itself is what would fail offline.
+        assert!(check_base_url("https://api.example.com/v1").is_ok());
+    }
+
     #[tokio::test]
     async fn cli_providers_have_no_model_list() {
         let error = list_models("claude-cli", None, None).await.unwrap_err();
@@ -176,7 +234,9 @@ mod tests {
 
     #[tokio::test]
     async fn openai_compat_needs_an_endpoint_and_a_key() {
-        let error = list_models("openai-compat", None, Some("http://localhost:8000/v1"))
+        // The endpoint guard runs before the key check, so the URL must be a
+        // public one for the key error to surface.
+        let error = list_models("openai-compat", None, Some("https://api.example.com/v1"))
             .await
             .unwrap_err();
         assert!(error.contains("MADS_API_KEY"), "{error}");

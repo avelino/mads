@@ -169,7 +169,7 @@ GET    /api/runs/:id/stream
 GET    /api/runs/:id/files/*path
 ```
 
-The HTML pages are not an API contract. The JSON fields follow the workspace types and can change before 1.0.
+The HTML pages are not an API contract. The JSON fields follow the workspace types and can change before 1.0. Scripts should key on the machine fields: `state` (not `state_label`), `status`, `code`, `severity`, `path`. The `*_label`, `*_text` and `source` fields are display strings and follow the server language.
 
 Three more rules apply to mutations:
 

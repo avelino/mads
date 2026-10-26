@@ -69,7 +69,7 @@
           {% for change in changes %}
           <tr>
             <td class="mono">{{ change.scope }}</td>
-            <td>{{ change.field }}</td>
+            <td>{{ chrome.t(change.field) }}</td>
             <td class="break">{% if change.before != "" %}{{ change.before }}{% else %}<span class="muted">—</span>{% endif %}</td>
             <td class="break">{% if change.after != "" %}{{ change.after }}{% else %}<span class="muted">—</span>{% endif %}</td>
           </tr>

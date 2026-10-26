@@ -14,6 +14,7 @@
 <form class="panel form" data-run-form data-action="/api/projects/{{ project.id }}/runs">
   <div class="form-grid">
     <label>{{ chrome.t("Provedor") }}
+      <a class="small" href="/settings/connections">{{ chrome.t("configurar em Conexões") }}</a>
       <select name="provider" data-provider-select required>
         <option value="">{{ chrome.t("configure um provedor em Conexões") }}</option>
         {% for provider in providers %}{% if provider.ready %}

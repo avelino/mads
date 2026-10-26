@@ -500,7 +500,13 @@
         if (hint) hint.textContent = options.length ? "" : tr("Nada mudou.");
       } catch (error) {
         datalist.replaceChildren();
-        if (hint) hint.textContent = error.message;
+        if (hint) {
+          const rejected = /HTTP 40[13]/.test(error.message);
+          hint.textContent = rejected
+            ? tr("a chave foi rejeitada pelo provedor; confira em Conexões")
+            : error.message;
+          hint.title = error.message;
+        }
       }
     };
     select.addEventListener("change", load);

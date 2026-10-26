@@ -26,6 +26,7 @@
       <input name="currency" required maxlength="3" value="BRL">
     </label>
     <label>{{ chrome.t("Provedor") }}
+      <a class="small" href="/settings/connections">{{ chrome.t("configurar em Conexões") }}</a>
       <select name="provider" data-provider-select required>
         <option value="">{{ chrome.t("configure um provedor em Conexões") }}</option>
         {% for provider in providers %}{% if provider.ready %}

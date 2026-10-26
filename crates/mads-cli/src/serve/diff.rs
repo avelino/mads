@@ -581,7 +581,11 @@ async fn page(
     let chrome = Chrome::new(identity.csrf.clone(), "diff", &identity.lang)
         .with_project(&project_name)
         .with_run(&run.summary.id);
-    let title = format!("Alterações {}", run.summary.id);
+    let title = format!(
+        "{} {}",
+        crate::serve::i18n::t(&identity.lang, "Alterações"),
+        run.summary.id
+    );
     let parent_id = run.summary.parent.clone();
 
     let mut not_revision = false;

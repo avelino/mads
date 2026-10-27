@@ -91,3 +91,9 @@ error: no Google Ads report in perf: export search terms, keywords or campaigns 
 ```
 
 The folder has no CSV, or none of them is a report mads knows. The message lists each file with the reason. Exit code `1`. In both cases no run directory is created.
+
+## In the studio
+
+`mads serve` has an **Optimize** page for a finished run. It uploads the same report CSVs, calls `optimize::prepare`, shows the performance digest before spending tokens and then starts the same missions.
+
+The base run is not changed. The optimized run records `parent_run` in `run.json`. Import the result only with Google Ads Editor. See [mads studio](mads-studio.md#optimize).

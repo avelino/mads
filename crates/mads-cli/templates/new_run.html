@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução · nova") }}</p>
+    <h1>{{ chrome.t("Gerar conta") }}</h1>
+    <p class="lede">{{ project.name }} · {{ project.daily }} {{ project.currency }}{{ chrome.t("/dia") }}. {{ chrome.t("O rascunho vira um snapshot em") }} <span class="mono">out/</span>.</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/projects/{{ project.id }}">{{ chrome.t("Voltar") }}</a>
+  </div>
+</section>
+
+<form class="panel form" data-run-form data-action="/api/projects/{{ project.id }}/runs">
+  <div class="form-grid">
+    <label>
+      <span class="label-row">
+        <span>{{ chrome.t("Provedor") }}</span>
+        <a class="small" href="/settings/connections">{{ chrome.t("configurar em Conexões") }}</a>
+      </span>
+      <select name="provider" data-provider-select required>
+        <option value="">{{ chrome.t("escolha um provedor") }}</option>
+        {% for provider in providers %}{% if provider.ready %}
+        <option value="{{ provider.name }}"{% if provider.name == default_provider %} selected{% endif %} data-default-endpoint="{{ provider.default_endpoint }}">{{ provider.name }}</option>
+        {% endif %}{% endfor %}
+      </select>
+    </label>
+    <label>{{ chrome.t("Modelo") }}
+      <input name="model" value="{{ default_model }}" list="model-options" data-model-input
+             placeholder="{{ chrome.t("carrega do provedor, ou digite um id") }}">
+      <datalist id="model-options"></datalist>
+      <span class="muted small" data-model-hint></span>
+    </label>
+    <label>{{ chrome.t("Modelo do plano (opcional)") }}
+      <input name="plan_model" list="model-options" placeholder="{{ chrome.t("um modelo mais forte só para o plano") }}">
+    </label>
+    <label>{{ chrome.t("Endpoint") }}
+      <input name="base_url" value="{{ default_base_url }}" placeholder="http://localhost:8000/v1" data-base-url>
+      <span class="muted small">{{ chrome.t("o default do provedor é preenchido e você pode editar; o openai-compat usa este endpoint") }}</span>
+    </label>
+    <label>{{ chrome.t("Provedor de imagens") }}
+      <select name="image_provider">
+        <option value="auto">auto</option>
+        <option value="none">none</option>
+        <option value="gemini">gemini</option>
+        <option value="openai">openai</option>
+      </select>
+    </label>
+    <label>{{ chrome.t("Modelo de imagem (opcional)") }}
+      <input name="image_model" placeholder="{{ chrome.t("padrão do provedor") }}">
+    </label>
+    <label>{{ chrome.t("Arquivos") }}
+      <select name="layout">
+        <option value="bulk">bulk ({{ chrome.t("arquivos 1–5 + Editor") }})</option>
+        <option value="drive-folders">drive-folders ({{ chrome.t("pacote de automação") }})</option>
+      </select>
+    </label>
+    <label>{{ chrome.t("Missões em paralelo") }}
+      <input name="parallel" type="number" min="1" value="4">
+    </label>
+    <label>{{ chrome.t("Turnos por missão") }}
+      <input name="max_turns" type="number" min="1" value="40">
+    </label>
+    <label>{{ chrome.t("Tempo por missão") }}
+      <input name="timeout" value="15m" placeholder="15m">
+    </label>
+    <label>{{ chrome.t("Teto de tokens") }}
+      <input name="max_tokens" type="number" min="0" value="4000000">
+    </label>
+    <label>{{ chrome.t("Retentativas") }}
+      <input name="retries" type="number" min="0" value="1">
+    </label>
+    <label>{{ chrome.t("Máximo de grupos") }}
+      <input name="max_ad_groups" type="number" min="1" value="50">
+    </label>
+    <label>{{ chrome.t("Máximo de imagens") }}
+      <input name="max_images" type="number" min="0" value="40">
+    </label>
+  </div>
+
+  <div class="check-row">
+    <label class="check"><input type="checkbox" name="plan_review" checked> {{ chrome.t("Revisar o plano antes de gastar nas campanhas") }}</label>
+    <label class="check"><input type="checkbox" name="skip_url_check"> {{ chrome.t("Pular a verificação de URL") }}</label>
+  </div>
+
+  <div class="notice warn">
+    <strong>{{ chrome.t("Isto gasta tokens do seu provedor.") }}</strong>
+    {{ chrome.t("O servidor não conhece o preço. Você acompanha o teto e pode parar a execução.") }}
+  </div>
+
+  <div class="form-actions">
+    <button class="button primary" type="submit">{{ chrome.t("Gerar") }}</button>
+    <a class="button" href="/projects/{{ project.id }}">{{ chrome.t("Cancelar") }}</a>
+    <span class="form-error error" data-form-error role="alert"></span>
+  </div>
+</form>
+{% endblock %}

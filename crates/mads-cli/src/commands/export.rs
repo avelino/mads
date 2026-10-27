@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use mads_core::{events::EventSink, run::export_run};
+use mads_core::{agent::RunControl, events::EventSink, run::export_run};
 use mads_providers::WebClient;
 
 use crate::{
@@ -20,6 +20,7 @@ pub async fn run(args: ExportArgs, format: Format) -> anyhow::Result<i32> {
         args.max_ad_groups,
         args.layout.map(Layout::core),
         &events,
+        RunControl::default(),
     )
     .await;
     drop(events);

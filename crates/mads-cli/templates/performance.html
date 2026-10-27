@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução · performance") }}</p>
+    <h1>{{ chrome.t("Performance") }}</h1>
+    <p class="lede">
+      {{ run.summary.id }} · {{ run.project_name }}
+      {% if view.has_window %}<span class="mono"> · {{ view.window_start }} → {{ view.window_end }}</span>{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/runs/{{ run.summary.id }}/optimize">{{ chrome.t("Otimizar") }}</a>
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  </div>
+</section>
+
+<nav class="tabs" aria-label="{{ chrome.t("Execução") }}">
+  <a class="tab" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+  <a class="tab is-active" href="/runs/{{ run.summary.id }}/performance">{{ chrome.t("Performance") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Validação") }}</a>
+  {% if run.has_report %}<a class="tab" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+  <a class="tab" href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/events">{{ chrome.t("Eventos") }}</a>
+</nav>
+
+{% if !view.has_performance %}
+<div class="notice warn">
+  <strong>{{ chrome.t("Esta execução não é uma otimização.") }}</strong>
+  <p>
+    {{ chrome.t("O workspace não guarda dados de performance.") }}
+    {{ chrome.t("Rode") }} <span class="mono">mads optimize</span>
+    {{ chrome.t("com os relatórios do Google Ads para ler a conta que está no ar.") }}
+  </p>
+</div>
+{% else %}
+
+<section class="stats">
+  <div class="stat"><span class="stat-label">{{ chrome.t("Dias na janela") }}</span><span class="stat-value">{{ view.window_days }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Relatórios") }}</span><span class="stat-value">{{ view.reports.len() }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Campanhas") }}</span><span class="stat-value">{{ view.campaigns.len() }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Com sinal") }}</span><span class="stat-value{% if view.flagged > 0 %} danger-text{% endif %}">{{ view.flagged }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Relatórios faltando") }}</span><span class="stat-value">{{ view.missing_reports.len() }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Orçamento ocioso/dia") }}</span><span class="stat-value small-value">{{ view.idle_budget }}</span></div>
+</section>
+
+{% if view.mixed_windows %}
+<div class="notice warn">
+  <strong>{{ chrome.t("Janelas diferentes.") }}</strong>
+  <p>{{ chrome.t("Os relatórios cobrem períodos diferentes: os totais de um não fecham com as linhas do outro.") }}</p>
+</div>
+{% endif %}
+
+<div class="split">
+  <div>
+    <div class="section-head">
+      <h2>{{ chrome.t("Campanhas") }}</h2>
+      <span class="muted">{{ view.campaigns.len() }} {{ chrome.t("lida(s)") }}</span>
+    </div>
+    {% if view.campaigns.len() == 0 %}
+    <div class="empty small-empty"><p>{{ chrome.t("Nenhuma campanha nos relatórios.") }}</p></div>
+    {% else %}
+    <table class="table" data-sortable>
+      <thead>
+        <tr>
+          <th>{{ chrome.t("Campanha") }}</th>
+          <th>{{ chrome.t("Status") }}</th>
+          <th>{{ chrome.t("Impressões / cliques") }}</th>
+          <th>CTR</th>
+          <th>{{ chrome.t("Custo") }}{% if view.currency != "" %} <span class="muted">{{ view.currency }}</span>{% endif %}</th>
+          <th>{{ chrome.t("Conversões") }}</th>
+          <th>{{ chrome.t("Custo/conv.") }}</th>
+          <th>{{ chrome.t("Orçamento") }}</th>
+          <th>{{ chrome.t("Dias") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for campaign in view.campaigns %}
+        <tr>
+          <td>
+            <span class="mono strong">{{ campaign.name }}</span>
+            {% if campaign.has_status_reasons %}<div class="muted small break">{{ campaign.status_reasons }}</div>{% endif %}
+            {% if campaign.ad_groups.len() > 0 %}
+            <div class="meta-row">
+              {% for group in campaign.ad_groups %}<span class="chip mono">{{ group }}</span>{% endfor %}
+            </div>
+            {% endif %}
+          </td>
+          <td>
+            <span class="status status-{{ campaign.status_class }}">{{ campaign.live_status }}</span>
+            {% if campaign.flags.len() > 0 %}
+            <div class="meta-row">
+              {% for flag in campaign.flags %}<span class="chip" data-flag="{{ flag }}">{{ chrome.t(flag) }}</span>{% endfor %}
+            </div>
+            {% endif %}
+          </td>
+          <td class="mono">{{ campaign.impressions }} <span class="muted">/ {{ campaign.clicks }}</span></td>
+          <td class="mono">{{ campaign.ctr }}</td>
+          <td>
+            <div class="mono">{{ campaign.cost }}</div>
+            <div class="muted small">CPC {{ campaign.avg_cpc }}</div>
+          </td>
+          <td>
+            <div class="mono">{{ campaign.conversions }}</div>
+            <div class="muted small">{{ campaign.conversion_value }}</div>
+          </td>
+          <td class="mono">{{ campaign.cost_per_conversion }}</td>
+          <td>
+            <div class="mono">{{ campaign.budget }}</div>
+            <div class="muted small">{{ campaign.budget_use }} {{ chrome.t("usado") }}</div>
+            <div class="muted small">{{ chrome.t("perdido") }} {{ campaign.lost_to_budget }} / {{ campaign.lost_to_rank }}</div>
+          </td>
+          <td>
+            <div class="mono">{{ campaign.days_running }}</div>
+            <div class="muted small">{{ campaign.avg_daily_cost }}/{{ chrome.t("dia") }}</div>
+            {% if campaign.has_hidden_terms_cost %}
+            <div class="muted small">{{ chrome.t("termos ocultos") }} {{ campaign.hidden_terms_cost }}</div>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <div class="section-head">
+      <h2>{{ chrome.t("Dados lidos") }}</h2>
+      <span class="muted">{{ view.reports.len() }} {{ chrome.t("arquivo(s)") }}</span>
+    </div>
+    {% if view.reports.len() == 0 %}
+    <p class="muted">{{ chrome.t("Nenhum relatório lido nesta otimização.") }}</p>
+    {% else %}
+    <table class="table compact">
+      <thead>
+        <tr>
+          <th>{{ chrome.t("Arquivo") }}</th>
+          <th>{{ chrome.t("Tipo") }}</th>
+          <th>{{ chrome.t("Linhas") }}</th>
+          <th>{{ chrome.t("Janela") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for report in view.reports %}
+        <tr>
+          <td class="mono small break">{{ report.file }}</td>
+          <td><span class="chip">{{ chrome.t(report.kind) }}</span></td>
+          <td class="mono">{{ report.rows }}</td>
+          <td class="mono small">{{ report.window }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% if view.unknown_files.len() > 0 %}
+    <div class="panel">
+      <h3>{{ chrome.t("Arquivos ignorados") }}</h3>
+      <ul class="links">
+        {% for file in view.unknown_files %}<li class="small break">{{ file }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if view.missing_reports.len() > 0 %}
+    <div class="panel">
+      <h3>{{ chrome.t("Relatórios faltando") }}</h3>
+      <p class="small muted">{{ chrome.t("Sem estes relatórios, as decisões de palavra-chave ficam cegas.") }}</p>
+      <div class="inline-list">
+        {% for kind in view.missing_reports %}<span class="status status-warn">{{ chrome.t(kind) }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if view.ignored_campaigns.len() > 0 %}
+    <div class="panel">
+      <h3>{{ chrome.t("Campanhas ignoradas") }}</h3>
+      <p class="small muted">{{ chrome.t("Estão nos relatórios, mas não nesta execução.") }}</p>
+      <div class="inline-list">
+        {% for name in view.ignored_campaigns %}<span class="chip mono">{{ name }}</span>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <aside class="side">
+    <div class="panel">
+      <h3>{{ chrome.t("Janela e totais") }}</h3>
+      <dl class="facts">
+        {% if view.has_window %}
+        <dt>{{ chrome.t("Janela") }}</dt><dd class="mono">{{ view.window_start }} → {{ view.window_end }}</dd>
+        <dt>{{ chrome.t("Dias") }}</dt><dd>{{ view.window_days }}</dd>
+        {% endif %}
+        <dt>{{ chrome.t("Relatórios") }}</dt><dd>{{ view.reports.len() }}</dd>
+        <dt>{{ chrome.t("Com sinal") }}</dt><dd>{{ view.flagged }}</dd>
+        <dt>{{ chrome.t("Orçamento ocioso") }}</dt><dd>{{ view.idle_budget }}{% if view.currency != "" %} {{ view.currency }}{% endif %}</dd>
+      </dl>
+    </div>
+
+    {% if view.findings.len() > 0 %}
+    <div class="panel">
+      <h3>{{ chrome.t("Sinais") }}</h3>
+      <ul class="links">
+        {% for finding in view.findings %}<li class="small">{{ finding }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="panel">
+      <h3>{{ chrome.t("Como ler") }}</h3>
+      <ul class="small muted">
+        <li><strong>thin</strong>: {{ chrome.t("dados de menos. Só estrutura.") }}</li>
+        <li><strong>stalled</strong>: {{ chrome.t("quebrada, sem anúncios ou impressões.") }}</li>
+        <li><strong>untracked</strong>: {{ chrome.t("cliques sem conversão visível.") }}</li>
+        <li><strong>{{ chrome.t("no limite") }}</strong>: {{ chrome.t("converte e gasta todo o orçamento.") }}</li>
+        <li><strong>{{ chrome.t("termos ocultos") }}</strong>: {{ chrome.t("custo que os termos de busca não mostram.") }}</li>
+        <li><strong>{{ chrome.t("perdido") }}</strong>: {{ chrome.t("parcela perdida por orçamento / ranking.") }}</li>
+      </ul>
+    </div>
+  </aside>
+</div>
+{% endif %}
+{% endblock %}

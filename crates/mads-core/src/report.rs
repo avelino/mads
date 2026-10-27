@@ -17,6 +17,8 @@ pub enum ReportStatus {
     Invalid,
     /// Some missions failed: `--resume` retries them.
     Incomplete,
+    /// The operator stopped the run. `--resume` retries the interrupted missions.
+    Cancelled,
 }
 
 pub struct ReportData {
@@ -161,6 +163,9 @@ fn status_line(d: &ReportData) -> &'static str {
         }
         ReportStatus::Incomplete => {
             "> Incomplete: some missions failed. Run `mads generate --resume <run-dir>` to retry only those."
+        }
+        ReportStatus::Cancelled => {
+            "> Cancelled: the operator stopped the run. Run `mads generate --resume <run-dir>` to retry the interrupted missions."
         }
     }
 }

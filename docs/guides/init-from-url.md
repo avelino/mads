@@ -245,3 +245,7 @@ error: --currency must be 3 uppercase letters, such as BRL
 ```
 
 `--max-turns`, `--mission-timeout`, `--max-tokens` and `--mission-retries` work as in `generate`. See [Cost and limits](cost-and-limits.md). The tools are listed in [MCP tools](../reference/mcp-tools.md#init-mission).
+
+## In the studio
+
+**New project** runs the same `init` mission. The form asks for the site, the budget, the currency, the provider and the model. When the mission finishes, **Draft** edits `business.toml` and `catalog.csv` with the same parser as the CLI. See [mads studio](mads-studio.md#create-a-project).

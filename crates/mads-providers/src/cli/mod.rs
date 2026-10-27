@@ -293,6 +293,10 @@ impl<A: CliAgent> Driver for CliDriver<A> {
                 );
             }
         };
+        if ctx.control.is_cancelled() {
+            let _ = child.kill().await;
+            return failed("cancelled".to_string(), Usage::default());
+        }
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             return failed("agent output is not piped", Usage::default());
         };
@@ -300,7 +304,17 @@ impl<A: CliAgent> Driver for CliDriver<A> {
 
         let mut lines = BufReader::new(stdout).lines();
         let (mut usage, mut failure, mut over_budget) = (Usage::default(), None, false);
-        while let Ok(Some(line)) = lines.next_line().await {
+        loop {
+            let next = tokio::select! {
+                _ = ctx.control.cancelled() => {
+                    let _ = child.kill().await;
+                    return failed("cancelled".to_string(), usage);
+                }
+                next = lines.next_line() => next,
+            };
+            let Ok(Some(line)) = next else {
+                break;
+            };
             ctx.append_transcript(&mission.id, "cli.jsonl", &line);
             for output in self.agent.parse_line(&line) {
                 match output {
@@ -503,6 +517,7 @@ esac
             max_turns: 10,
             budget: Arc::new(TokenBudget::new(max_tokens)),
             transcripts: Some(transcripts.clone()),
+            control: mads_core::agent::RunControl::default(),
         };
         Harness {
             driver: CliDriver::new(agent),
@@ -556,7 +571,7 @@ esac
     }
 
     async fn pid_of(path: &Path) -> String {
-        for _ in 0..50 {
+        for _ in 0..200 {
             if let Ok(p) = std::fs::read_to_string(path)
                 && !p.trim().is_empty()
             {
@@ -687,10 +702,14 @@ esac
     async fn dropping_the_mission_kills_the_agent_process() {
         let h = harness("sleep", 0);
         let m = mission();
-        let run = h.driver.run_mission(&m, h.tools.clone(), &h.ctx);
-        let timed = tokio::time::timeout(Duration::from_millis(400), run).await;
-        assert!(timed.is_err(), "the mission should still be running");
-        let pid = pid_of(&h.pidfile).await;
+        let mut run = Box::pin(h.driver.run_mission(&m, h.tools.clone(), &h.ctx));
+        let mut pid_wait = Box::pin(pid_of(&h.pidfile));
+        let pid = tokio::select! {
+            pid = &mut pid_wait => pid,
+            _ = &mut run => panic!("the mission ended before the agent wrote its pid"),
+        };
+        drop(run);
+        drop(pid_wait);
         for _ in 0..200 {
             if !alive(&pid) {
                 return;

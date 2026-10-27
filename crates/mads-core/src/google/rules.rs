@@ -202,14 +202,17 @@ impl<'a> Rules<'a> {
         let sum: u64 = a.campaigns.iter().map(|c| c.daily_budget.0).sum();
         if sum != self.budget.daily.0 {
             let msg = format!(
-                "campaign budgets sum to {sum} cents, budget.daily is {} cents",
+                "campaign budgets sum to {sum} cents, budget.daily is {} cents: mads spends exactly the daily budget, so the campaign split has to add up to it",
                 self.budget.daily.0
             );
             out.push(Issue::error("E06", "campaigns", msg));
         }
         for (i, c) in a.campaigns.iter().enumerate() {
             if c.daily_budget < MIN_CAMPAIGN_BUDGET {
-                let msg = format!("daily budget {} cents is below 100", c.daily_budget.0);
+                let msg = format!(
+                    "daily budget {} cents is below 100: Google refuses anything under the equivalent of 1.00 a day",
+                    c.daily_budget.0
+                );
                 out.push(Issue::error(
                     "E06",
                     format!("campaigns[{i}].daily_budget"),
@@ -303,7 +306,7 @@ impl<'a> Rules<'a> {
                 out.push(Issue::error(
                     "E10",
                     at.clone(),
-                    "maximize_conversions needs business.conversion_tracking = true",
+                    "maximize_conversions needs business.conversion_tracking = true: without tracked conversions the strategy has nothing to optimize; track them in business.toml, or use manual_cpc (Search) or maximize_clicks (Demand Gen)",
                 ));
             }
             BidStrategy::MaximizeClicks { max_cpc: Some(cap) } => self.cpc(out, &at, cap),
@@ -327,13 +330,20 @@ impl<'a> Rules<'a> {
 
     fn cpc(&self, out: &mut Vec<Issue>, path: &str, cpc: Cents) {
         if cpc.0 == 0 {
-            out.push(Issue::error("E11", path, "CPC must be greater than 0"));
+            out.push(Issue::error(
+                "E11",
+                path,
+                "CPC must be greater than 0: a zero CPC stops the ad group from bidding",
+            ));
         } else if self.budget.max_cpc.is_some_and(|cap| cpc > cap) {
             let cap = self.budget.max_cpc.map_or(0, |c| c.0);
             out.push(Issue::error(
                 "E11",
                 path,
-                format!("CPC {} cents is above budget.max_cpc {cap} cents", cpc.0),
+                format!(
+                    "CPC {} cents is above budget.max_cpc {cap} cents: lower the bid or raise the cap in business.toml",
+                    cpc.0
+                ),
             ));
         }
     }

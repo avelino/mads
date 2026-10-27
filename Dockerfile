@@ -31,7 +31,14 @@ RUN find crates -name '*.rs' -exec touch {} + \
 # anything that talks HTTPS needs the CA certificates.
 FROM alpine:3.24
 
-RUN apk add --no-cache ca-certificates
+# Node and npm bring the three agent CLIs the cli providers drive. claude and
+# gemini are Node programs; codex ships a musl binary in its npm package.
+RUN apk add --no-cache ca-certificates nodejs npm \
+ && npm install -g \
+      @anthropic-ai/claude-code \
+      @openai/codex \
+      @google/gemini-cli \
+ && npm cache clean --force
 
 COPY --from=build /src/target/release/mads /usr/local/bin/mads
 

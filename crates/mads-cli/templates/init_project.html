@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Projeto · rascunho ausente") }}</p>
+    <h1>{{ chrome.t("Estudar o site") }}</h1>
+    <p class="lede">{{ chrome.t("O projeto existe, mas o init não escreveu") }} <span class="mono">business.toml</span>{{ chrome.t(". Rode de novo com os dados abaixo. Isto gasta tokens.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/projects/{{ project.id }}">{{ chrome.t("Voltar") }}</a>
+  </div>
+</section>
+
+<form class="panel form" data-init-form data-action="/api/projects/{{ project.id }}/init">
+  <div class="form-grid">
+    <label>{{ chrome.t("Site") }}
+      <input name="start_url" type="url" value="{{ meta.start_url }}" required>
+    </label>
+    <label>{{ chrome.t("Orçamento diário") }}
+      <input name="daily" type="number" min="0.01" step="0.01" value="{{ meta.daily }}" required>
+    </label>
+    <label>{{ chrome.t("Moeda") }}
+      <input name="currency" value="{{ meta.currency }}" maxlength="3" required>
+    </label>
+    <label>{{ chrome.t("Provedor") }}
+      <input name="provider" value="{{ meta.provider }}" required>
+    </label>
+    <label>{{ chrome.t("Modelo") }}
+      <input name="model" value="{{ model_text }}">
+    </label>
+    <label>Endpoint (openai-compat)
+      <input name="base_url" value="{{ base_url_text }}">
+    </label>
+    <label>{{ chrome.t("Itens do catálogo") }}
+      <input name="catalog_limit" type="number" min="0" value="{{ meta.catalog_limit }}">
+    </label>
+    <label>{{ chrome.t("Turnos por missão") }}
+      <input name="max_turns" type="number" min="1" value="{{ meta.max_turns }}">
+    </label>
+    <label>{{ chrome.t("Tempo por missão") }}
+      <input name="timeout" value="{{ meta.timeout }}">
+    </label>
+    <label>{{ chrome.t("Teto de tokens") }}
+      <input name="max_tokens" type="number" min="0" value="{{ meta.max_tokens }}">
+    </label>
+    <label>{{ chrome.t("Retentativas") }}
+      <input name="retries" type="number" min="0" value="{{ meta.retries }}">
+    </label>
+  </div>
+
+  <div class="check-row">
+    <label class="check"><input type="checkbox" name="web_search" {% if meta.web_search %}checked{% endif %}> {{ chrome.t("Deixar o agente buscar na web") }}</label>
+    <label class="check"><input type="checkbox" name="focus" {% if meta.focus %}checked{% endif %}> {{ chrome.t("Anunciar só esta oferta") }}</label>
+    <label class="check"><input type="checkbox" name="force" {% if meta.force %}checked{% endif %}> {{ chrome.t("Substituir arquivos existentes") }}</label>
+  </div>
+
+  <div class="notice warn">
+    <strong>{{ chrome.t("Isto gasta tokens do seu provedor.") }}</strong>
+    {{ chrome.t("Se o init falhar de novo, o job mostra o erro. O projeto e as chaves continuam.") }}
+  </div>
+
+  <div class="form-actions">
+    <button class="button primary" type="submit">{{ chrome.t("Estudar site") }}</button>
+    <a class="button" href="/projects/{{ project.id }}">{{ chrome.t("Cancelar") }}</a>
+    <span class="form-error error" data-form-error role="alert"></span>
+  </div>
+</form>
+{% endblock %}

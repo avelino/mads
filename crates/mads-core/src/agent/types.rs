@@ -10,6 +10,7 @@ use std::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     events::EventSink,
@@ -77,6 +78,26 @@ pub trait ChatModel: Send + Sync {
     async fn complete(&self, req: &ChatRequest) -> Result<ChatResponse, ChatError>;
 }
 
+/// A run-wide stop signal. The CLI never cancels, the studio does.
+#[derive(Debug, Clone, Default)]
+pub struct RunControl {
+    cancel: CancellationToken,
+}
+
+impl RunControl {
+    pub fn cancel(&self) {
+        self.cancel.cancel();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+
+    pub async fn cancelled(&self) {
+        self.cancel.cancelled().await;
+    }
+}
+
 /// One unit of agent work: a system prompt, the first user message and an id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MissionSpec {
@@ -137,6 +158,7 @@ pub struct DriverCtx {
     pub budget: Arc<TokenBudget>,
     /// Directory for per-mission transcripts. `None` records nothing.
     pub transcripts: Option<PathBuf>,
+    pub control: RunControl,
 }
 
 /// `campaign:x` becomes `campaign-x.<extension>`: a colon breaks artifact uploads on some platforms.

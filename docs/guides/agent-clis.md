@@ -39,6 +39,17 @@ gemini-cli       cli   `gemini` not found in PATH
 
 mads does not manage logins. Log in with the CLI itself first. `--model` is optional. Without it the CLI picks its own default.
 
+## In the container image
+
+The published Docker image ships all three CLIs (`claude`, `codex`, `gemini`) next to the `mads` binary, so every cli provider reports ready inside the container. A CLI agent reads and writes login state under `$HOME`: mount a small volume for it when you run with a custom user.
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" \
+  -e HOME=/home/mads \
+  -v "$PWD:/work" -v "$HOME/.claude:/home/mads/.claude" \
+  ghcr.io/avelino/mads:latest generate business.toml --provider claude-cli
+```
+
 ```bash
 mads generate business.toml --provider claude-cli
 mads generate business.toml --provider claude-cli --model <model-id>
@@ -128,3 +139,7 @@ error: claude 2.0.1 is too old: mads needs 2.1.259 or newer
 ```
 
 Both exit with code `2`. Other failures show as a failed mission, such as `claude exited with exit status: 1 before calling finish: <stderr tail>`. See [Troubleshooting](../howto/troubleshooting.md).
+
+## In the studio
+
+`mads serve` checks the same executable and version. It does not manage the login. Log in with the CLI first. The Connections page shows the readiness.

@@ -81,6 +81,11 @@ pub enum Event {
     ArtifactWritten {
         path: String,
     },
+    /// The run stopped at the plan checkpoint. Consumers that key on `RunFinished`
+    /// would otherwise wait forever for a run that is meant to continue later.
+    RunPaused {
+        totals: Totals,
+    },
     RunFinished {
         ok: bool,
         exit_code: i32,
@@ -97,11 +102,18 @@ pub struct EventSink {
 
 impl EventSink {
     pub fn channel() -> (EventSink, UnboundedReceiver<EventEnvelope>) {
+        Self::channel_from(0)
+    }
+
+    /// A sink whose first event continues after `base`. A job that appends to a log
+    /// that already holds earlier events must not restart the sequence at 1, or the
+    /// `Last-Event-ID` dedup on the reader side silently drops every live event.
+    pub fn channel_from(base: u64) -> (EventSink, UnboundedReceiver<EventEnvelope>) {
         let (tx, rx) = unbounded_channel();
         (
             EventSink {
                 tx,
-                seq: Arc::new(AtomicU64::new(0)),
+                seq: Arc::new(AtomicU64::new(base)),
             },
             rx,
         )

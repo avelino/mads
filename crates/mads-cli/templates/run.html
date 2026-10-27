@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução") }}</p>
+    <h1 class="mono">{{ run.summary.id }}</h1>
+    <p class="lede">
+      <span class="status status-{{ run.summary.class }}">{{ chrome.t(run.summary.label) }}</span>
+      <span class="muted"> · {{ run.project_name }} · {{ run.summary.provider }}{% if run.summary.model != "-" %} / {{ run.summary.model }}{% endif %}</span>
+      {% if run.summary.has_parent %}<span class="chip">{{ chrome.t("revisão de") }} {{ run.summary.parent }}</span>{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    {% if run.summary.status == "planned" %}
+    <button class="button primary" type="button" data-run-action="continue" data-run="{{ run.summary.id }}"
+      data-provider="{{ run.summary.provider }}"{% if run.summary.model != "-" %} data-model="{{ run.summary.model }}"{% endif %}>{{ chrome.t("Gerar campanhas") }}</button>
+    {% endif %}
+    {% if (run.summary.status == "incomplete" || run.summary.status == "cancelled" || run.summary.status == "interrupted") && run.summary.provider != "-" %}
+    <button class="button primary" type="button" data-run-action="resume" data-run="{{ run.summary.id }}"
+      data-provider="{{ run.summary.provider }}"{% if run.summary.model != "-" %} data-model="{{ run.summary.model }}"{% endif %}>{{ chrome.t("Retomar missões") }}</button>
+    {% endif %}
+    {% if run.summary.status == "prepared" %}
+    <a class="button primary" href="/runs/{{ run.summary.id }}/optimize/review">{{ chrome.t("Revisar e iniciar") }}</a>
+    {% endif %}
+    {% if run.summary.status == "success" || run.summary.status == "invalid" %}
+    <a class="button" href="/runs/{{ run.summary.id }}/optimize">{{ chrome.t("Otimizar") }}</a>
+    {% endif %}
+    {% if run.summary.status == "success" || run.summary.status == "invalid" %}
+    <a class="button" href="/runs/{{ run.summary.id }}/edit">{{ chrome.t("Corrigir") }}</a>
+    <button class="button" type="button" data-run-action="export" data-run="{{ run.summary.id }}">{{ chrome.t("Reexportar sem IA") }}</button>
+    {% endif %}
+    {% if run.has_report %}<a class="button" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+    <a class="button" href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos") }}</a>
+  </div>
+</section>
+
+<nav class="tabs" aria-label="{{ chrome.t("Execução") }}">
+  <a class="tab{% if chrome.active == "run" %} is-active{% endif %}" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  <a class="tab{% if chrome.active == "account" %} is-active{% endif %}" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+  <a class="tab{% if chrome.active == "validation" %} is-active{% endif %}" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Validação") }}</a>
+  {% if run.summary.origin == "optimize" %}<a class="tab{% if chrome.active == "performance" %} is-active{% endif %}" href="/runs/{{ run.summary.id }}/performance">{{ chrome.t("Performance") }}</a>{% endif %}
+  {% if run.has_report %}<a class="tab{% if chrome.active == "report" %} is-active{% endif %}" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+  {% if run.summary.has_parent %}<a class="tab{% if chrome.active == "diff" %} is-active{% endif %}" href="/runs/{{ run.summary.id }}/diff">{{ chrome.t("Alterações") }}</a>{% endif %}
+  <a class="tab{% if chrome.active == "files" %} is-active{% endif %}" href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos") }}</a>
+  <a class="tab{% if chrome.active == "events" %} is-active{% endif %}" href="/runs/{{ run.summary.id }}/events">{{ chrome.t("Eventos") }}</a>
+</nav>
+
+<section class="stats">
+  <div class="stat"><span class="stat-label">{{ chrome.t("Campanhas") }}</span><span class="stat-value">{{ run.account.campaign_count }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Grupos") }}</span><span class="stat-value">{{ run.account.ad_group_count }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Palavras") }}</span><span class="stat-value">{{ run.account.keyword_count }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Orçamento") }}</span><span class="stat-value small-value">{{ run.account.budget_total }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Erros") }}</span><span class="stat-value{% if run.errors.len() > 0 %} danger-text{% endif %}">{{ run.errors.len() }}</span></div>
+  <div class="stat"><span class="stat-label">{{ chrome.t("Avisos") }}</span><span class="stat-value">{{ run.warnings.len() }}</span></div>
+</section>
+
+<div class="split">
+  <div>
+    <div class="section-head">
+      <h2>{{ chrome.t("Validação") }}</h2>
+      <a class="small" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Ver tudo") }}</a>
+    </div>
+    {% if run.errors.len() == 0 %}
+      <div class="notice ok"><strong>{{ chrome.t("Nenhum erro.") }}</strong> {{ chrome.t("A conta passa nas regras que bloqueiam a exportação.") }}</div>
+    {% else %}
+      <div class="notice error">
+        <strong>{{ run.errors.len() }} {{ chrome.t("erro(s) bloqueiam a exportação.") }}</strong>
+        <p>{{ chrome.t("Corrija e reexporte. Abra Corrigir para editar a conta e criar uma revisão.") }}</p>
+      </div>
+      {% for group in run.error_groups %}
+      <div class="issue-group">
+        <div class="issue-head"><span class="code">{{ group.code }}</span><span class="muted">{{ group.count }} {{ chrome.t("ocorrência(s)") }}</span></div>
+        <ul class="issues">
+          {% for issue in group.items %}{% if loop.index <= 5 %}
+          <li><a class="mono path" href="/runs/{{ run.summary.id }}/edit#{{ issue.path }}" title="{{ chrome.t("abrir o campo em Corrigir") }}">{{ issue.path }}</a><span>{{ issue.message }}</span></li>
+          {% endif %}{% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    {% endif %}
+    {% if run.warnings.len() > 0 %}
+      <p class="muted small">{{ run.warnings.len() }} {{ chrome.t("aviso(s). Avisos não bloqueiam a exportação.") }}</p>
+    {% endif %}
+  </div>
+
+  <aside class="side">
+    <div class="panel">
+      <h3>{{ chrome.t("Resumo") }}</h3>
+      <dl class="facts">
+        <dt>{{ chrome.t("Status") }}</dt><dd>{{ chrome.t(run.summary.label) }}</dd>
+        <dt>{{ chrome.t("Origem") }}</dt><dd>{{ run.summary.origin }}</dd>
+        <dt>{{ chrome.t("Data") }}</dt><dd>{{ run.summary.when }}</dd>
+        <dt>{{ chrome.t("Tokens") }}</dt><dd>{{ run.summary.tokens }}</dd>
+        <dt>{{ chrome.t("Custo") }}</dt><dd>{{ run.summary.cost }}</dd>
+        <dt>{{ chrome.t("Layout") }}</dt><dd>{{ run.summary.layout }}</dd>
+        <dt>{{ chrome.t("Missões") }}</dt><dd>{{ run.summary.missions }} ({{ run.summary.failed }} {{ chrome.t("falharam") }})</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <h3>{{ chrome.t("Atalhos") }}</h3>
+      <ul class="links">
+        <li><a href="/runs/{{ run.summary.id }}/events">{{ chrome.t("Linha do tempo") }}</a></li>
+        <li><a href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos e transcrições") }}</a></li>
+        {% if run.has_report %}<li><a href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório completo") }}</a></li>{% endif %}
+      </ul>
+    </div>
+  </aside>
+</div>
+{% endblock %}

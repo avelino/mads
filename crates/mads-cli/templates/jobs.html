@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Estúdio") }}</p>
+    <h1>{{ chrome.t("Jobs") }}</h1>
+    <p class="lede">{{ chrome.t("Execuções em andamento e as últimas que este servidor iniciou. O histórico fica na pasta de cada projeto.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/">{{ chrome.t("Projetos") }}</a>
+  </div>
+</section>
+
+{% if jobs.len() == 0 %}
+<div class="empty small-empty">
+  <p>{{ chrome.t("Nenhum job iniciado desde que este servidor abriu.") }}</p>
+</div>
+{% else %}
+<div class="list">
+  {% for job in jobs %}
+  <a class="row-card" href="/jobs/{{ job.id }}">
+    <div class="row-main">
+      <span class="mono strong">{{ job.project_name }}</span>
+      <span class="status status-{{ job.state_class }}">{{ chrome.t(job.state_label) }}</span>
+      <span class="chip">{{ job.kind }}</span>
+    </div>
+    <div class="meta-row">
+      <span>{{ job.started }}</span>
+      {% if job.has_finished %}<span>{{ chrome.t("terminado") }} {{ job.finished_text }}</span>{% endif %}
+      {% if job.has_error %}<span class="error">{{ job.error_text }}</span>{% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

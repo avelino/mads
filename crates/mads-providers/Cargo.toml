@@ -10,7 +10,7 @@ async-trait = "0.1.92"
 axum = "0.8"
 base64 = "0.23.1"
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
-genai = "0.6.5"
+genai = "0.7.1"
 mads-core = { path = "../mads-core" }
 quick-xml = "0.42.0"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json", "multipart"] }

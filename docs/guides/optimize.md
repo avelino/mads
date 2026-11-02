@@ -8,6 +8,12 @@ This page shows how to feed Google Ads reports back to mads so it rebuilds a run
 mads optimize out/<run-id> --reports perf/2026-10-17 --provider anthropic --model <model-id>
 ```
 
+To change how much the account spends per day, pass `--daily-budget`. The plan mission splits the new amount across the campaigns, and the budgets running today stay as the baseline it compares against.
+
+```bash
+mads optimize out/<run-id> --reports perf/2026-10-17 --daily-budget 500 --provider anthropic --model <model-id>
+```
+
 ## Export the reports
 
 Wait until the account has data. 14 days and 100 clicks per campaign is a line mads draws, not a Google rule: below it a campaign is marked thin and only its structure changes (see below). 30 conversions judge a campaign sooner. Google gives no fixed number either. A bid strategy needs a learning period of [1 to 2 conversion cycles](https://support.google.com/google-ads/answer/13020501?hl=en), Google advises [not measuring performance until it ends](https://support.google.com/google-ads/answer/6263057?hl=en), and it asks for [at least 4 to 6 weeks](https://support.google.com/google-ads/answer/13826584?hl=en) before reading an experiment. With a small budget, wait longer than 14 days.

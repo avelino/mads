@@ -93,6 +93,9 @@ pub struct OptimizeArgs {
     /// Folder with the CSV reports exported from Google Ads: search terms, keywords, campaigns, ad groups, assets.
     #[arg(long)]
     pub reports: PathBuf,
+    /// New daily budget of the whole account, in its currency. Without it the base run's budget stays.
+    #[arg(long)]
+    pub daily_budget: Option<f64>,
     #[command(flatten)]
     pub run: RunArgs,
 }
@@ -349,6 +352,21 @@ mod tests {
         assert_eq!(o.run_dir, std::path::PathBuf::from("out/x"));
         assert_eq!(o.reports, std::path::PathBuf::from("perf"));
         assert_eq!((o.run.parallel, o.run.max_ad_groups), (4, 50));
+        assert_eq!(o.daily_budget, None);
+        let cli = Cli::try_parse_from([
+            "mads",
+            "optimize",
+            "out/x",
+            "--reports",
+            "perf",
+            "--daily-budget",
+            "500",
+        ])
+        .unwrap();
+        let Command::Optimize(o) = cli.command else {
+            panic!("expected optimize")
+        };
+        assert_eq!(o.daily_budget, Some(500.0));
     }
 
     #[test]

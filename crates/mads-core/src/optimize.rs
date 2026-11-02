@@ -7,6 +7,7 @@ use std::{
 };
 
 use crate::{
+    google::Cents,
     images::EDITOR_DIR,
     perf::{Live, Performance, ReportInput, digest, read_table},
     run::{PLATFORM_DIR, RunDir},
@@ -37,8 +38,14 @@ pub struct Prepared {
 }
 
 /// Creates the optimization run under `out` and returns its directory. Nothing is written when
-/// the base run or the reports are not usable.
-pub fn prepare(base: &Path, reports: &Path, out: &Path) -> Result<Prepared, OptimizeError> {
+/// the base run or the reports are not usable. `daily_budget` replaces the account budget of the
+/// new plan; the live baseline keeps the budgets it runs with.
+pub fn prepare(
+    base: &Path,
+    reports: &Path,
+    out: &Path,
+    daily_budget: Option<Cents>,
+) -> Result<Prepared, OptimizeError> {
     let shown = base.display().to_string();
     let old = Workspace::load(&base.join("workspace.json"))
         .map_err(|e| OptimizeError::Base(shown.clone(), e.to_string()))?;
@@ -52,6 +59,9 @@ pub fn prepare(base: &Path, reports: &Path, out: &Path) -> Result<Prepared, Opti
     copy_dir(&base.join(&images), &run.root().join(&images))?;
 
     let mut ws = Workspace::new(old.input.clone());
+    if let Some(daily) = daily_budget {
+        ws.input.budget.daily = daily;
+    }
     ws.input.logo = old.input.logo.as_deref().map(|logo| {
         Path::new(logo).strip_prefix(base).map_or_else(
             |_| logo.to_string(),
@@ -200,7 +210,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = base_run(tmp.path(), MissionStatus::Finished);
         let perf = reports(tmp.path(), &[("c.csv", REPORT), ("notes.txt", "skip me")]);
-        let p = prepare(&base, &perf, &tmp.path().join("out")).unwrap();
+        let p = prepare(&base, &perf, &tmp.path().join("out"), None).unwrap();
         assert_ne!(p.run_dir, base);
         assert!(p.run_dir.join("input/business.toml").exists());
         assert!(
@@ -220,11 +230,35 @@ mod tests {
     }
 
     #[test]
+    fn a_new_daily_budget_replaces_the_account_budget_only_in_the_new_run() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run(tmp.path(), MissionStatus::Finished);
+        let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
+        let kept = prepare(&base, &perf, &tmp.path().join("a"), None).unwrap();
+        let kept = Workspace::load(&kept.run_dir.join("workspace.json")).unwrap();
+        let old_daily = kept.input.budget.daily;
+        let p = prepare(&base, &perf, &tmp.path().join("b"), Some(Cents(50000))).unwrap();
+        let ws = Workspace::load(&p.run_dir.join("workspace.json")).unwrap();
+        assert_eq!(ws.input.budget.daily, Cents(50000));
+        assert_ne!(old_daily, Cents(50000));
+        assert_eq!(
+            ws.account.campaigns[0].daily_budget,
+            Cents(2000),
+            "live budget"
+        );
+        let old = Workspace::load(&base.join("workspace.json")).unwrap();
+        assert_eq!(
+            old.input.budget.daily, old_daily,
+            "the base run is not touched"
+        );
+    }
+
+    #[test]
     fn refuses_an_unfinished_run() {
         let tmp = tempfile::tempdir().unwrap();
         let base = base_run(tmp.path(), MissionStatus::Pending);
         let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
-        let err = prepare(&base, &perf, &tmp.path().join("out"))
+        let err = prepare(&base, &perf, &tmp.path().join("out"), None)
             .err()
             .unwrap();
         assert!(
@@ -238,7 +272,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = base_run(tmp.path(), MissionStatus::Finished);
         let perf = reports(tmp.path(), &[("x.csv", "foo,bar\n1,2\n")]);
-        let err = prepare(&base, &perf, &tmp.path().join("new"))
+        let err = prepare(&base, &perf, &tmp.path().join("new"), None)
             .err()
             .unwrap();
         assert!(
@@ -248,7 +282,7 @@ mod tests {
         assert!(!tmp.path().join("new").exists(), "nothing is written");
         let empty = tmp.path().join("empty");
         std::fs::create_dir_all(&empty).unwrap();
-        let err = prepare(&base, &empty, &tmp.path().join("new"))
+        let err = prepare(&base, &empty, &tmp.path().join("new"), None)
             .err()
             .unwrap();
         assert!(err.to_string().contains("no .csv file"), "{err}");
@@ -257,7 +291,7 @@ mod tests {
     #[test]
     fn a_missing_base_run_is_an_error() {
         let tmp = tempfile::tempdir().unwrap();
-        let err = prepare(&tmp.path().join("nope"), tmp.path(), tmp.path())
+        let err = prepare(&tmp.path().join("nope"), tmp.path(), tmp.path(), None)
             .err()
             .unwrap();
         assert!(err.to_string().starts_with("cannot read run"), "{err}");

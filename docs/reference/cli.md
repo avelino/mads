@@ -120,6 +120,7 @@ Starts a new run from a finished one and the CSV reports of its live account, an
 |---|---|---|
 | `<RUN_DIR>` | | Finished run directory whose account is live in Google Ads. Required. |
 | `--reports <REPORTS>` | | Folder with the CSV reports exported from Google Ads. Required. See [Export Google Ads reports](../guides/export-google-ads-reports.md). |
+| `--daily-budget <AMOUNT>` | the base run's | New daily budget of the whole account, in its currency, greater than 0 with at most 2 decimals. The campaigns of the new plan sum to it. |
 
 It takes every flag of `mads generate` except `[BUSINESS]` and `--resume`: `--out`, `--parallel`, `--skip-url-check`, `--max-ad-groups`, `--layout`, the image flags and the agent flags, with the same defaults. Without `--layout`, the new run takes the layout of the base run from its `run.json`, and a base run without one is `bulk`. An explicit `--layout` wins. Under `drive-folders` the structural files edit what is live and pause what the new run dropped. See [Over a live account](../howto/google-ads-editor-drive-folders.md#over-a-live-account).
 

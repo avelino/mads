@@ -72,6 +72,8 @@ You can edit the CSVs by hand before uploading. If you change many things, chang
 
 ## Upload in Google Ads
 
+This section is the web bulk upload of files 1 to 5. For `editor/account.csv`, see [Import into Google Ads Editor](import-google-ads-editor.md).
+
 1. Open Google Ads and go to Tools, Bulk actions, Uploads.
 2. Upload the files in numeric order, one at a time. Rows reference their parents by name, so the campaign file goes first.
 3. For each file, look at the preview. Google lists what it will add and flags rows it cannot accept.

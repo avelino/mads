@@ -1,5 +1,10 @@
 use mads_core::{
-    google::Cents, optimize::prepare, perf::Performance, run::saved_layout, workspace::Workspace,
+    google::Cents,
+    input::apps_from_specs,
+    optimize::{Overrides, prepare},
+    perf::Performance,
+    run::saved_layout,
+    workspace::Workspace,
 };
 
 use crate::{
@@ -22,12 +27,27 @@ pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
             })
         })
         .transpose()?;
-    let drivers = drivers_for(&args.run, &base.input).await?;
-    let prepared =
-        prepare(&args.run_dir, &args.reports, &args.run.out, daily).map_err(|e| CliError {
-            code: 1,
+    let apps = (!args.apps.is_empty())
+        .then(|| apps_from_specs(&args.apps))
+        .transpose()
+        .map_err(|e| CliError {
+            code: 2,
             message: e.to_string(),
         })?;
+    let drivers = drivers_for(&args.run, &base.input).await?;
+    let prepared = prepare(
+        &args.run_dir,
+        &args.reports,
+        &args.run.out,
+        &Overrides {
+            daily_budget: daily,
+            apps,
+        },
+    )
+    .map_err(|e| CliError {
+        code: 1,
+        message: e.to_string(),
+    })?;
     eprintln!("{}", summary(&prepared.performance));
     let ws = Workspace::load(&prepared.run_dir.join("workspace.json"))?;
     // An explicit --layout wins; without it the new run keeps the base run's layout.

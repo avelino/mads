@@ -288,6 +288,32 @@ fn apps_or_one<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<App>, D::Er
     d.deserialize_any(Apps)
 }
 
+/// Apps from `--app <store>=<id>` flags, for example `app_store=6751919708`. A flag replaces the
+/// apps of a file, so the list is checked like a `business.toml` one.
+pub fn apps_from_specs(specs: &[String]) -> Result<Vec<App>, InputError> {
+    let apps = specs
+        .iter()
+        .map(|spec| {
+            let (store, id) = spec
+                .split_once('=')
+                .ok_or_else(|| invalid("app.store", format!("'{spec}' needs <store>=<id>")))?;
+            let store = match store {
+                "google_play" => AppStore::GooglePlay,
+                "app_store" => AppStore::AppStore,
+                other => {
+                    let msg = format!("unknown store '{other}', use google_play or app_store");
+                    return Err(invalid("app.store", msg));
+                }
+            };
+            Ok(App {
+                store,
+                id: id.to_string(),
+            })
+        })
+        .collect::<Result<Vec<_>, InputError>>()?;
+    check_apps(apps)
+}
+
 /// Every app must be valid, and a store has one app.
 fn check_apps(apps: Vec<App>) -> Result<Vec<App>, InputError> {
     let mut out: Vec<App> = Vec::new();
@@ -1221,6 +1247,38 @@ currency = "BRL"
         assert!(
             input.app_for(None).is_none(),
             "two apps: a campaign must name its store"
+        );
+    }
+
+    #[test]
+    fn the_app_flag_names_the_store_and_the_id() {
+        let specs = ["google_play=com.vinellu.app", "app_store=6751919708"].map(String::from);
+        let apps = apps_from_specs(&specs).unwrap();
+        assert_eq!(
+            apps.iter()
+                .map(|a| (a.store, a.id.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (AppStore::GooglePlay, "com.vinellu.app"),
+                (AppStore::AppStore, "6751919708")
+            ]
+        );
+        let key = |spec: &[&str]| match apps_from_specs(
+            &spec.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        ) {
+            Err(InputError::Invalid { key, .. }) => key,
+            other => panic!("expected an invalid app, got {other:?}"),
+        };
+        assert_eq!(key(&["com.vinellu.app"]), "app.store", "no store");
+        assert_eq!(key(&["play=com.vinellu.app"]), "app.store", "unknown store");
+        assert_eq!(
+            key(&["app_store=com.vinellu.app"]),
+            "app.id",
+            "id of the wrong store"
+        );
+        assert_eq!(
+            key(&["google_play=com.a.app", "google_play=com.b.app"]),
+            "app.store"
         );
     }
 

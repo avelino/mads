@@ -14,6 +14,14 @@ To change how much the account spends per day, pass `--daily-budget`. The plan m
 mads optimize out/<run-id> --reports perf/2026-10-17 --daily-budget 500 --provider anthropic --model <model-id>
 ```
 
+`optimize` starts from the input saved in the base run, not from `business.toml`. A change you made to the file after that run, such as a new app, does not reach it. `--daily-budget` and `--app` are the two you can change here. To add the iOS app to an account that ran with Android only:
+
+```bash
+mads optimize out/<run-id> --reports perf/2026-10-17 --app google_play=com.example.app --app app_store=6751919708 --provider anthropic --model <model-id>
+```
+
+The live App campaign keeps its store (`E31` refuses moving it), the other store comes in as a new campaign, and the plan splits the app budget by the cost per install of each. See [Android and iOS](image-campaigns.md#android-and-ios).
+
 ## Export the reports
 
 Wait until the account has data. 14 days and 100 clicks per campaign is a line mads draws, not a Google rule: below it a campaign is marked thin and only its structure changes (see below). 30 conversions judge a campaign sooner. Google gives no fixed number either. A bid strategy needs a learning period of [1 to 2 conversion cycles](https://support.google.com/google-ads/answer/13020501?hl=en), Google advises [not measuring performance until it ends](https://support.google.com/google-ads/answer/6263057?hl=en), and it asks for [at least 4 to 6 weeks](https://support.google.com/google-ads/answer/13826584?hl=en) before reading an experiment. With a small budget, wait longer than 14 days.

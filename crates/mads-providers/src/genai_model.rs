@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::select::ProviderError;
 use async_trait::async_trait;
 use genai::{
     Client, ModelIden, ServiceTarget,
@@ -55,16 +56,17 @@ pub(crate) fn api_provider(name: &str) -> Option<(&'static str, Option<&'static 
 }
 
 impl GenaiChatModel {
-    /// `provider` is the mads name (`anthropic`, `openrouter`...). None for unknown names.
-    pub fn for_provider(provider: &str, model: &str) -> Option<Self> {
-        let (namespace, env) = api_provider(provider)?;
+    /// `provider` is the mads name (`anthropic`, `openrouter`...). Unknown names are not available.
+    pub fn for_provider(provider: &str, model: &str) -> Result<Self, ProviderError> {
+        let (namespace, env) =
+            api_provider(provider).ok_or_else(|| ProviderError::NotAvailable(provider.into()))?;
         let mut builder = Client::builder();
         if let Some(var) = env {
             builder = builder
                 .with_auth_resolver_fn(move |_: ModelIden| Ok(Some(AuthData::from_env(var))));
         }
-        Some(Self {
-            client: builder.build(),
+        Ok(Self {
+            client: builder.build().map_err(|e| client_error(provider, &e))?,
             model: format!("{namespace}::{model}"),
             label: format!("{provider}/{model}"),
             options: options(),
@@ -73,7 +75,11 @@ impl GenaiChatModel {
 
     /// Any server that speaks the OpenAI chat completions API. `base_url` ends at the version
     /// segment, for example `http://localhost:8000/v1`.
-    pub fn openai_compat(base_url: &str, model: &str, api_key: Option<String>) -> Self {
+    pub fn openai_compat(
+        base_url: &str,
+        model: &str,
+        api_key: Option<String>,
+    ) -> Result<Self, ProviderError> {
         let base = if base_url.ends_with('/') {
             base_url.to_string()
         } else {
@@ -88,14 +94,19 @@ impl GenaiChatModel {
                     model: ModelIden::new(AdapterKind::OpenAI, target.model.model_name),
                 })
             })
-            .build();
-        Self {
+            .build()
+            .map_err(|e| client_error("openai-compat", &e))?;
+        Ok(Self {
             client,
             model: model.to_string(),
             label: format!("openai-compat/{model}"),
             options: options(),
-        }
+        })
     }
+}
+
+fn client_error(provider: &str, e: &genai::Error) -> ProviderError {
+    ProviderError::Config(format!("cannot build the {provider} client: {e}"))
 }
 
 #[async_trait]
@@ -474,7 +485,7 @@ mod tests {
     }
 
     async fn model(server: &MockServer) -> GenaiChatModel {
-        GenaiChatModel::openai_compat(&format!("{}/v1", server.uri()), "m", None)
+        GenaiChatModel::openai_compat(&format!("{}/v1", server.uri()), "m", None).unwrap()
     }
 
     fn request() -> ChatRequest {
@@ -588,7 +599,8 @@ mod tests {
             &format!("{}/v1", server.uri()),
             "m",
             Some("secret".into()),
-        );
+        )
+        .unwrap();
         m.complete(&request()).await.unwrap();
         let received = server.received_requests().await.unwrap();
         let auth = received[0]
@@ -604,7 +616,9 @@ mod tests {
     #[test]
     fn labels_name_the_provider_and_model() {
         assert_eq!(
-            GenaiChatModel::openai_compat("http://x/v1", "llama", None).label(),
+            GenaiChatModel::openai_compat("http://x/v1", "llama", None)
+                .unwrap()
+                .label(),
             "openai-compat/llama"
         );
         assert_eq!(
@@ -628,6 +642,6 @@ mod tests {
         );
         assert_eq!(api_provider("ollama"), Some(("ollama", None)));
         assert_eq!(api_provider("claude-cli"), None);
-        assert!(GenaiChatModel::for_provider("nope", "m").is_none());
+        assert!(GenaiChatModel::for_provider("nope", "m").is_err());
     }
 }

@@ -96,6 +96,11 @@ pub struct OptimizeArgs {
     /// New daily budget of the whole account, in its currency. Without it the base run's budget stays.
     #[arg(long)]
     pub daily_budget: Option<f64>,
+    /// App to promote, as <store>=<id>, such as google_play=com.example.app or app_store=6751919708.
+    /// Repeat it for one app per store. It replaces the apps of the base run, which has the ones
+    /// business.toml had when it was generated. Without it they stay.
+    #[arg(long = "app", value_name = "STORE=ID")]
+    pub apps: Vec<String>,
     #[command(flatten)]
     pub run: RunArgs,
 }
@@ -353,6 +358,7 @@ mod tests {
         assert_eq!(o.reports, std::path::PathBuf::from("perf"));
         assert_eq!((o.run.parallel, o.run.max_ad_groups), (4, 50));
         assert_eq!(o.daily_budget, None);
+        assert!(o.apps.is_empty());
         let cli = Cli::try_parse_from([
             "mads",
             "optimize",
@@ -367,6 +373,25 @@ mod tests {
             panic!("expected optimize")
         };
         assert_eq!(o.daily_budget, Some(500.0));
+        let cli = Cli::try_parse_from([
+            "mads",
+            "optimize",
+            "out/x",
+            "--reports",
+            "perf",
+            "--app",
+            "google_play=com.vinellu.app",
+            "--app",
+            "app_store=6751919708",
+        ])
+        .unwrap();
+        let Command::Optimize(o) = cli.command else {
+            panic!("expected optimize")
+        };
+        assert_eq!(
+            o.apps,
+            ["google_play=com.vinellu.app", "app_store=6751919708"]
+        );
     }
 
     #[test]

@@ -58,6 +58,8 @@ When `app_campaigns.available` is true, the default is one `app_installs` campai
 
 When `apps` lists an app on each store, Google Play and the App Store, plan one `app_installs` campaign per store and set `app_store` to `google_play` or `app_store` on each: it is one campaign per store, and a second campaign for the same store is refused with `E30`. With one app, leave `app_store` as `auto`. Leave a store out only for a concrete reason, and say it in the rationale of the other app campaign.
 
+In an optimize run, an App campaign in `live_account` keeps the store it runs on, because Google Ads cannot change the app of a campaign that exists: moving it is refused with `E31`. A store with no campaign yet comes in as a new `app_installs` campaign with a name of its own, never by re-pointing the live one. Do not leave out the store of a live App campaign because another campaign outside this run seems to cover it: the one in `live_account` is the one that runs.
+
 Split the app budget between the stores by what the numbers say, and write the reason in the rationale of each campaign:
 
 - With `performance` for both, the cost per install decides. Give more to the store that installs for less and keep the other large enough to keep learning. A store that is `stalled` or `untracked` follows `live_rules`.

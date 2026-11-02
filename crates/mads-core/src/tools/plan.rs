@@ -331,6 +331,7 @@ async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput
     if let Some(live) = &ws.live {
         check_live_groups(&campaigns, live, &mut issues);
         check_live_budgets(&campaigns, live, &mut issues);
+        check_live_app_stores(&campaigns, live, &mut issues);
     }
     // `[campaigns] formats` is the advertiser's choice: E21 checks it, nothing else asks why.
     if ws.input.formats.is_empty() {
@@ -625,6 +626,37 @@ fn check_live_groups(campaigns: &[Campaign], live: &Live, issues: &mut Vec<Issue
                 msg,
             ));
         }
+    }
+}
+
+/// E31: Google Ads does not let an App campaign change the app it promotes. A live App campaign
+/// keeps its store, and the other store comes in as a new campaign with its own name.
+fn check_live_app_stores(campaigns: &[Campaign], live: &Live, issues: &mut Vec<Issue>) {
+    for (i, c) in campaigns.iter().enumerate() {
+        let (CampaignKind::AppInstalls, Some(now)) = (c.kind, c.app_store) else {
+            continue;
+        };
+        let ran = live
+            .baseline
+            .campaigns
+            .iter()
+            .find(|o| normalize(&o.name) == normalize(&c.name))
+            .and_then(|o| o.app_store);
+        let Some(ran) = ran.filter(|r| *r != now) else {
+            continue;
+        };
+        let msg = format!(
+            "'{}' runs on {} in Google Ads and a campaign cannot change its app: keep it on {}, and plan {} as a new campaign with another name",
+            c.name,
+            ran.key(),
+            ran.key(),
+            now.key()
+        );
+        issues.push(Issue::error(
+            "E31",
+            format!("campaigns[{i}].app_store"),
+            msg,
+        ));
     }
 }
 

@@ -1197,6 +1197,35 @@ async fn with_two_apps_a_campaign_without_a_store_is_refused() {
 }
 
 #[tokio::test]
+async fn a_live_app_campaign_cannot_change_its_store_e31() {
+    let args = app_plan(json!("google_play"), json!("app_store"));
+    let (ws, out) = plan_with(both_apps_input(), args.clone()).await;
+    assert!(!out.is_error, "{}", out.content);
+    {
+        // The plan went live: Android on Google Play, iOS on the App Store.
+        let mut guard = ws.lock().await;
+        let baseline = guard.account.clone();
+        guard.live = Some(crate::perf::Live {
+            baseline,
+            performance: Default::default(),
+        });
+    }
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    let out = t.call("set_account_plan", args).await;
+    assert!(!out.is_error, "the same stores are fine: {}", out.content);
+    let swapped = app_plan(json!("app_store"), json!("google_play"));
+    let out = t.call("set_account_plan", swapped).await;
+    assert_eq!(error_codes(&out), ["E31", "E31"], "{}", out.content);
+    assert!(
+        out.content.to_string().contains("cannot change its app"),
+        "{}",
+        out.content
+    );
+}
+
+#[tokio::test]
 async fn two_campaigns_for_one_store_are_refused() {
     let args = app_plan(json!("app_store"), json!("app_store"));
     let (_, out) = plan_with(both_apps_input(), args).await;

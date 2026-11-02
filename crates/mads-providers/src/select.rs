@@ -209,10 +209,9 @@ fn api_drivers(sel: &ProviderSelection, provider: &str) -> Result<Drivers, Provi
                 base,
                 m,
                 std::env::var("MADS_API_KEY").ok().filter(|k| !k.is_empty()),
-            )
+            )?
         } else {
-            GenaiChatModel::for_provider(provider, m)
-                .ok_or_else(|| ProviderError::NotAvailable(provider.into()))?
+            GenaiChatModel::for_provider(provider, m)?
         };
         Ok(Arc::new(LoopDriver::new(Arc::new(chat))))
     };

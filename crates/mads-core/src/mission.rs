@@ -203,6 +203,8 @@ mod tests {
             "`app_store`",
             "one campaign per store",
             "E30",
+            "E31",
+            "cannot change the app",
             "cost per install",
             "test share",
             "required_formats",

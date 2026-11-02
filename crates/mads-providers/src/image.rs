@@ -18,7 +18,7 @@ const TIMEOUT: Duration = Duration::from_secs(180);
 const GEMINI_BASE: &str = "https://generativelanguage.googleapis.com";
 const OPENAI_BASE: &str = "https://api.openai.com";
 pub const GEMINI_IMAGE_MODEL: &str = "gemini-2.5-flash-image";
-pub const OPENAI_IMAGE_MODEL: &str = "gpt-image-1";
+pub const OPENAI_IMAGE_MODEL: &str = "gpt-image-2";
 const ERROR_EXCERPT: usize = 300;
 
 fn client() -> Result<Client, ProviderError> {
@@ -419,7 +419,7 @@ mod tests {
             id("auto", &both).as_deref(),
             Some("gemini:gemini-2.5-flash-image")
         );
-        assert_eq!(id("", &both[1..]).as_deref(), Some("openai:gpt-image-1"));
+        assert_eq!(id("", &both[1..]).as_deref(), Some("openai:gpt-image-2"));
         assert_eq!(id("auto", &[]), None);
         assert_eq!(id("none", &both), None);
         assert_eq!(id("solid", &[]).as_deref(), Some("solid"));

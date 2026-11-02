@@ -110,6 +110,9 @@ pub struct CampaignPerf {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AdGroupPerf {
     pub name: String,
+    /// Totals from the ad group report. Without it, the sum of the keywords stands in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<Metrics>,
     pub keywords: Vec<KeywordPerf>,
     /// The most expensive terms, at most `TERMS_PER_GROUP`.
     pub search_terms: Vec<TermPerf>,
@@ -186,6 +189,20 @@ impl Metrics {
         self.ctr_pct = ratio(self.clicks as f64 * 100.0, self.impressions as f64);
         self.avg_cpc = ratio(self.cost, self.clicks as f64);
         self.cost_per_conversion = ratio(self.cost, self.conversions);
+    }
+}
+
+impl AdGroupPerf {
+    /// The ad group report's totals, or the sum of the keywords without it.
+    pub fn totals(&self) -> Metrics {
+        if let Some(m) = &self.metrics {
+            return m.clone();
+        }
+        let mut sum = Metrics::default();
+        for k in &self.keywords {
+            sum.add(&k.metrics);
+        }
+        sum
     }
 }
 

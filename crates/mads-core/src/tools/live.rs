@@ -259,14 +259,10 @@ pub fn brief_view(live: &Live, campaign: &str) -> (Value, Value) {
 
 /// One ad group in a line: its totals and how many keywords carry each signal.
 fn summary(g: &AdGroupPerf) -> Value {
-    let mut total = Metrics::default();
-    for k in &g.keywords {
-        total.add(&k.metrics);
-    }
     let count = |s: Signal| g.keywords.iter().filter(|k| k.signals.contains(&s)).count();
     json!({
         "name": g.name,
-        "metrics": metrics(&total),
+        "metrics": metrics(&g.totals()),
         "keywords": g.keywords.len(),
         "keywords_with_traffic": g.keywords.iter().filter(|k| k.metrics.impressions > 0).count(),
         "signals": {
@@ -338,6 +334,9 @@ fn detail(g: &AdGroupPerf) -> Value {
     });
     if !g.assets.is_empty() {
         v["assets"] = json!(g.assets);
+    }
+    if let Some(m) = &g.metrics {
+        v["metrics"] = metrics(m);
     }
     v
 }
@@ -545,6 +544,28 @@ mod tests {
         assert_eq!(v["live"]["keywords"][0], "\"vinho tinto suave numero 0\"");
         assert!(ad_group_view(&live, "Catalogo", "nope").is_none());
         assert!(ad_group_view(&live, "Outra", "Grupo de uvas numero 3").is_none());
+    }
+
+    #[test]
+    fn group_totals_from_the_ad_group_report_win_over_keyword_sums() {
+        let mut live = big();
+        let mut m = Metrics {
+            impressions: 900,
+            clicks: 30,
+            cost: 36.0,
+            conversions: 3.0,
+            ..Default::default()
+        };
+        m.derive();
+        live.performance.campaigns[0].ad_groups[0].metrics = Some(m);
+        let (_, perf) = brief_view(&live, "Catalogo");
+        assert_eq!(perf["ad_groups"][0]["metrics"]["clicks"], 30);
+        assert_eq!(
+            perf["ad_groups"][1]["metrics"]["clicks"], 2,
+            "summed from keywords"
+        );
+        let v = ad_group_view(&live, "Catalogo", "Grupo de uvas numero 0").unwrap();
+        assert_eq!(v["performance"]["metrics"]["conversions"], 3.0);
     }
 
     #[test]

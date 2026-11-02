@@ -57,7 +57,7 @@ Replace the file with your real logo when the downloaded one is wrong. It must b
 
 ```bash
 export GEMINI_API_KEY=...   # gemini-2.5-flash-image by default
-export OPENAI_API_KEY=...   # gpt-image-1 by default
+export OPENAI_API_KEY=...   # gpt-image-2 by default
 ```
 
 `--image-provider auto` (the default) uses Gemini when `GEMINI_API_KEY` is set, then OpenAI when `OPENAI_API_KEY` is set, else no image model. Pick one with `--image-provider gemini` or `--image-provider openai`, a model with `--image-model`, or turn images off with `--image-provider none`.

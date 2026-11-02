@@ -73,7 +73,12 @@ impl CliAgent for Claude {
             program: program_for(self),
             args,
             // Claude defers MCP tools behind ToolSearch, which `--tools ""` removes: load them upfront.
-            env: vec![("ENABLE_TOOL_SEARCH".into(), "false".into())],
+            // The auto-updater swaps the binary when a mission exits, and the missions that start right
+            // after (parallel campaigns and their retries) fail with ENOENT.
+            env: vec![
+                ("ENABLE_TOOL_SEARCH".into(), "false".into()),
+                ("DISABLE_AUTOUPDATER".into(), "1".into()),
+            ],
             files: vec![
                 ("system.md".into(), c.system.into()),
                 ("mcp.json".into(), mcp.to_string()),
@@ -215,8 +220,11 @@ mod tests {
         );
         assert_eq!(
             inv.env,
-            vec![("ENABLE_TOOL_SEARCH".to_string(), "false".to_string())],
-            "MCP tools must load upfront"
+            vec![
+                ("ENABLE_TOOL_SEARCH".to_string(), "false".to_string()),
+                ("DISABLE_AUTOUPDATER".to_string(), "1".to_string()),
+            ],
+            "MCP tools must load upfront and the binary must not be replaced under parallel missions"
         );
     }
 

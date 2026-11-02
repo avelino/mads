@@ -90,7 +90,7 @@ pub struct GenerateArgs {
 pub struct OptimizeArgs {
     /// Finished run directory whose account is live in Google Ads. It is not changed.
     pub run_dir: PathBuf,
-    /// Folder with the CSV reports exported from Google Ads: search terms, keywords, campaigns, assets.
+    /// Folder with the CSV reports exported from Google Ads: search terms, keywords, campaigns, ad groups, assets.
     #[arg(long)]
     pub reports: PathBuf,
     #[command(flatten)]
@@ -116,7 +116,7 @@ pub struct RunArgs {
     /// auto picks gemini when GEMINI_API_KEY is set, then openai when OPENAI_API_KEY is set.
     #[arg(long, env = "MADS_IMAGE_PROVIDER", default_value = "auto")]
     pub image_provider: String,
-    /// Image model name, such as gemini-2.5-flash-image or gpt-image-1.
+    /// Image model name, such as gemini-2.5-flash-image or gpt-image-2.
     #[arg(long, env = "MADS_IMAGE_MODEL")]
     pub image_model: Option<String>,
     /// New images allowed in one run. Every image costs money.

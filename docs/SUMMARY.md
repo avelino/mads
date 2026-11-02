@@ -21,6 +21,7 @@
 * [Restricted categories](guides/restricted-categories.md)
 * [Review and import](guides/review-and-import.md)
 * [Resume and export](guides/resume-and-export.md)
+* [Export Google Ads reports](guides/export-google-ads-reports.md)
 * [Optimize a live account](guides/optimize.md)
 * [Cost and limits](guides/cost-and-limits.md)
 * [Docker](guides/docker.md)

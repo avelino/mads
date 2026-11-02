@@ -68,7 +68,7 @@ fn input(google_ads: GoogleAds) -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
-        app: None,
+        apps: Vec::new(),
         google_ads,
     }
 }
@@ -109,6 +109,7 @@ fn group(name: &str, keywords: Vec<Keyword>) -> AdGroup {
 
 fn campaign(name: &str, intent: Intent, groups: Vec<AdGroup>) -> Campaign {
     Campaign {
+        app_store: None,
         name: name.into(),
         slug: mads_core::input::slugify(name),
         kind: CampaignKind::Search,
@@ -467,6 +468,7 @@ fn with_image_campaign() -> (Input, Account) {
         file: Some(format!("images/vinellu-feed/tintos-{id}.jpg")),
     };
     acc.campaigns.push(Campaign {
+        app_store: None,
         name: "Vinellu - Feed".into(),
         slug: "vinellu-feed".into(),
         kind: CampaignKind::DemandGen,

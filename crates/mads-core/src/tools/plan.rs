@@ -15,7 +15,7 @@ use crate::{
         Account, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Intent, Issue,
         PlannedAdGroup, Rules, normalize,
     },
-    input::slugify,
+    input::{AppStore, slugify},
     perf::{AdGroupPerf, Live},
     workspace::Workspace,
 };
@@ -73,6 +73,10 @@ struct PlanCampaign {
     bid_strategy: PlanBid,
     /// Why this budget share and this bidding.
     rationale: String,
+    /// app_installs only: the store of the app to promote. auto takes the only app of the business.
+    /// With an app on each store, name one store per campaign.
+    #[serde(default)]
+    app_store: PlanStore,
     /// Ad groups of a search campaign, asset groups of an image campaign.
     ad_groups: Vec<PlanAdGroup>,
 }
@@ -83,6 +87,15 @@ struct PlanBid {
     /// search: manual_cpc. performance_max: maximize_conversions. demand_gen: maximize_clicks or maximize_conversions.
     #[serde(rename = "type")]
     kind: PlanBidType,
+}
+
+#[derive(Deserialize, JsonSchema, Default, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum PlanStore {
+    #[default]
+    Auto,
+    GooglePlay,
+    AppStore,
 }
 
 #[derive(Deserialize, JsonSchema, PartialEq, Eq, Clone, Copy)]
@@ -175,7 +188,7 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
         "catalog_photos": ws.input.catalog.iter().filter(|c| c.image.is_some()).count(),
         "image_campaigns": image_availability(t, &ws),
         "app_campaigns": availability(kind_unavailable(t, &ws, CampaignKind::AppInstalls)),
-        "app": ws.input.app.as_ref().map(|a| json!({"store": a.store, "id": a.id, "store_url": a.store_url()})),
+        "apps": ws.input.apps.iter().map(|a| json!({"store": a.store, "id": a.id, "store_url": a.store_url()})).collect::<Vec<_>>(),
         "focus": ws.input.focus,
         "rules": rules_summary(&t.settings),
     });
@@ -203,7 +216,7 @@ fn kind_unavailable(t: &MissionTools, ws: &Workspace, kind: CampaignKind) -> Opt
         return Some("no image model in this run (set --image-provider and its API key)");
     }
     match kind {
-        CampaignKind::AppInstalls if ws.input.app.is_none() => {
+        CampaignKind::AppInstalls if ws.input.apps.is_empty() => {
             Some("no app: set [app] store and id in business.toml")
         }
         CampaignKind::AppInstalls => None,
@@ -428,8 +441,10 @@ fn build_campaign(
             "campaign has no planned ad groups",
         ));
     }
-    let planned = plan_ad_groups(ws, rules, c.kind, &c.ad_groups, &path, issues);
+    let app_store = app_store_of(ws, &c);
+    let planned = plan_ad_groups(ws, rules, c.kind, app_store, &c.ad_groups, &path, issues);
     Campaign {
+        app_store,
         kind: c.kind,
         asset_groups: Vec::new(),
         name: c.name,
@@ -445,10 +460,24 @@ fn build_campaign(
     }
 }
 
+/// The store an App campaign promotes. `auto` is the store of the only app, so a business with
+/// one app never names it. With two apps `auto` stays empty and E24 asks for the store.
+fn app_store_of(ws: &Workspace, c: &PlanCampaign) -> Option<AppStore> {
+    if c.kind != CampaignKind::AppInstalls {
+        return None;
+    }
+    match c.app_store {
+        PlanStore::GooglePlay => Some(AppStore::GooglePlay),
+        PlanStore::AppStore => Some(AppStore::AppStore),
+        PlanStore::Auto => ws.input.app_for(None).map(|a| a.store),
+    }
+}
+
 fn plan_ad_groups(
     ws: &Workspace,
     rules: &Rules,
     kind: CampaignKind,
+    app_store: Option<AppStore>,
     groups: &[PlanAdGroup],
     path: &str,
     issues: &mut Vec<Issue>,
@@ -481,7 +510,7 @@ fn plan_ad_groups(
                 name: g.name.clone(),
                 theme: g.theme.clone(),
                 entity_ids: g.entity_ids.clone(),
-                final_url: match (kind, &ws.input.app) {
+                final_url: match (kind, ws.input.app_for(app_store)) {
                     // App ads link to the store page: the site and the focus do not apply.
                     (CampaignKind::AppInstalls, Some(app)) => app.store_url(),
                     _ => resolve_url(ws, rules, g, &at, issues),

@@ -50,11 +50,20 @@ Each campaign has a `kind`, the ad format you expect to bring the most customers
 - `demand_gen`: picture ads in YouTube, Discover and Gmail feeds. Use it to create demand people do not search for yet, when the product shows well in a picture (something people see, wear, eat, visit or use on a screen). It does not need conversion tracking: with `maximize_clicks` it buys clicks.
 - `performance_max`: one campaign that Google spreads over Search, YouTube, Display, Discover, Gmail and Maps, with texts and pictures. It optimizes for conversions, so use it only when `conversion_tracking` is true and the budget lets Google learn. Without conversion tracking do not use it.
 
-- `app_installs`: installs of the business's app from Google Play or the App Store. Google shows it in the store, YouTube, Search and Display, and optimizes for installs. Use it when the goal is installs and `get_business` has `app`. It takes `maximize_conversions` and needs no `conversion_tracking`: the store counts the installs. Its `ad_groups` are themes of the app (one use, one audience), they land on the store page by themselves.
+- `app_installs`: installs of the business's app from Google Play or the App Store. Google shows it in the store, YouTube, Search and Display, and optimizes for installs. Use it when the goal is installs and `get_business` lists `apps`. It takes `maximize_conversions` and needs no `conversion_tracking`: the store counts the installs. Its `ad_groups` are themes of the app (one use, one audience), they land on the store page by themselves.
 
 Image formats are only possible when `get_business` says `image_campaigns.available` is true. `app_installs` is possible when `app_campaigns.available` is true.
 
 When `app_campaigns.available` is true, the default is one `app_installs` campaign: it optimizes for installs, which a Demand Gen or Search ad that says "download the app" cannot do. Leave it out only for a concrete reason, such as a goal that is sales on the site, and then start the rationale of your largest campaign with `No app campaign:` and that reason. A plan with the app available, no `app_installs` campaign and no such reason is refused with `NO_APP_REASON`. When `required_formats` is set, it decides the formats and neither reason is asked. When it is false, plan `search` campaigns only.
+
+When `apps` lists an app on each store, Google Play and the App Store, plan one `app_installs` campaign per store and set `app_store` to `google_play` or `app_store` on each: it is one campaign per store, and a second campaign for the same store is refused with `E30`. With one app, leave `app_store` as `auto`. Leave a store out only for a concrete reason, and say it in the rationale of the other app campaign.
+
+Split the app budget between the stores by what the numbers say, and write the reason in the rationale of each campaign:
+
+- With `performance` for both, the cost per install decides. Give more to the store that installs for less and keep the other large enough to keep learning. A store that is `stalled` or `untracked` follows `live_rules`.
+- A store with no history is new next to one that ran. Give it a test share: enough to collect installs in a few days, at most 30 percent of the app budget, and no more than the store with history until its cost per install is known.
+- With no history on either store, split evenly unless `research` names the platform of the audience, and then lean toward it by at most 60 percent.
+- The two stores count installs differently, so compare the cost per install of each store with the other only as a rough guide, never as proof.
 
 Mix formats only when each one has a clear job: Search captures the demand that exists, Demand Gen creates new demand, Performance Max scales what converts. Never plan two campaigns that compete for the same people with the same message.
 

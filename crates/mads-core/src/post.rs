@@ -162,6 +162,7 @@ mod tests {
 
     fn campaign(slug: &str, intent: Intent, keywords: &[&str]) -> Campaign {
         Campaign {
+            app_store: None,
             kind: Default::default(),
             asset_groups: Vec::new(),
             name: slug.into(),

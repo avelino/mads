@@ -176,10 +176,10 @@ fn performance_max_assets_list_texts_themes_business_name_logo_and_pictures() {
 fn demand_gen_has_no_search_themes_and_app_has_no_logo_or_business_name() {
     let dg = image_campaign("DG", "dg", CampaignKind::DemandGen);
     let mut i = with_logo();
-    i.app = Some(App {
+    i.apps = vec![App {
         store: AppStore::GooglePlay,
         id: "com.vinellu.app".into(),
-    });
+    }];
     let app = image_campaign("App", "app", CampaignKind::AppInstalls);
     let p = build(&i, vec![dg, app]);
     let of = |key: &str| -> Vec<&str> {
@@ -279,25 +279,51 @@ fn app_only_packages_copy_no_logo() {
 }
 
 #[test]
+fn each_app_campaign_row_has_the_app_of_its_store() {
+    let mut i = with_logo();
+    i.apps = vec![
+        App {
+            store: AppStore::GooglePlay,
+            id: "com.vinellu.app".into(),
+        },
+        App {
+            store: AppStore::AppStore,
+            id: "987".into(),
+        },
+    ];
+    let mut android = image_campaign("Android", "android", CampaignKind::AppInstalls);
+    android.app_store = Some(AppStore::GooglePlay);
+    let mut ios = image_campaign("iOS", "ios", CampaignKind::AppInstalls);
+    ios.app_store = Some(AppStore::AppStore);
+    let p = build(&i, vec![android, ios]);
+    let row = |n: usize| {
+        let c = &p.image_campaigns[n];
+        (c.app_id.as_str(), c.app_store.as_str())
+    };
+    assert_eq!(row(0), ("com.vinellu.app", "Google Play"));
+    assert_eq!(row(1), ("987", "Apple App Store"));
+}
+
+#[test]
 fn app_id_comes_from_the_app_section_then_google_ads() {
     let app = || image_campaign("App", "app", CampaignKind::AppInstalls);
     let mut i = with_logo();
-    i.app = Some(App {
+    i.apps = vec![App {
         store: AppStore::AppStore,
         id: "987".into(),
-    });
+    }];
     let p = build(&i, vec![app()]);
     assert_eq!(p.image_campaigns[0].app_id, "987");
     assert_eq!(p.image_campaigns[0].app_store, "Apple App Store");
 
-    i.app = Some(App {
+    i.apps = vec![App {
         store: AppStore::GooglePlay,
         id: "com.vinellu.app".into(),
-    });
+    }];
     let p = build(&i, vec![app()]);
     assert_eq!(p.image_campaigns[0].app_store, "Google Play");
 
-    i.app = None;
+    i.apps.clear();
     i.google_ads.app_id = " 123456 ".into();
     let p = build(&i, vec![app()]);
     assert_eq!(p.image_campaigns[0].app_id, "123456");

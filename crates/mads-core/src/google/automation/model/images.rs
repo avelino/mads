@@ -37,7 +37,7 @@ fn missing(input: &Input, c: &Campaign) -> Vec<&'static str> {
     if has_logo(c.kind) && logo_rel_path(input).is_none() {
         out.push(NO_LOGO);
     }
-    if c.kind == CampaignKind::AppInstalls && app(input).is_none() {
+    if c.kind == CampaignKind::AppInstalls && app(input, c.app_store).is_none() {
         out.push(NO_APP_ID);
     }
     out
@@ -98,10 +98,11 @@ fn logo_name(rel: &str) -> &str {
     rel.strip_prefix("images/").unwrap_or(rel)
 }
 
-/// App id and store: `[app]` first, then `google_ads.app_id` with the store its shape implies.
-/// The store names match `Settings.app_store`, which the script already reads.
-fn app(input: &Input) -> Option<(String, &'static str)> {
-    if let Some(app) = &input.app {
+/// App id and store of a campaign: its `[[app]]` first, then `google_ads.app_id` with the store its
+/// shape implies. The store names match `Settings.app_store`, which the script already reads.
+fn app(input: &Input, store: Option<AppStore>) -> Option<(String, &'static str)> {
+    if !input.apps.is_empty() {
+        let app = input.app_for(store)?;
         let store = match app.store {
             AppStore::GooglePlay => "Google Play",
             AppStore::AppStore => "Apple App Store",
@@ -124,7 +125,7 @@ fn row(input: &Input, live: Option<&Live>, c: &Campaign, kind: &str) -> ImageCam
     let business = &input.business;
     let first = c.asset_groups.first();
     let (app_id, app_store) = match c.kind {
-        CampaignKind::AppInstalls => app(input).unwrap_or_default(),
+        CampaignKind::AppInstalls => app(input, c.app_store).unwrap_or_default(),
         _ => (String::new(), ""),
     };
     let (bid_strategy, max_cpc) = match c.bid_strategy {

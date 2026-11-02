@@ -433,6 +433,7 @@ mod tests {
             })
             .collect();
         let campaign = Campaign {
+            app_store: None,
             kind: Default::default(),
             asset_groups: vec![],
             name: "Catalogo".into(),

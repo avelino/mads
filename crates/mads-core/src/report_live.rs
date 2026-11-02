@@ -249,6 +249,7 @@ mod tests {
 
     fn campaign(name: &str, budget: u64, groups: Vec<AdGroup>) -> Campaign {
         Campaign {
+            app_store: None,
             kind: Default::default(),
             asset_groups: Vec::new(),
             name: name.into(),

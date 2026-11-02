@@ -60,7 +60,7 @@ pub(super) fn input() -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
-        app: None,
+        apps: Vec::new(),
         google_ads: GoogleAds {
             customer_id: "000-000-0000".into(),
             tracking_template: "{lpurl}?utm_campaign={mads_campaign}".into(),
@@ -104,6 +104,7 @@ fn planned(name: &str, ids: &[&str]) -> PlannedAdGroup {
 
 pub(super) fn campaign(name: &str, slug: &str, kind: CampaignKind, intent: Intent) -> Campaign {
     Campaign {
+        app_store: None,
         name: name.into(),
         slug: slug.into(),
         kind,

@@ -18,7 +18,7 @@ pub fn input() -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
-        app: None,
+        apps: Vec::new(),
         google_ads: Default::default(),
         business: Business {
             name: "Vinellu".into(),

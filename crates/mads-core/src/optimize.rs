@@ -172,6 +172,7 @@ mod tests {
         std::fs::write(images.join("g-a.jpg"), b"jpg").unwrap();
         let mut ws = Workspace::new(testutil::input());
         ws.account.campaigns.push(Campaign {
+            app_store: None,
             kind: Default::default(),
             asset_groups: Vec::new(),
             name: "Vinellu - Marca".into(),

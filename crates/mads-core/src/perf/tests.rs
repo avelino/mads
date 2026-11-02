@@ -12,6 +12,7 @@ fn kw(text: &str, match_type: MatchType) -> Keyword {
 
 fn campaign(name: &str, groups: &[(&str, Vec<Keyword>)]) -> Campaign {
     Campaign {
+        app_store: None,
         kind: Default::default(),
         asset_groups: Vec::new(),
         name: name.into(),

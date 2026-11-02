@@ -15,7 +15,7 @@ mads-core = { path = "../mads-core" }
 quick-xml = "0.42.0"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json", "multipart"] }
 rmcp = { version = "3.5", features = ["server", "transport-streamable-http-server"] }
-scraper = "0.27.0"
+scraper = "0.29.0"
 serde_json = "1.0.151"
 tempfile = "3.27.0"
 texting_robots = "0.2.2"

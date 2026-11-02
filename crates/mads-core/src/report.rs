@@ -463,6 +463,7 @@ mod tests {
         Account {
             brand_kit: None,
             campaigns: vec![Campaign {
+                app_store: None,
                 kind: Default::default(),
                 asset_groups: Vec::new(),
                 name: "Vinellu - Catalogo".into(),

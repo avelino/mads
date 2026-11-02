@@ -136,7 +136,7 @@ pub(crate) async fn execute(
 pub async fn run(args: GenerateArgs, format: Format) -> anyhow::Result<i32> {
     // Everything that can be wrong with the inputs fails here, before a run directory exists.
     let mut input = load_input_for(&args)?;
-    if input.app.is_some()
+    if !input.apps.is_empty()
         && !input.formats.is_empty()
         && !input
             .formats

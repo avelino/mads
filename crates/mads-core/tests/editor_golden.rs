@@ -41,13 +41,14 @@ fn input() -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
-        app: Some(App { store: AppStore::GooglePlay, id: "com.vinellu.app".into() }),
+        apps: vec![App { store: AppStore::GooglePlay, id: "com.vinellu.app".into() }],
         google_ads: Default::default(),
     }
 }
 
 fn app_campaign() -> Campaign {
     Campaign {
+        app_store: None,
         name: "vinellu android".into(),
         slug: "vinellu-android".into(),
         kind: CampaignKind::AppInstalls,
@@ -168,6 +169,47 @@ fn key(r: &Row) -> String {
 fn ignored(row: &Row, col: &str) -> bool {
     let search = row.get("Campaign").is_some_and(|c| c.ends_with("Search"));
     search && matches!(col, "App campaign store" | "Campaign optimization")
+}
+
+#[test]
+fn each_app_campaign_writes_the_store_of_its_own_app() {
+    let mut inp = input();
+    inp.apps.push(App {
+        store: AppStore::AppStore,
+        id: "6751919708".into(),
+    });
+    let mut android = app_campaign();
+    android.app_store = Some(AppStore::GooglePlay);
+    let mut ios = app_campaign();
+    ios.name = "vinellu ios".into();
+    ios.slug = "vinellu-ios".into();
+    ios.app_store = Some(AppStore::AppStore);
+    let acc = Account {
+        brand_kit: None,
+        campaigns: vec![android, ios],
+    };
+    let file = export_editor(&inp, &acc).expect("a file");
+    let rows = read_editor(&file.bytes).expect("readable");
+    let app_of = |name: &str| {
+        rows.iter()
+            .find(|r| {
+                r.get("Campaign").is_some_and(|c| c == name) && r.contains_key("App campaign store")
+            })
+            .map(|r| {
+                (
+                    r["App campaign store"].clone(),
+                    r["App campaign package name"].clone(),
+                )
+            })
+    };
+    assert_eq!(
+        app_of("vinellu android"),
+        Some(("Google Play".into(), "com.vinellu.app".into()))
+    );
+    assert_eq!(
+        app_of("vinellu ios"),
+        Some(("iTunes".into(), "6751919708".into()))
+    );
 }
 
 #[test]

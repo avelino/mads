@@ -78,6 +78,9 @@ pub struct Campaign {
     pub slug: String,
     #[serde(default)]
     pub kind: CampaignKind,
+    /// Store of the app an `app_installs` campaign promotes. None: the only app of the business.
+    #[serde(default)]
+    pub app_store: Option<crate::input::AppStore>,
     pub intent: Intent,
     pub daily_budget: Cents,
     pub bid_strategy: BidStrategy,

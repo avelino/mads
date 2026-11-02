@@ -46,7 +46,7 @@ When `business.toml` has `[campaigns] formats`, the result also has `required_fo
 
 `focus` is the `[focus]` table of `business.toml`, or null. With a focus, every landing page must be a focus URL (`E22`), and a planned group without entity lands on the first focus URL instead of `business.url`. Both `get_brief` tools return it too.
 
-`app` is the `[app]` table with its `store_url`, or null. `app_campaigns.available` says whether `app_installs` can be planned: it needs an image model and `[app]`, not a logo. The planned groups of an App campaign land on the store page.
+`apps` lists the `[app]` and `[[app]]` tables, each with its `store`, `id` and `store_url`, and is empty without one. `app_campaigns.available` says whether `app_installs` can be planned: it needs an image model and an app, not a logo. The planned groups of an App campaign land on the store page of its app.
 
 `catalog_photos` counts the catalog items with an `image`. `image_campaigns.available` is `true` only when the run has an image model and `business.toml` has a logo. Otherwise `reason` says which one is missing, `no image model in this run (set --image-provider and its API key)` or `no logo: set [brand] logo in business.toml`.
 
@@ -96,6 +96,7 @@ Each campaign.
 | `daily_budget` | number | yes | In currency units, at most 2 decimals. All campaigns must sum to `budget.daily`. |
 | `bid_strategy` | object | yes | `{"type": "..."}`. `search` takes `manual_cpc`, other types return `UNSUPPORTED`. `performance_max` and `app_installs` take `maximize_conversions`. `demand_gen` takes `maximize_clicks` or `maximize_conversions`. A mismatch is `E17`. |
 | `rationale` | string | yes | Why this budget share and bidding. |
+| `app_store` | string | no | `app_installs` only. `google_play` or `app_store`, the store of the app to promote. `auto` (default) takes the only app of the business. With an app on each store, every App campaign names its store (`E24`), and two campaigns cannot share one (`E30`). |
 | `ad_groups` | array | yes | The planned ad groups of a Search campaign, the planned asset groups of an image campaign. |
 
 Each ad group.

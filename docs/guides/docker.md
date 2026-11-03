@@ -20,7 +20,7 @@ docker run --rm \
 ```
 
 - `-v "$PWD:/work"` is how mads sees `business.toml` and where `out/` lands. The working directory in the container is `/work`.
-- `--user "$(id -u):$(id -g)"` makes the files in `out/` yours. Without it they belong to root.
+- The image runs as the unprivileged `mads` user (UID 1000), so files in `out/` belong to that UID. If your host user is not UID 1000, add `--user "$(id -u):$(id -g)"` to make them yours.
 - For image campaigns forward the image key too, `-e OPENAI_API_KEY` or `-e GEMINI_API_KEY`. The logo path in `business.toml` must be inside the mounted folder.
 - `-e ANTHROPIC_API_KEY` with no value forwards the variable from your shell. The key never appears in the command line or in your shell history. mads reads the standard variable of each provider, see [Environment variables](../reference/environment-variables.md).
 - `<model-id>` is a model name from your provider. mads has no default.
@@ -33,6 +33,29 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -e ANTHROPIC_API_KEY 
   init --from-url https://example.com --daily-budget 50 --currency BRL \
   --provider anthropic --model <model-id>
 ```
+
+## Agent CLIs
+
+The image includes `claude`, `codex` and `gemini` at pinned versions, so the `claude-cli`, `codex-cli` and `gemini-cli` providers work without installing anything else. Login state lives under `$HOME` (`/home/mads`) in the container. When you run with `--user`, mount your login folder at `/home/mads` too, or the CLI will not find it; see [Agent CLIs](agent-clis.md).
+
+## Studio
+
+The image contains the same `mads` binary, so `serve` is available. A container needs a non-loopback bind and a token.
+
+```bash
+mkdir -p mads
+printf '%s' "$(openssl rand -hex 32)" > token
+chmod 600 token
+
+docker run --rm \
+  -p 127.0.0.1:4780:4780 \
+  -v "$PWD/mads:/data" \
+  -v "$PWD/token:/run/secrets/mads-token:ro" \
+  ghcr.io/avelino/mads:latest \
+  serve --root /data --bind 0.0.0.0 --allow-remote --token-file /run/secrets/mads-token
+```
+
+Open `http://127.0.0.1:4780` and paste the token. The port is published on host loopback, so only the host reaches the container. Do not publish it on another interface without TLS. See [mads studio security](mads-studio-security.md).
 
 ## Tags
 
@@ -71,23 +94,25 @@ docker run --rm \
 
 - A static `mads` binary built for musl.
 - The CA certificates, so HTTPS to your provider and to the site `init` reads works.
+- Node.js and the three agent CLIs (`claude`, `codex`, `gemini`), each pinned to an exact version, so the same tag always ships the same agents.
 - Nothing else. It is Alpine, so `sh` is there for debugging: `docker run --rm -it --entrypoint sh ghcr.io/avelino/mads:latest`.
 
 The image does not hold your keys, your input or your output. Everything comes from the mount and the environment.
 
-## Agent CLI providers
+## A newer agent CLI
 
-The claude, codex and gemini CLIs are not in the image. `mads providers` inside it shows them as not found. To use one, derive an image.
+The CLIs are pinned in the image. To run a newer (or older) one, derive an image and install the version you want.
 
 ```dockerfile
 FROM ghcr.io/avelino/mads:latest
-RUN apk add --no-cache nodejs npm \
- && npm install -g @anthropic-ai/claude-code
+USER root
+RUN npm install -g @anthropic-ai/claude-code@latest
+USER mads
 ```
 
 ```bash
 docker build -t mads-claude .
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" \
+docker run --rm -v "$PWD:/work" \
   -e CLAUDE_CODE_OAUTH_TOKEN \
   mads-claude generate business.toml --provider claude-cli --out out
 ```

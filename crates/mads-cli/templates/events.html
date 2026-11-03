@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Execução · eventos") }}</p>
+    <h1>{{ chrome.t("Linha do tempo") }}</h1>
+    <p class="lede">{{ chrome.t("Cada evento de") }} <span class="mono">events.ndjson</span>. {{ chrome.t("Atualiza ao vivo enquanto o servidor tem o job.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  </div>
+</section>
+
+<nav class="tabs" aria-label="{{ chrome.t("Execução") }}">
+  <a class="tab" href="/runs/{{ run.summary.id }}">{{ chrome.t("Visão geral") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/account">{{ chrome.t("Conta") }}</a>
+  <a class="tab" href="/runs/{{ run.summary.id }}/validation">{{ chrome.t("Validação") }}</a>
+  {% if run.has_report %}<a class="tab" href="/runs/{{ run.summary.id }}/report">{{ chrome.t("Relatório") }}</a>{% endif %}
+  <a class="tab" href="/runs/{{ run.summary.id }}/files">{{ chrome.t("Arquivos") }}</a>
+  <a class="tab is-active" href="/runs/{{ run.summary.id }}/events">{{ chrome.t("Eventos") }}</a>
+</nav>
+
+<div class="timeline" data-stream="/api/runs/{{ run.summary.id }}/stream" data-last="{{ run.last_seq }}" data-run="{{ run.summary.id }}">
+  {% for event in run.events %}
+  <div class="event event-{{ event.class }}" data-seq="{{ event.seq }}">
+    <span class="event-time mono">{{ event.time }}</span>
+    <span class="event-mission mono">{{ event.mission }}</span>
+    <span class="event-kind">{{ event.kind }}</span>
+    <span class="event-text">{{ event.text }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% if run.events.len() == 0 %}
+<p class="muted">{{ chrome.t("Nenhum evento registrado.") }}</p>
+{% endif %}
+{% endblock %}

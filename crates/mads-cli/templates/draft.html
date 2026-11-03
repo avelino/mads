@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Projeto · rascunho") }}</p>
+    <h1>{{ chrome.t("Rascunho") }}</h1>
+    <p class="lede">{{ chrome.t("O que está aqui vira o snapshot da próxima execução. Execuções antigas não mudam.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/projects/{{ project.id }}">{{ chrome.t("Voltar") }}</a>
+    {% if draft.valid %}
+    <button class="button primary" type="submit" form="draft-form">{{ chrome.t("Salvar rascunho") }}</button>
+    <a class="button" href="/projects/{{ project.id }}/run">{{ chrome.t("Nova execução") }}</a>
+    {% else %}
+    <a class="button primary" href="/projects/{{ project.id }}/init">{{ chrome.t("Estudar o site de novo") }}</a>
+    {% endif %}
+  </div>
+</section>
+
+{% if draft.valid == false %}
+<div class="notice error">
+  <strong>{{ chrome.t("O rascunho não carrega.") }}</strong>
+  <p>{{ draft.error }}</p>
+  <p class="actions-row">
+    <a class="button primary" href="/projects/{{ project.id }}/init">{{ chrome.t("Estudar o site de novo") }}</a>
+    <a class="button" href="/settings/connections">{{ chrome.t("Configurar chave") }}</a>
+  </p>
+</div>
+<details class="panel">
+  <summary>{{ chrome.t("Ver business.toml") }}</summary>
+  <pre class="code">{{ draft.toml_preview }}</pre>
+</details>
+{% else %}
+<nav class="anchor-nav" aria-label="{{ chrome.t("Nesta página") }}">
+  <a href="#dados">{{ chrome.t("Dados") }}</a>
+  <a href="#restricoes">{{ chrome.t("Restrições") }}</a>
+  <a href="#formatos">{{ chrome.t("Formatos") }}</a>
+  <a href="#exportacao">{{ chrome.t("Exportação") }}</a>
+  <a href="#foco">{{ chrome.t("Avançado") }}</a>
+  <a href="#catalogo">{{ chrome.t("Catálogo") }}</a>
+  <a href="#logo">{{ chrome.t("Logo") }}</a>
+  <a href="#pesquisa">{{ chrome.t("Pesquisa") }}</a>
+  <a href="#design">{{ chrome.t("Design") }}</a>
+  <a href="#toml">{{ chrome.t("business.toml") }}</a>
+</nav>
+
+<form id="draft-form" class="panel form" data-draft-form data-action="/api/projects/{{ project.id }}/draft">
+  <div class="form-grid" id="dados">
+    <label>{{ chrome.t("Nome") }}
+      <input name="name" value="{{ draft.name }}" required maxlength="80">
+    </label>
+    <label>{{ chrome.t("Site") }}
+      <input name="url" type="url" value="{{ draft.url }}" required>
+    </label>
+    <label>{{ chrome.t("Idioma") }}
+      <input name="language" value="{{ draft.language }}" required>
+    </label>
+    <label>{{ chrome.t("Localização") }}
+      <input name="location" value="{{ draft.location }}" required>
+    </label>
+    <label>{{ chrome.t("Objetivo") }}
+      <input name="goal" value="{{ draft.goal }}" maxlength="200">
+    </label>
+    <label>{{ chrome.t("Orçamento diário") }}
+      <input name="daily" type="number" min="0.01" step="0.01" value="{{ draft.daily }}" required>
+    </label>
+    <label>{{ chrome.t("Moeda") }}
+      <input name="currency" value="{{ draft.currency }}" maxlength="3" required>
+    </label>
+    <label>{{ chrome.t("CPC máximo (opcional)") }}
+      <input name="max_cpc" type="number" min="0.01" step="0.01" value="{{ draft.max_cpc }}">
+    </label>
+  </div>
+
+  <label class="block-label">{{ chrome.t("Descrição") }}
+    <textarea name="description" rows="6" maxlength="4000">{{ draft.description }}</textarea>
+  </label>
+
+  <div class="form-grid">
+    <label>{{ chrome.t("Brand terms (separe por vírgula)") }}
+      <input name="brand_terms" value="{{ draft.brand_terms }}">
+    </label>
+    <label>{{ chrome.t("Concorrentes") }}
+      <input name="competitors" value="{{ draft.competitors }}">
+    </label>
+    <label>{{ chrome.t("Evitar") }}
+      <input name="avoid" value="{{ draft.avoid }}">
+    </label>
+  </div>
+
+  <div class="section-head" id="restricoes"><h2>{{ chrome.t("Categorias restritas") }}</h2></div>
+  <div class="check-row">
+    <label class="check"><input type="checkbox" name="restricted" value="alcohol" {% if draft.restricted_alcohol %}checked{% endif %}> {{ chrome.t("Álcool") }}</label>
+    <label class="check"><input type="checkbox" name="restricted" value="gambling" {% if draft.restricted_gambling %}checked{% endif %}> {{ chrome.t("Jogos") }}</label>
+    <label class="check"><input type="checkbox" name="restricted" value="healthcare" {% if draft.restricted_healthcare %}checked{% endif %}> {{ chrome.t("Saúde") }}</label>
+    <label class="check"><input type="checkbox" name="restricted" value="financial_services" {% if draft.restricted_financial %}checked{% endif %}> {{ chrome.t("Serviços financeiros") }}</label>
+    <label class="check"><input type="checkbox" name="restricted" value="political" {% if draft.restricted_political %}checked{% endif %}> {{ chrome.t("Política") }}</label>
+    <label class="check"><input type="checkbox" name="restricted" value="sexual_content" {% if draft.restricted_sexual %}checked{% endif %}> {{ chrome.t("Conteúdo sexual") }}</label>
+  </div>
+
+  <div class="section-head" id="formatos"><h2>{{ chrome.t("Formatos obrigatórios") }}</h2></div>
+  <div class="check-row">
+    <label class="check"><input type="checkbox" name="formats" value="search" {% if draft.format_search %}checked{% endif %}> Search</label>
+    <label class="check"><input type="checkbox" name="formats" value="performance_max" {% if draft.format_performance_max %}checked{% endif %}> Performance Max</label>
+    <label class="check"><input type="checkbox" name="formats" value="demand_gen" {% if draft.format_demand_gen %}checked{% endif %}> Demand Gen</label>
+  </div>
+  <p class="muted small">{{ chrome.t("Sem formato marcado, o agente escolhe.") }}</p>
+
+  <div class="section-head" id="exportacao"><h2>{{ chrome.t("Exportação") }}</h2></div>
+  <div class="form-grid">
+    <label>{{ chrome.t("Status") }}
+      <select name="export_status">
+        <option value="Paused" {% if draft.export_status == "Paused" %}selected{% endif %}>Paused</option>
+        <option value="Enabled" {% if draft.export_status == "Enabled" %}selected{% endif %}>Enabled</option>
+      </select>
+    </label>
+    <label>URL suffix
+      <input name="url_suffix" value="{{ draft.url_suffix }}">
+    </label>
+  </div>
+  <div class="check-row">
+    <label class="check"><input type="checkbox" name="eu_political_ads" {% if draft.eu_political_ads %}checked{% endif %}> {{ chrome.t("Anúncios políticos na UE") }}</label>
+    <label class="check"><input type="checkbox" name="decimal_comma" {% if draft.decimal_comma %}checked{% endif %}> {{ chrome.t("Decimal com vírgula") }}</label>
+    <label class="check"><input type="checkbox" name="conversion_tracking" {% if draft.conversion_tracking %}checked{% endif %}> {{ chrome.t("Conversão configurada no site") }}</label>
+  </div>
+
+  <details class="panel" id="foco">
+  <summary>{{ chrome.t("Foco, app e Google Ads (opcional)") }}</summary>
+  <div class="form-grid">
+    <label>{{ chrome.t("Nome do foco") }}
+      <input name="focus_name" value="{{ draft.focus_name }}" maxlength="80">
+    </label>
+    <label>{{ chrome.t("App store") }}
+      <select name="app_store">
+        <option value="google_play" {% if draft.app_store != "app_store" %}selected{% endif %}>Google Play</option>
+        <option value="app_store" {% if draft.app_store == "app_store" %}selected{% endif %}>App Store</option>
+      </select>
+    </label>
+    <label>App id
+      <input name="app_id" value="{{ draft.app_id }}" placeholder="com.exemplo.app">
+    </label>
+    <label>Google Ads customer id
+      <input name="google_ads_customer_id" value="{{ draft.google_ads_customer_id }}" placeholder="123-456-7890">
+    </label>
+    <label>Tracking template
+      <input name="google_ads_tracking_template" value="{{ draft.google_ads_tracking_template }}">
+    </label>
+    <label>Devices
+      <input name="google_ads_devices" value="{{ draft.google_ads_devices }}" placeholder="Mobile;Desktop;Tablet">
+    </label>
+    <label>Labels
+      <input name="google_ads_labels" value="{{ draft.google_ads_labels }}" placeholder="estrutural, teste">
+    </label>
+    <label>Google Ads app id
+      <input name="google_ads_app_id" value="{{ draft.google_ads_app_id }}" placeholder="com.exemplo.app">
+    </label>
+  </div>
+  <label class="block-label">{{ chrome.t("URLs do foco (uma por linha)") }}
+    <textarea name="focus_urls" rows="3">{{ draft.focus_urls }}</textarea>
+  </label>
+  <label class="block-label">{{ chrome.t("Termos do foco (um grupo por linha, termos por vírgula)") }}
+    <textarea name="focus_terms" rows="3">{{ draft.focus_terms }}</textarea>
+  </label>
+  </details>
+
+  <div class="section-head" id="catalogo"><h2>{{ chrome.t("Catálogo") }}</h2><span class="muted mono">{{ draft.catalog_file }}</span></div>
+  <label class="block-label">CSV
+    <textarea name="catalog_text" rows="12" spellcheck="false">{{ draft.catalog_text }}</textarea>
+  </label>
+  {% if draft.catalog_rows.len() > 0 %}
+  <div class="table-wrap">
+    <table class="table compact">
+      <thead>
+        <tr>
+          <th>ID</th><th>{{ chrome.t("Nome") }}</th><th>URL</th><th>{{ chrome.t("Categoria") }}</th><th>Aliases</th><th>Third party</th><th>{{ chrome.t("Notas") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in draft.catalog_rows %}
+        <tr>
+          <td class="mono small">{{ item.id }}</td>
+          <td>{{ item.name }}</td>
+          <td class="mono small break">{{ item.url }}</td>
+          <td>{{ item.category }}</td>
+          <td class="small">{{ item.aliases }}</td>
+          <td>{{ item.third_party }}</td>
+          <td class="small">{{ item.notes }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="form-actions">
+    <button class="button primary" type="submit">{{ chrome.t("Salvar rascunho") }}</button>
+    <span class="form-error error" data-form-error role="alert"></span>
+  </div>
+</form>
+
+<section class="two-col">
+  <div class="panel" id="logo">
+    <h3>{{ chrome.t("Logo") }}</h3>
+    <p class="small muted">{{ chrome.t("Envie um PNG ou JPEG quadrado. O mads converte para o tamanho que o Google aceita.") }}</p>
+    <p class="small"><strong>{{ chrome.t("Estado") }}:</strong> {% if draft.has_logo %}{{ chrome.t("presente") }}{% else %}{{ chrome.t("ausente") }}{% endif %}</p>
+    {% if draft.has_logo %}
+    <p class="mono small">{{ draft.logo_name }}</p>
+    <img class="logo-preview" src="/api/projects/{{ project.id }}/logo" alt="{{ project.name }}">
+    {% endif %}
+    <form class="key-form" data-logo-form data-action="/api/projects/{{ project.id }}/logo">
+      <input name="logo" type="file" accept="image/png,image/jpeg,image/webp" required>
+      <button class="button" type="submit">{{ chrome.t("Salvar logo") }}</button>
+      <span class="small error" data-form-error role="alert"></span>
+    </form>
+  </div>
+  <div class="panel" id="pesquisa">
+    <h3>{{ chrome.t("Pesquisa") }}</h3>
+    <p class="small muted">{{ chrome.t("research.md vai para o prompt do plano. O limite é 20.000 caracteres.") }}</p>
+    <form data-asset-form data-kind="research" data-action="/api/projects/{{ project.id }}/research">
+      <textarea name="text" rows="8">{{ draft.research_text }}</textarea>
+      <div class="form-actions"><button class="button" type="submit">{{ chrome.t("Salvar pesquisa") }}</button><span class="small error" data-form-error role="alert"></span></div>
+    </form>
+  </div>
+</section>
+
+<section class="panel" id="design">
+  <h3>{{ chrome.t("Design") }}</h3>
+  <p class="small muted">{{ chrome.t("DESIGN.md descreve cores, fontes e tom de voz para as campanhas de imagem. O limite é 8.000 caracteres.") }}</p>
+  <form data-asset-form data-kind="design" data-action="/api/projects/{{ project.id }}/design">
+    <textarea name="text" rows="8">{{ draft.design_text }}</textarea>
+    <div class="form-actions"><button class="button" type="submit">{{ chrome.t("Salvar design") }}</button><span class="small error" data-form-error role="alert"></span></div>
+  </form>
+</section>
+
+<details class="panel" id="toml">
+  <summary>{{ chrome.t("Ver business.toml") }}</summary>
+  <pre class="code">{{ draft.toml_preview }}</pre>
+</details>
+{% endif %}
+{% endblock %}

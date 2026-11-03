@@ -59,6 +59,7 @@ async fn claude_reaches_our_tools_through_the_mcp_bridge() {
         max_turns: 6,
         budget: Arc::new(TokenBudget::new(0)),
         transcripts: Some(transcripts.path().to_path_buf()),
+        control: mads_core::agent::RunControl::default(),
     };
     let mission = MissionSpec {
         id: "it".into(),

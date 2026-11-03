@@ -2,6 +2,33 @@
 
 This page describes every file in a run directory, the events in `events.ndjson`, `workspace.json` and `run.json`.
 
+## Project directory
+
+`mads serve` keeps one directory per project under `--root`, which defaults to `~/mads`.
+
+```text
+~/mads/vinellu/
+  project.json                   display name, archive flag and last init settings
+  business.toml                  the draft
+  catalog.csv                    the draft catalog, when set
+  research.md                    notes from init
+  DESIGN.md                      brand identity, when set
+  brand/logo.png                 logo, when set
+  .mads/
+    jobs/<job-id>/events.ndjson  init and job events without a run
+    uploads/                     report CSVs during optimize prepare
+    staging/                     a draft save being validated
+    audit.ndjson                 project actions, never secrets
+    lock                         one active job per project
+  out/
+    20261024-153012-a1b2c3/      a run
+    20261024-153012-a1b2c3-r1/   a human revision
+```
+
+The CLI can still run inside the project. `mads generate business.toml` writes to `out/`.
+
+A human revision is a sibling run with the `-rN` suffix. It records `origin`, `parent_run` and `revision` in `run.json`. The original run is not changed. A revision keeps its own `.mads/edits.ndjson`.
+
 ## Run directory
 
 `mads generate` creates `<out>/<YYYYMMDD-HHMMSS>-<6 hex chars>/`. The timestamp is UTC.
@@ -146,9 +173,22 @@ A short summary written at the end.
 }
 ```
 
-`status` is `success` (exit `0`), `invalid` (exit `3`) or `incomplete` (exit `1`).
+`status` is `success` (exit `0`), `invalid` (exit `3`), `incomplete` (exit `1`), `cancelled` (the studio stopped the run), `planned` (the plan checkpoint is waiting) or `prepared` (an optimize run is waiting for the provider choice).
 
 `layout` is `bulk` or `drive-folders`. `export` and `--resume` read it when `--layout` is not given. A `run.json` without it reads as `bulk`.
+
+A studio run adds optional fields.
+
+```json
+{
+  "origin": "agent",
+  "parent_run": null,
+  "revision": 0,
+  "edits": 0
+}
+```
+
+`origin` is `agent`, `human` or `optimize`. A human revision sets `parent_run` and a `revision` above zero. `edits` counts the fields changed by the operator. A run without the fields reads as an agent run.
 
 ## report.md
 

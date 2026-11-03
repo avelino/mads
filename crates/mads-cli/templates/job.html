@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Trabalho") }} · {{ job.kind }}</p>
+    <h1>{{ job.project_name }}</h1>
+    <p class="lede">
+      <span class="status status-{{ job.state_class }}">{{ chrome.t(job.state_label) }}</span>
+      <span class="muted"> · {{ chrome.t("iniciado") }} {{ job.started }}</span>
+      {% if job.has_finished %}<span class="muted"> · {{ chrome.t("terminado") }} {{ job.finished_text }}</span>{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/projects/{{ job.project_id }}">{{ chrome.t("Projeto") }}</a>
+    {% if job.has_run %}<a class="button primary" href="/runs/{{ job.run_id_text }}">{{ chrome.t("Ver execução") }}</a>{% endif %}
+  </div>
+</section>
+
+{% if job.has_error %}
+<div class="notice error">
+  <strong>{{ chrome.t("A execução falhou.") }}</strong>
+  <p>{{ job.error_text }}</p>
+  {% if job.has_error %}
+  <p><a class="button" href="/settings/connections">{{ chrome.t("Configurar chave") }}</a></p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="panel">
+  <div class="section-head">
+    <h2>{{ chrome.t("Ao vivo") }}</h2>
+    <button class="button danger" type="button" data-cancel-job="/api/jobs/{{ job.id }}/cancel">{{ chrome.t("Parar") }}</button>
+  </div>
+  <div class="timeline" data-stream="/api/jobs/{{ job.id }}/events" data-job="{{ job.id }}" data-last="0" data-run="{{ job.run_id_text }}"></div>
+  <p class="muted small" data-job-hint>{{ chrome.t("Os eventos aparecem aqui. Se a conexão cair, recarregue a página.") }}</p>
+</div>
+{% endblock %}

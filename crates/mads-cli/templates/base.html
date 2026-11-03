@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="{{ chrome.lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ chrome.csrf }}">
+  <title>{{ title }} · mads studio</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css?v=20261024b">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">mads <span>studio</span></a>
+    <nav class="nav" aria-label="{{ chrome.t("Principal") }}">
+      <a href="/" class="nav-link{% if chrome.active == "projects" %} is-active{% endif %}">{{ chrome.t("Projetos") }}</a>
+      <a href="/jobs" class="nav-link{% if chrome.active == "jobs" %} is-active{% endif %}">{{ chrome.t("Jobs") }}</a>
+      <a href="/settings/connections" class="nav-link{% if chrome.active == "connections" %} is-active{% endif %}">{{ chrome.t("Conexões") }}</a>
+    </nav>
+    <div class="topbar-right">
+      <label class="lang">
+        <select data-language aria-label="{{ chrome.t("Idioma") }}">
+          <option value="pt-BR"{% if chrome.lang == "pt-BR" %} selected{% endif %}>Português (BR)</option>
+          <option value="en"{% if chrome.lang == "en" %} selected{% endif %}>English</option>
+        </select>
+      </label>
+      {% if chrome.project_name != "" %}
+      <a class="crumb" href="/">{{ chrome.project_name }}</a>
+      {% endif %}
+      {% if chrome.run_id != "" %}
+      <span class="crumb-sep">/</span>
+      <span class="crumb mono">{{ chrome.run_id }}</span>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <span>mads studio</span>
+    <span class="muted">{{ chrome.t("Os arquivos ficam no seu computador. Nada é enviado ao Google Ads.") }}</span>
+  </footer>
+  <script src="/assets/app.js?v=20261024b" defer></script>
+</body>
+</html>

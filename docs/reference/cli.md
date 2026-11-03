@@ -13,6 +13,7 @@ mads [OPTIONS] <COMMAND>
 | `optimize` | Optimize a finished run that is live in Google Ads, from the reports exported there. |
 | `export` | Validate and export a finished run again, without calling any model. |
 | `providers` | List the providers and whether each one is ready. |
+| `serve` | Serve mads studio in the browser. |
 | `help` | Print help for the program or a subcommand. |
 
 ## Global options
@@ -37,6 +38,33 @@ They work before or after the subcommand.
 | `github` | `plain`, plus `::error` and `::warning` annotations for validation issues, plus `report.md` appended to `$GITHUB_STEP_SUMMARY`. |
 
 Every format also appends each event to `events.ndjson` in the run directory.
+
+## mads serve
+
+```text
+mads serve [OPTIONS]
+```
+
+Starts the local browser interface. See [mads studio](../guides/mads-studio.md).
+
+| Flag | Env | Default | Description |
+|---|---|---|---|
+| `--root <ROOT>` | `MADS_ROOT` | `~/mads` | Directory with one subdirectory per project. |
+| `--bind <BIND>` | | `127.0.0.1` | Address to bind. Non-loopback needs `--allow-remote` and `--token-file`. |
+| `--port <PORT>` | | `4780` | Port to bind. A busy port stops the server with a message. |
+| `--open` | | off | Open the browser after start. |
+| `--allow-remote` | | off | Allow a non-loopback bind. Requires a token file. |
+| `--token-file <TOKEN_FILE>` | | | File with at least 32 characters. The token is printed when this flag is absent. |
+
+The server prints the local address. With no token file the address carries a one-time token in the fragment.
+
+```text
+mads studio: http://127.0.0.1:4780/#<token>
+```
+
+The global `--format` flag is accepted and ignored. Serve writes its progress to stderr and the address to stdout.
+
+Exit codes are `0` after Ctrl-C, `1` when the bind fails or the root cannot be created, and `2` for bad flags, a missing token file, a short token or a non-loopback bind without the token.
 
 ## mads init
 

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="empty error-page">
+  <p class="eyebrow">{{ title }}</p>
+  <h1>{{ chrome.t("Não encontrado") }}</h1>
+  <p>{{ message }}</p>
+  <p><a class="button" href="/">{{ chrome.t("Voltar aos projetos") }}</a></p>
+</section>
+{% endblock %}

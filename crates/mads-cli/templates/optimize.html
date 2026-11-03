@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Otimizar") }} · {{ run.summary.id }}</p>
+    <h1>{{ chrome.t("Relatórios do Google Ads") }}</h1>
+    <p class="lede">{{ chrome.t("Suba os CSVs exportados da conta que já está no ar. Nada é enviado ao Google. A execução original não muda.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Voltar") }}</a>
+  </div>
+</section>
+
+{% if run.summary.status != "success" && run.summary.status != "invalid" %}
+<div class="notice warn">
+  <strong>{{ chrome.t("Esta execução não está concluída.") }}</strong>
+  <p>{{ chrome.t("A otimização precisa de uma execução com todas as missões terminadas.") }}</p>
+</div>
+{% else %}
+<form class="panel form" data-optimize-form data-action="/api/runs/{{ run.summary.id }}/optimize/prepare">
+  <div class="form-grid">
+    <label class="full">{{ chrome.t("Arquivos CSV") }}
+      <input name="reports" type="file" accept=".csv,text/csv" multiple required>
+    </label>
+  </div>
+  <p class="small muted">{{ chrome.t("Aceita termos de busca, palavras-chave, campanhas, campanhas por dia e anúncios. Até 20 arquivos e 20 MB.") }}</p>
+  <details class="anchor-details">
+    <summary>{{ chrome.t("Como exportar os relatórios do Google Ads") }}</summary>
+    <ol class="small">
+      <li>{{ chrome.t("No Google Ads, abra o menu Relatórios (Reporting).") }}</li>
+      <li>{{ chrome.t("Escolha Campanhas, Palavras-chave, Termos de busca ou Anúncios e baixe cada um como CSV.") }}</li>
+      <li>{{ chrome.t("Use uma janela só para todos os relatórios; janelas diferentes geram um aviso.") }}</li>
+      <li>{{ chrome.t("O relatório de campanhas por dia vem de Campanhas com a coluna Dia.") }}</li>
+    </ol>
+  </details>
+  <div class="notice warn">
+    <strong>{{ chrome.t("O digest aparece antes de gastar tokens.") }}</strong>
+    {{ chrome.t("Você revisa os números e só então inicia as missões.") }}
+  </div>
+  <div class="form-actions">
+    <button class="button primary" type="submit">{{ chrome.t("Ler relatórios") }}</button>
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Cancelar") }}</a>
+    <span class="form-error error" data-form-error role="alert"></span>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

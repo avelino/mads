@@ -15,7 +15,7 @@ pub async fn list_models(
     base_url: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let request_builder = match provider {
-        "anthropic" => reqwest::Client::new()
+        "anthropic" => guarded_client()
             .get("https://api.anthropic.com/v1/models?limit=1000")
             .header("x-api-key", key.ok_or("ANTHROPIC_API_KEY is missing")?)
             .header("anthropic-version", "2023-06-01"),
@@ -39,7 +39,7 @@ pub async fn list_models(
             "https://api.x.ai/v1/models",
             key.ok_or("XAI_API_KEY is missing")?,
         ),
-        "gemini" => reqwest::Client::new()
+        "gemini" => guarded_client()
             .get("https://generativelanguage.googleapis.com/v1beta/models")
             .header("x-goog-api-key", key.ok_or("GEMINI_API_KEY is missing")?),
         "openai-compat" => {
@@ -59,7 +59,7 @@ pub async fn list_models(
                 .filter(|base| !base.is_empty())
                 .unwrap_or("http://127.0.0.1:11434");
             check_base_url(base)?;
-            reqwest::Client::new().get(format!("{}/api/tags", base.trim_end_matches('/')))
+            guarded_client().get(format!("{}/api/tags", base.trim_end_matches('/')))
         }
         p if p.ends_with("-cli") => {
             return Err(format!(
@@ -111,12 +111,15 @@ pub fn default_endpoint(provider: &str) -> Option<&'static str> {
 /// (the same escape hatch the site fetcher honors). A public hostname that
 /// resolves private is still possible; the single-operator threat model
 /// accepts that.
-fn check_base_url(base: &str) -> Result<(), String> {
+pub fn check_base_url(base: &str) -> Result<(), String> {
     let url =
         reqwest::Url::parse(base).map_err(|_| "the endpoint must be a valid URL".to_string())?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err("the endpoint must be an http(s) URL".into());
     }
+    // `host_str` renders IPv6 in brackets, so the literal is unwrapped before
+    // it is parsed; an IPv4-mapped `::ffff:a.b.c.d` is judged as the IPv4 it
+    // reaches on dual-stack hosts.
     let host = url.host_str().unwrap_or_default().trim_end_matches('.');
     if host.is_empty() {
         return Err("the endpoint has no host".into());
@@ -124,22 +127,23 @@ fn check_base_url(base: &str) -> Result<(), String> {
     if std::env::var_os("MADS_ALLOW_PRIVATE_HOSTS").is_some_and(|v| !v.is_empty()) {
         return Ok(());
     }
-    let blocked = host == "localhost"
-        || host.ends_with(".localhost")
-        || host.ends_with(".local")
-        || host.ends_with(".internal")
-        || host.parse::<std::net::IpAddr>().is_ok_and(|ip| match ip {
-            std::net::IpAddr::V4(v4) => {
-                v4.is_loopback()
-                    || v4.is_private()
-                    || v4.is_link_local()
-                    || v4.is_unspecified()
-                    || v4.is_broadcast()
-            }
-            std::net::IpAddr::V6(v6) => {
-                v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local()
-            }
-        });
+    let blocked = if let Some(v6_lit) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        v6_lit
+            .parse::<std::net::Ipv6Addr>()
+            .map(blocked_v6)
+            // A bracketed host that is not an IPv6 literal is not a name the
+            // URL parser produces; refuse it instead of trusting it.
+            .unwrap_or(true)
+    } else {
+        host == "localhost"
+            || host.ends_with(".localhost")
+            || host.ends_with(".local")
+            || host.ends_with(".internal")
+            || host.parse::<std::net::IpAddr>().is_ok_and(|ip| match ip {
+                std::net::IpAddr::V4(v4) => blocked_v4(v4),
+                std::net::IpAddr::V6(v6) => blocked_v6(v6),
+            })
+    };
     if blocked {
         return Err(
             "the endpoint cannot point to a private address; set MADS_ALLOW_PRIVATE_HOSTS to allow it"
@@ -149,8 +153,33 @@ fn check_base_url(base: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn blocked_v4(v4: std::net::Ipv4Addr) -> bool {
+    v4.is_loopback()
+        || v4.is_private()
+        || v4.is_link_local()
+        || v4.is_unspecified()
+        || v4.is_broadcast()
+}
+
+fn blocked_v6(v6: std::net::Ipv6Addr) -> bool {
+    match v6.to_ipv4_mapped() {
+        Some(v4) => blocked_v4(v4),
+        None => v6.is_loopback() || v6.is_unspecified() || v6.is_unique_local(),
+    }
+}
+
+/// These clients talk to a host `check_base_url` cleared, but a public host
+/// can still answer a redirect to a private address: redirects are never
+/// followed here, so the answer is judged on the original host.
+fn guarded_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("a reqwest client with redirects disabled always builds")
+}
+
 fn bearer_get(url: impl Into<String>, key: &str) -> reqwest::RequestBuilder {
-    reqwest::Client::new().get(url.into()).bearer_auth(key)
+    guarded_client().get(url.into()).bearer_auth(key)
 }
 
 /// Reads the id list from the three shapes providers use: OpenAI's `data[].id`,
@@ -224,6 +253,18 @@ mod tests {
         assert!(check_base_url("not a url").is_err());
         // Public endpoints pass; the request itself is what would fail offline.
         assert!(check_base_url("https://api.example.com/v1").is_ok());
+    }
+
+    #[test]
+    fn ipv6_endpoints_cannot_bypass_the_private_host_guard() {
+        assert!(
+            check_base_url("http://[::1]:8080").is_err(),
+            "IPv6 loopback must be refused"
+        );
+        assert!(
+            check_base_url("http://[::ffff:169.254.169.254]/v1").is_err(),
+            "an IPv4-mapped IPv6 address must be refused"
+        );
     }
 
     #[tokio::test]

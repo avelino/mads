@@ -154,22 +154,42 @@ pub fn create(
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or(Value::Null);
+    // Claim the revision number with an exclusive create: the exists() check
+    // and the mkdir are one step, so two concurrent reverts can never settle
+    // on the same -rN and delete each other's directory.
     let mut revision = 1u32;
-    let mut id = format!("{base_run_id}-r{revision}");
-    while project_dir.join("out").join(&id).exists() {
-        revision += 1;
+    let target;
+    loop {
         if revision > 99 {
             return Err("limite de revisões atingido".into());
         }
-        id = format!("{base_run_id}-r{revision}");
+        let candidate = project_dir
+            .join("out")
+            .join(format!("{base_run_id}-r{revision}"));
+        match fs::create_dir(&candidate) {
+            Ok(()) => {
+                target = candidate;
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => revision += 1,
+            Err(e) => return Err(e.to_string()),
+        }
     }
-    let target = project_dir.join("out").join(&id);
-    fs::create_dir_all(&target).map_err(|e| e.to_string())?;
-    for folder in ["input", "transcripts", "google-ads/editor/images"] {
-        // Images cost money: hard link them when the filesystem allows, so a
-        // revision does not duplicate every picture.
-        link_dir(&base.join(folder), &target.join(folder))?;
+    let id = format!("{base_run_id}-r{revision}");
+    for folder in ["input", "transcripts"] {
+        // Copies, not links: a resumed run appends to transcripts and rewrites
+        // input files, and a hard link would carry those writes into the base
+        // run through the shared inode.
+        copy_dir(&base.join(folder), &target.join(folder))?;
     }
+    // Images cost money: hard link them when the filesystem allows, so a
+    // revision does not duplicate every picture. A picture that is fetched
+    // again is written temp+rename (`write_atomic`), which replaces the link
+    // instead of rewriting the base run's file.
+    link_dir(
+        &base.join("google-ads/editor/images"),
+        &target.join("google-ads/editor/images"),
+    )?;
     let run = RunDir::open(&target).map_err(|e| e.to_string())?;
     workspace
         .save(&run.workspace_path())
@@ -346,6 +366,27 @@ fn link_dir(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
+    let Ok(entries) = fs::read_dir(from) else {
+        return Ok(());
+    };
+    fs::create_dir_all(to).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let target = to.join(entry.file_name());
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            copy_dir(&path, &target)?;
+        } else if meta.is_file() {
+            fs::copy(&path, &target)
+                .map_err(|e| format!("não foi possível copiar {}: {e}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -490,5 +531,87 @@ currency = "BRL"
         assert_eq!(edited.campaigns[0].daily_budget, Cents(5000));
         assert_eq!(records[0].before, json!(5000));
         assert_eq!(records[0].after, json!(5000));
+    }
+
+    const BUSINESS: &str = r#"
+[business]
+name = "Acme"
+url = "https://acme.com"
+language = "pt-BR"
+locations = ["Brazil"]
+goal = "vender"
+description = "Uma descrição com mais de vinte caracteres para o teste."
+[budget]
+daily = 50
+currency = "BRL"
+"#;
+
+    fn revision_project(dir: &tempfile::TempDir) -> std::path::PathBuf {
+        let project = dir.path().join("proj");
+        let base = project.join("out").join("base");
+        fs::create_dir_all(base.join("transcripts")).unwrap();
+        fs::write(
+            base.join("run.json"),
+            serde_json::to_vec(&json!({"layout": "bulk", "provider": "replay"})).unwrap(),
+        )
+        .unwrap();
+        fs::write(base.join("transcripts/plan.jsonl"), "base line\n").unwrap();
+        project
+    }
+
+    fn revision_workspace(dir: &tempfile::TempDir) -> mads_core::workspace::Workspace {
+        let business = dir.path().join("business.toml");
+        fs::write(&business, BUSINESS).unwrap();
+        mads_core::workspace::Workspace::new(load_input(&business).unwrap())
+    }
+
+    #[test]
+    fn writing_a_revision_transcript_does_not_change_the_base_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = revision_project(&dir);
+        let workspace = revision_workspace(&dir);
+        let (rev_id, _) = create(&project, "base", &workspace, &[]).unwrap();
+        assert!(rev_id.starts_with("base-r"));
+        // What DriverCtx::append_transcript does when the revision is resumed.
+        use std::io::Write;
+        let file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(
+                project
+                    .join("out")
+                    .join(&rev_id)
+                    .join("transcripts/plan.jsonl"),
+            )
+            .unwrap();
+        writeln!(&file, "revision line").unwrap();
+        drop(file);
+        assert_eq!(
+            fs::read_to_string(project.join("out/base/transcripts/plan.jsonl")).unwrap(),
+            "base line\n",
+            "the revision transcript is hard-linked to the base run: writing one rewrote the other"
+        );
+    }
+
+    #[test]
+    fn two_concurrent_reverts_pick_different_revision_numbers() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = revision_project(&dir);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let workspace = revision_workspace(&dir);
+                let barrier = std::sync::Arc::clone(&barrier);
+                let project = project.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    create(&project, "base", &workspace, &[]).unwrap().0
+                })
+            })
+            .collect();
+        let ids: Vec<String> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert_ne!(
+            ids[0], ids[1],
+            "two concurrent reverts created the same revision dir"
+        );
     }
 }

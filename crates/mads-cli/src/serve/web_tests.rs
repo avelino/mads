@@ -186,6 +186,57 @@ async fn send(state: &AppState, request: Request<Body>) -> Response {
     app(state.clone()).oneshot(request).await.unwrap()
 }
 
+/// The replay script in a request body only works with `MADS_ALLOW_REPLAY`
+/// set. Tests that POST one set it under this lock, so they cannot race the
+/// refusal test that needs it unset.
+static REPLAY_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+struct ReplayEnv {
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+
+impl ReplayEnv {
+    fn allow() -> Self {
+        let _guard = REPLAY_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("MADS_ALLOW_REPLAY", "1") };
+        Self { _guard }
+    }
+
+    fn deny() -> Self {
+        let _guard = REPLAY_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::remove_var("MADS_ALLOW_REPLAY") };
+        Self { _guard }
+    }
+}
+
+impl Drop for ReplayEnv {
+    fn drop(&mut self) {
+        unsafe { std::env::remove_var("MADS_ALLOW_REPLAY") };
+    }
+}
+
+/// Same pattern for `MADS_ALLOW_PRIVATE_HOSTS`: the cancellation test runs
+/// against a loopback endpoint and needs the escape hatch.
+static PRIVATE_HOSTS_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+struct PrivateHostsEnv {
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+
+impl PrivateHostsEnv {
+    fn allow() -> Self {
+        let _guard = PRIVATE_HOSTS_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe { std::env::set_var("MADS_ALLOW_PRIVATE_HOSTS", "1") };
+        Self { _guard }
+    }
+}
+
+impl Drop for PrivateHostsEnv {
+    fn drop(&mut self) {
+        unsafe { std::env::remove_var("MADS_ALLOW_PRIVATE_HOSTS") };
+    }
+}
+
 async fn body_text(response: Response) -> String {
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     String::from_utf8_lossy(&bytes).into_owned()
@@ -624,6 +675,7 @@ fn campaign_script(site: &str) -> serde_json::Value {
 
 #[tokio::test]
 async fn a_generate_job_runs_offline_and_writes_a_run() {
+    let _env = ReplayEnv::allow();
     let (temp, state) = fixture();
     let project = temp.path().join("mads/acme");
     let script = temp.path().join("script.json");
@@ -903,6 +955,7 @@ async fn the_draft_page_saves_business_fields() {
 
 #[tokio::test]
 async fn the_plan_checkpoint_stops_and_continue_finishes() {
+    let _env = ReplayEnv::allow();
     let (temp, state) = fixture();
     let script = temp.path().join("checkpoint.json");
     let value = json!({
@@ -985,6 +1038,9 @@ async fn wait_job(state: &AppState, job_id: &str) -> String {
 
 #[tokio::test]
 async fn a_job_can_be_cancelled_while_the_model_waits() {
+    // The model endpoint is a loopback listener, which the endpoint guard
+    // refuses unless the operator opted in.
+    let _env = PrivateHostsEnv::allow();
     let (_temp, state) = fixture();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -1313,4 +1369,119 @@ async fn the_jobs_index_lists_recent_jobs() {
     assert_eq!(response.status(), StatusCode::OK);
     let page = body_text(response).await;
     assert!(page.contains("Nenhum job") || page.contains("Jobs"));
+}
+
+#[tokio::test]
+async fn a_control_character_in_the_next_parameter_does_not_panic() {
+    let (_temp, state) = fixture();
+    let response = send(&state, get("/settings/language?lang=pt-BR&next=/%0a", true)).await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        !location.contains('\n') && !location.contains('\t'),
+        "Location carries a control character: {location:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_next_parameter_cannot_smuggle_an_absolute_redirect() {
+    let (_temp, state) = fixture();
+    let response = send(
+        &state,
+        get("/settings/language?lang=pt-BR&next=/%09/evil.com", true),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("/")
+        .to_string();
+    assert!(
+        location.chars().all(|c| !c.is_control()),
+        "Location carries a control character: {location:?}"
+    );
+    assert!(
+        !location.contains("evil.com"),
+        "Location must stay on this origin: {location:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_request_supplied_replay_script_is_refused() {
+    let _env = ReplayEnv::deny();
+    let (_temp, state) = fixture();
+    let response = send(
+        &state,
+        post_json(
+            "/api/projects/acme/runs",
+            json!({
+                "provider": "replay",
+                "script": "/etc/hosts",
+                "image_provider": "none",
+                "skip_url_check": true,
+                "plan_review": false,
+                "parallel": 1
+            }),
+            true,
+        ),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "the request body must not choose which file the server reads"
+    );
+}
+
+#[tokio::test]
+async fn a_cli_export_continues_the_event_sequence_of_the_existing_log() {
+    let (temp, _state) = fixture();
+    let run_dir = temp.path().join("mads/acme/out").join(RUN_ID);
+    // A real writer ends the log with a newline; the fixture does not, and an
+    // append without it would merge two events into one corrupt line.
+    let log = run_dir.join("events.ndjson");
+    let mut text = fs::read_to_string(&log).unwrap();
+    if !text.ends_with('\n') {
+        text.push('\n');
+        fs::write(&log, &text).unwrap();
+    }
+    let exit = crate::commands::export::run(
+        crate::cli::ExportArgs {
+            run_dir: run_dir.clone(),
+            skip_url_check: true,
+            max_ad_groups: 50,
+            layout: None,
+        },
+        crate::render::Format::Json,
+    )
+    .await
+    .unwrap();
+    // The studio fixture has no brand kit, so the export exits 3; the events
+    // were still recorded, which is what this test is about.
+    assert_eq!(
+        exit, 3,
+        "the fixture run must export the same way every time"
+    );
+    let text = fs::read_to_string(run_dir.join("events.ndjson")).unwrap();
+    let mut last = 0u64;
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let envelope: EventEnvelope = serde_json::from_str(line).unwrap();
+        assert!(
+            envelope.seq > last,
+            "events.ndjson is not monotonic after a CLI export on a studio log: seq {} after {}",
+            envelope.seq,
+            last
+        );
+        last = envelope.seq;
+    }
+    assert!(
+        last > 3,
+        "the export appended no events; the loop is vacuous"
+    );
 }

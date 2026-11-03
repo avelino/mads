@@ -170,6 +170,17 @@ impl Job {
     }
 
     fn finish(&self, state: JobState, error: Option<String>) {
+        // Finishing is final: a second `finish` (a repeated Stop on a job the
+        // task is already winding down) would drop the project flock and free
+        // the gate slot again while the task is still writing.
+        let already_finished = self
+            .state
+            .lock()
+            .map(|s| matches!(*s, JobState::Done | JobState::Failed | JobState::Cancelled))
+            .unwrap_or(false);
+        if already_finished {
+            return;
+        }
         crate::serve::audit::append(
             &self.project_dir,
             "job_finished",
@@ -282,17 +293,16 @@ impl Jobs {
             return false;
         };
         job.control.cancel();
-        let queued = job
-            .state
-            .lock()
-            .is_ok_and(|s| *s == JobState::Queued || *s == JobState::Cancelling);
+        // Only a queued job is finished right away: it has no task to observe
+        // the control. A cancelling job still has a live task holding the
+        // project flock and a gate slot, and only the task itself may finish
+        // it. The pending entry stays in the queue and is skipped when it drains.
+        let queued = job.state.lock().is_ok_and(|s| *s == JobState::Queued);
         if let Ok(mut state) = job.state.lock()
             && *state == JobState::Running
         {
             *state = JobState::Cancelling;
         }
-        // A queued job has no task to observe the control: finish it right away.
-        // The pending entry stays in the queue and is skipped when it drains.
         if queued {
             job.finish(JobState::Cancelled, None);
         }
@@ -538,10 +548,23 @@ impl Jobs {
         run_id: &str,
         options: ExportOptions,
     ) -> Result<JobView, JobError> {
+        self.start_export_with_lock(project, project_dir, run_id, options, None)
+    }
+
+    /// `start_export` for a caller that already holds the project lock, such
+    /// as the revert flow, which locks before creating the revision sibling.
+    pub fn start_export_with_lock(
+        &self,
+        project: &Project,
+        project_dir: &Path,
+        run_id: &str,
+        options: ExportOptions,
+        lock: Option<File>,
+    ) -> Result<JobView, JobError> {
         if self.active(&project.id) {
             return Err(JobError::Conflict);
         }
-        self.begin_export(project, project_dir, run_id, options, None)
+        self.begin_export(project, project_dir, run_id, options, lock)
     }
 
     fn begin_export(
@@ -708,11 +731,29 @@ impl GenerateOptions {
         if request.parallel.is_some_and(|p| p == 0) {
             return Err("parallel precisa ser maior que zero".into());
         }
+        let base_url = clean(request.base_url.clone());
+        // The model list checks the endpoint; the run must too, or the saved
+        // key travels as a Bearer header to whatever host the request names.
+        if let Some(base) = &base_url
+            && let Err(message) = mads_providers::check_base_url(base)
+        {
+            return Err(message);
+        }
+        let script = match &request.script {
+            Some(script) if replay_script_allowed() => Some(script.clone()),
+            Some(_) => {
+                return Err(
+                    "o provider replay é só para testes e demos offline; defina MADS_ALLOW_REPLAY=1 no servidor para liberá-lo"
+                        .into(),
+                );
+            }
+            None => None,
+        };
         Ok(Self {
             provider: request.provider.trim().to_string(),
             model: clean(request.model.clone()),
             plan_model: clean(request.plan_model.clone()),
-            base_url: clean(request.base_url.clone()),
+            base_url,
             image_provider: request
                 .image_provider
                 .clone()
@@ -729,7 +770,7 @@ impl GenerateOptions {
             max_images: request.max_images.unwrap_or(40),
             skip_url_check: request.skip_url_check.unwrap_or(false),
             plan_review: request.plan_review,
-            script: request.script.clone(),
+            script,
             keys: std::collections::BTreeMap::new(),
             control: RunControl::default(),
         })
@@ -837,6 +878,18 @@ impl InitMeta {
         if self.provider.trim().is_empty() {
             return Err("escolha um provedor".into());
         }
+        let base_url = self
+            .base_url
+            .clone()
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty());
+        // Same guard as a generate run: the init also sends the saved key to
+        // the endpoint the request names.
+        if let Some(base) = &base_url
+            && let Err(message) = mads_providers::check_base_url(base)
+        {
+            return Err(message);
+        }
         Ok(InitOptions {
             start_url: self.start_url.trim().to_string(),
             daily,
@@ -847,11 +900,7 @@ impl InitMeta {
                 .clone()
                 .map(|m| m.trim().to_string())
                 .filter(|m| !m.is_empty()),
-            base_url: self
-                .base_url
-                .clone()
-                .map(|u| u.trim().to_string())
-                .filter(|u| !u.is_empty()),
+            base_url,
             catalog_limit: self.catalog_limit,
             web_search: self.web_search,
             focus: self.focus,
@@ -1008,20 +1057,7 @@ type JobTask =
 /// log. Without it a resume or export restarts at 1 and the SSE dedup on the
 /// reader side silently drops every live event.
 fn log_base(path: &Path) -> u64 {
-    let Ok(text) = fs::read_to_string(path) else {
-        return 0;
-    };
-    let lines: Vec<&str> = text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    match lines
-        .last()
-        .and_then(|last| serde_json::from_str::<EventEnvelope>(last).ok())
-    {
-        Some(envelope) => envelope.seq,
-        None => lines.len() as u64,
-    }
+    mads_core::events::last_seq_in_log(path)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1268,7 +1304,7 @@ fn prepare_run(project_dir: &Path, input: &mut Input) -> Result<RunDir, String> 
     Ok(run)
 }
 
-fn lock_project(project_dir: &Path) -> Result<File, String> {
+pub(crate) fn lock_project(project_dir: &Path) -> Result<File, String> {
     let dir = project_dir.join(".mads");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut file = OpenOptions::new()
@@ -1296,6 +1332,13 @@ fn clean(value: Option<String>) -> Option<String> {
     value
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
+}
+
+/// The replay provider reads a script path supplied by the request body, which
+/// would make the studio a server-side file reader. It stays behind an
+/// explicit operator opt-in.
+fn replay_script_allowed() -> bool {
+    std::env::var_os("MADS_ALLOW_REPLAY").is_some_and(|v| !v.is_empty())
 }
 
 fn clock() -> String {
@@ -1372,6 +1415,111 @@ mod tests {
         request.layout = None;
         request.provider = " ".into();
         assert!(GenerateOptions::from_request(&request).is_err());
+    }
+
+    #[test]
+    fn a_second_stop_on_a_running_job_keeps_the_project_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("acme");
+        fs::create_dir_all(&project).unwrap();
+        let lock = lock_project(&project).unwrap();
+        let job = new_job(
+            &project,
+            "acme",
+            "acme",
+            "generate",
+            None,
+            dir.path().join("events.ndjson"),
+            Some(lock),
+            RunControl::default(),
+        )
+        .unwrap();
+        // new_job hands the job over in Running: the task is live and writing.
+        let jobs = Jobs::default();
+        jobs.inner
+            .lock()
+            .unwrap()
+            .insert(job.id.clone(), Arc::clone(&job));
+        assert!(jobs.cancel(&job.id));
+        assert_eq!(*job.state.lock().unwrap(), JobState::Cancelling);
+        assert!(
+            job._lock.lock().unwrap().is_some(),
+            "the first Stop must leave the flock with the still-writing task"
+        );
+        assert!(jobs.cancel(&job.id), "the second Stop must be accepted");
+        assert!(
+            job._lock.lock().unwrap().is_some(),
+            "the second Stop released the project flock while the task was still writing"
+        );
+        assert_eq!(*job.state.lock().unwrap(), JobState::Cancelling);
+    }
+
+    #[test]
+    fn a_stop_on_a_queued_job_finishes_it_right_away() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("acme");
+        fs::create_dir_all(&project).unwrap();
+        let lock = lock_project(&project).unwrap();
+        let job = new_job(
+            &project,
+            "acme",
+            "acme",
+            "generate",
+            None,
+            dir.path().join("events.ndjson"),
+            Some(lock),
+            RunControl::default(),
+        )
+        .unwrap();
+        job.set_state(JobState::Queued);
+        let jobs = Jobs::default();
+        jobs.inner
+            .lock()
+            .unwrap()
+            .insert(job.id.clone(), Arc::clone(&job));
+        assert!(jobs.cancel(&job.id));
+        assert_eq!(*job.state.lock().unwrap(), JobState::Cancelled);
+        assert!(job._lock.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_run_with_a_private_base_url_is_refused() {
+        // An operator can opt into private endpoints; without the opt-in the
+        // refusal is the behavior under test.
+        let var = std::env::var_os("MADS_ALLOW_PRIVATE_HOSTS");
+        if let Some(var) = var {
+            unsafe { std::env::remove_var("MADS_ALLOW_PRIVATE_HOSTS") };
+            assert_refusal();
+            unsafe { std::env::set_var("MADS_ALLOW_PRIVATE_HOSTS", var) };
+        } else {
+            assert_refusal();
+        }
+
+        fn assert_refusal() {
+            let request = GenerateRequest {
+                provider: "openai-compat".into(),
+                model: None,
+                plan_model: None,
+                base_url: Some("http://169.254.169.254/v1".into()),
+                image_provider: None,
+                image_model: None,
+                layout: None,
+                parallel: None,
+                max_turns: None,
+                timeout: None,
+                max_tokens: None,
+                retries: None,
+                max_ad_groups: None,
+                max_images: None,
+                skip_url_check: None,
+                plan_review: true,
+                script: None,
+            };
+            assert!(
+                GenerateOptions::from_request(&request).is_err(),
+                "a run must not send the saved key as Bearer to a private address"
+            );
+        }
     }
 
     #[test]

@@ -910,6 +910,12 @@ pub async fn revert_revision(
         ..store::Project::default()
     };
     let project_dir = state.root().join(&project_id);
+    // Lock before creating the sibling, like `start_revision` does: two
+    // concurrent reverts on the same base would race for the -rN number.
+    let lock = match jobs::lock_project(&project_dir) {
+        Ok(lock) => lock,
+        Err(message) => return bad_request(message),
+    };
     let (run_id, _) = match revisions::create(&project_dir, &parent_id, &parent, &[]) {
         Ok(value) => value,
         Err(message) => return bad_request(message),
@@ -926,7 +932,7 @@ pub async fn revert_revision(
     };
     match state
         .jobs
-        .start_export(&project, &project_dir, &run_id, options)
+        .start_export_with_lock(&project, &project_dir, &run_id, options, Some(lock))
     {
         Ok(job) => (
             StatusCode::ACCEPTED,
@@ -1331,6 +1337,22 @@ pub struct LangQuery {
     next: Option<String>,
 }
 
+/// `next` lands verbatim in a `Location` header, so only an origin-relative
+/// path is accepted. Control characters are rejected (`/%09/evil.com` reads as
+/// `//evil.com` in browsers, `/%0a` is not a header value at all), and the
+/// value must parse as a `Uri` with no scheme and no authority, so nothing
+/// that could point off-origin survives.
+fn safe_next(value: &str) -> bool {
+    if !value.starts_with('/') || value.starts_with("//") || value.starts_with("/\\") {
+        return false;
+    }
+    if value.chars().any(|c| c.is_control()) {
+        return false;
+    }
+    axum::http::Uri::try_from(value)
+        .is_ok_and(|uri| uri.scheme().is_none() && uri.authority().is_none())
+}
+
 pub async fn set_language(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1344,9 +1366,7 @@ pub async fn set_language(
     state.auth.set_language(&headers, lang);
     let next = query
         .next
-        .filter(|value| {
-            value.starts_with('/') && !value.starts_with("//") && !value.starts_with("/\\")
-        })
+        .filter(|value| safe_next(value))
         .unwrap_or_else(|| "/".into());
     let mut response = axum::response::Redirect::to(&next).into_response();
     if let Ok(cookie) = HeaderValue::from_str(&crate::serve::i18n::cookie(lang)) {

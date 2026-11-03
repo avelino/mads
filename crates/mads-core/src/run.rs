@@ -801,7 +801,11 @@ async fn conclude(
         cancelled = true;
     }
 
-    remove_stale_csvs(&run.platform_dir());
+    // A cancelled run produced no files, and wiping the stale set would delete
+    // what an earlier, finished export of the same run directory left behind.
+    if !cancelled {
+        remove_stale_csvs(&run.platform_dir());
+    }
     for file in &fin.csv {
         let path = run.platform_dir().join(&file.name);
         if let Some(parent) = path.parent() {
@@ -1114,6 +1118,32 @@ mod tests {
         );
         assert_eq!(second.run_dir, first.run_dir);
         assert!(second.run_dir.join("google-ads/1-campaign.csv").exists());
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_resume_keeps_the_previously_exported_csvs() {
+        let dir = tempfile::tempdir().unwrap();
+        let (first, _) = run(cfg(&dir), full_script(), web(&[])).await;
+        assert_eq!(first.exit_code, 0);
+        let csv = first.run_dir.join(PLATFORM_DIR).join("1-campaign.csv");
+        assert!(csv.is_file());
+
+        // Stop pressed before the url check: the control is already cancelled
+        // when the resume starts, so the export phase never produces files.
+        let mut resume = cfg(&dir);
+        resume.run_dir = Some(first.run_dir.clone());
+        resume.control.cancel();
+        let (second, _) = run(resume, full_script(), web(&[])).await;
+        assert_eq!(second.run_dir, first.run_dir);
+        assert_eq!(second.exit_code, 1);
+        let run_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(second.run_dir.join("run.json")).unwrap())
+                .unwrap();
+        assert_eq!(run_json["status"], "cancelled");
+        assert!(
+            csv.is_file(),
+            "a cancelled resume deleted the CSVs the earlier run exported"
+        );
     }
 
     #[tokio::test]

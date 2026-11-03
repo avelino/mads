@@ -129,6 +129,27 @@ impl EventSink {
     }
 }
 
+/// The seq a new writer appending to `path` must continue from: the last one
+/// already in the log. A missing or empty log starts at 0. A last line that
+/// does not parse (a writer that crashed mid-line) falls back to the line
+/// count, which is the next free sequence number for a well-formed log.
+pub fn last_seq_in_log(path: &std::path::Path) -> u64 {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return 0;
+    };
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    match lines
+        .last()
+        .and_then(|last| serde_json::from_str::<EventEnvelope>(last).ok())
+    {
+        Some(envelope) => envelope.seq,
+        None => lines.len() as u64,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

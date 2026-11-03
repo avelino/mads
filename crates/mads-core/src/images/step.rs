@@ -190,7 +190,10 @@ fn write_file(dir: &Path, rel: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    // temp + rename, never truncate in place: revisions hard-link these files,
+    // and an in-place write would go through the shared inode and rewrite the
+    // base run's picture too.
+    crate::run::write_atomic(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
 }
 

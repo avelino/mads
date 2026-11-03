@@ -111,6 +111,10 @@ pub(crate) async fn execute(
     format: Format,
 ) -> anyhow::Result<i32> {
     let selection = args.agent.selection();
+    // A `--resume` appends to the run's events.ndjson: continue the sequence
+    // already there, or the reader-side `Last-Event-ID` dedup drops every new
+    // event. A fresh run directory has no log, so the base is 0.
+    let base = mads_core::events::last_seq_in_log(&run_dir.join("events.ndjson"));
     let mut cfg = RunConfig::new(args.out.clone());
     cfg.run_dir = Some(run_dir);
     cfg.parallel = args.parallel;
@@ -126,7 +130,7 @@ pub(crate) async fn execute(
     cfg.model = selection.model;
 
     let web = Arc::new(WebClient::new().context("could not start the HTTP client")?);
-    let (events, rx) = EventSink::channel();
+    let (events, rx) = EventSink::channel_from(base);
     let printer = tokio::spawn(pump(rx, format));
     let result = generate(input, drivers, web, cfg, events).await;
     printer.await.context("event printer stopped")?;

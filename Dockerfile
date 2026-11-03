@@ -33,14 +33,25 @@ FROM alpine:3.24
 
 # Node and npm bring the three agent CLIs the cli providers drive. claude and
 # gemini are Node programs; codex ships a musl binary in its npm package.
+# The versions are pinned: an image built next month must not silently ship
+# different agents than the one built today.
 RUN apk add --no-cache ca-certificates nodejs npm \
  && npm install -g \
-      @anthropic-ai/claude-code \
-      @openai/codex \
-      @google/gemini-cli \
+      @anthropic-ai/claude-code@2.1.317 \
+      @openai/codex@0.166.0 \
+      @google/gemini-cli@0.66.0 \
  && npm cache clean --force
 
 COPY --from=build /src/target/release/mads /usr/local/bin/mads
+
+# Not root: the process runs next to the stored provider keys and login state,
+# so it gets its own unprivileged account. UID 1000 matches the first regular
+# user on most Linux hosts, which keeps bind-mounted project folders writable.
+RUN addgroup -S mads && adduser -S -u 1000 -G mads mads \
+ && mkdir -p /home/mads /work \
+ && chown mads:mads /home/mads /work
+USER mads
+ENV HOME=/home/mads
 
 # Mount the project here: docker run -v "$PWD:/work" ghcr.io/avelino/mads generate ...
 WORKDIR /work

@@ -12,6 +12,7 @@ This page explains what the local studio exposes and how to keep the keys and th
 - Mutations are limited to 120 per minute per server process.
 - Every response carries a strict Content Security Policy, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
 - File reads are sandboxed to the run directory. Paths with `..`, absolute paths and symlinks outside the root are rejected.
+- Endpoint URLs (the base URL of `openai-compat`, `ollama` and any provider override) must be public http(s) hosts. Loopback, private, link-local and IPv4-mapped addresses are refused, and the model requests never follow redirects. This keeps the server from becoming a proxy into the network it runs on. To point the studio at a provider on your own machine (ollama, LiteLLM and the like), start the server with `MADS_ALLOW_PRIVATE_HOSTS=1`.
 
 A local website cannot start a run or read a project without the session cookie and the CSRF token.
 

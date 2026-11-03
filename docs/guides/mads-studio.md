@@ -34,7 +34,7 @@ Stop the server with Ctrl-C.
 
 Open **New project**. The form asks for the business name, the site, the daily budget, the currency, the provider and the model.
 
-The provider select lists only the providers that are configured in **Connections** (or present in the environment). When you pick one, the form asks the provider's own API for its model list and offers the ids in the model field; typing an id by hand always works. The endpoint field comes prefilled with the provider's documented default (or `MADS_BASE_URL` for `openai-compat`, when the server has one) and stays editable; a value you typed is never overwritten.
+The provider select lists only the providers that are configured in **Connections** (or present in the environment). When you pick one, the form asks the provider's own API for its model list and offers the ids in the model field; typing an id by hand always works. The endpoint field comes prefilled with the provider's documented default (or `MADS_BASE_URL` for `openai-compat`, when the server has one) and stays editable; a value you typed is never overwritten. The endpoint must be a public host: a local one (ollama on `127.0.0.1`, LiteLLM on the LAN) only works when the server itself was started with `MADS_ALLOW_PRIVATE_HOSTS=1`.
 
 **Study site** runs `mads init`. The agent reads the site, may search the web and writes `business.toml`, `catalog.csv` and `research.md`. The job page shows the tool calls and the token use.
 

@@ -227,10 +227,9 @@ fn api_drivers(sel: &ProviderSelection, provider: &str) -> Result<Drivers, Provi
                 .api_key
                 .clone()
                 .or_else(|| std::env::var("MADS_API_KEY").ok().filter(|k| !k.is_empty()));
-            GenaiChatModel::openai_compat(base, m, key)
+            GenaiChatModel::openai_compat(base, m, key)?
         } else {
-            GenaiChatModel::for_provider_with_key(provider, m, sel.api_key.as_deref())
-                .ok_or_else(|| ProviderError::NotAvailable(provider.into()))?
+            GenaiChatModel::for_provider_with_key(provider, m, sel.api_key.as_deref())?
         };
         Ok(Arc::new(LoopDriver::new(Arc::new(chat))))
     };

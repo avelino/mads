@@ -11,7 +11,7 @@ The plan agent picks a format for each campaign. Search stays the default. An im
 | `search` | Google search results, text only | `manual_cpc` | People already search for what you sell. |
 | `demand_gen` | YouTube, Discover and Gmail feeds | `maximize_clicks`, or `maximize_conversions` with tracking | Demand has to be created and the product shows well in a picture. |
 | `performance_max` | Search, YouTube, Display, Discover, Gmail and Maps | `maximize_conversions` | `conversion_tracking = true` and the budget lets Google learn. |
-| `app_installs` | Google Play or App Store, YouTube, Search and Display | `maximize_conversions` | The goal is installs and `business.toml` has `[app]`. |
+| `app_installs` | Google Play or App Store, YouTube, Search and Display | `maximize_conversions` | The goal is installs and `business.toml` has an `[app]`. |
 
 An App campaign needs `[app]` instead of a logo: Google shows the app's name and icon from the store, and every ad links to the store page. `mads init` writes `[app]` when the site links to its app on Google Play or the App Store.
 
@@ -20,6 +20,22 @@ An App campaign needs `[app]` instead of a logo: Google shows the app's name and
 store = "google_play"   # or "app_store"
 id = "com.vinellu.app"  # the package name, or the numeric App Store id
 ```
+
+### Android and iOS
+
+An App campaign promotes one app. When the app is on both stores, write one `[[app]]` per store and the plan creates one App campaign for each, with its own store page, budget and `App campaign store` column in the Editor file.
+
+```toml
+[[app]]
+store = "google_play"
+id = "com.vinellu.app"
+
+[[app]]
+store = "app_store"
+id = "6751919708"
+```
+
+The plan splits the app budget between the two by the cost per install of each store when the reports show it. A store with no history gets a test share of at most 30 percent of the app budget. See [Optimize a live account](optimize.md). Two campaigns for one store are refused (`E30`).
 
 For an image campaign the agent writes the texts of each asset group and one brief per picture. mads then draws the pictures, crops them to Google's sizes and writes the whole account, Search included, into one Google Ads Editor file.
 
@@ -57,7 +73,7 @@ Replace the file with your real logo when the downloaded one is wrong. It must b
 
 ```bash
 export GEMINI_API_KEY=...   # gemini-2.5-flash-image by default
-export OPENAI_API_KEY=...   # gpt-image-1 by default
+export OPENAI_API_KEY=...   # gpt-image-2 by default
 ```
 
 `--image-provider auto` (the default) uses Gemini when `GEMINI_API_KEY` is set, then OpenAI when `OPENAI_API_KEY` is set, else no image model. Pick one with `--image-provider gemini` or `--image-provider openai`, a model with `--image-model`, or turn images off with `--image-provider none`.

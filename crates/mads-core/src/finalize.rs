@@ -234,7 +234,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
-            app: None,
+            apps: Vec::new(),
             google_ads: Default::default(),
             business: Business {
                 name: "Vinellu".into(),
@@ -557,6 +557,7 @@ mod tests {
     fn image_campaign(kind: CampaignKind, name: &str, slug: &str) -> Campaign {
         let group = empty_asset_group("group");
         Campaign {
+            app_store: None,
             name: name.into(),
             slug: slug.into(),
             kind,
@@ -648,7 +649,7 @@ mod tests {
 
         let mut input = reference_input(&account);
         input.budget.daily = Cents(5000);
-        input.app = None;
+        input.apps.clear();
         input.google_ads.app_id = "com.vinellu.app".into();
         let (events, _rx) = EventSink::channel();
 

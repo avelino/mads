@@ -42,7 +42,8 @@ struct RawFile {
     campaigns: Option<RawCampaigns>,
     design: Option<RawResearch>,
     focus: Option<RawFocus>,
-    app: Option<App>,
+    #[serde(default, deserialize_with = "apps_or_one")]
+    app: Vec<App>,
     #[serde(default)]
     google_ads: RawGoogleAds,
 }
@@ -158,11 +159,21 @@ impl ExportStatus {
 }
 
 /// Store of the app an `app_installs` campaign promotes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AppStore {
     GooglePlay,
     AppStore,
+}
+
+impl AppStore {
+    /// The value `business.toml` and the plan use for this store.
+    pub fn key(self) -> &'static str {
+        match self {
+            AppStore::GooglePlay => "google_play",
+            AppStore::AppStore => "app_store",
+        }
+    }
 }
 
 /// `[app]`: the app an `app_installs` campaign promotes.
@@ -220,6 +231,101 @@ impl App {
             _ => None,
         }
     }
+}
+
+/// The app of `store`, or the only app when no store is named.
+fn find_app(apps: &[App], store: Option<AppStore>) -> Option<&App> {
+    match (store, apps) {
+        (Some(store), _) => apps.iter().find(|a| a.store == store),
+        (None, [only]) => Some(only),
+        (None, _) => None,
+    }
+}
+
+impl Input {
+    /// The app a campaign promotes. `None` when `store` is not among the apps, or when no store is
+    /// named and there are two apps.
+    pub fn app_for(&self, store: Option<AppStore>) -> Option<&App> {
+        find_app(&self.apps, store)
+    }
+}
+
+impl InputFile {
+    /// See [`Input::app_for`].
+    pub fn app_for(&self, store: Option<AppStore>) -> Option<&App> {
+        find_app(&self.apps, store)
+    }
+}
+
+/// `[app]` is one app, `[[app]]` a list, and an older `workspace.json` has `null` or one object.
+fn apps_or_one<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<App>, D::Error> {
+    use serde::de::{
+        self, Deserialize, value::MapAccessDeserializer, value::SeqAccessDeserializer,
+    };
+
+    struct Apps;
+    impl<'de> de::Visitor<'de> for Apps {
+        type Value = Vec<App>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("an app, or a list of apps")
+        }
+        fn visit_unit<E: de::Error>(self) -> Result<Vec<App>, E> {
+            Ok(Vec::new())
+        }
+        fn visit_none<E: de::Error>(self) -> Result<Vec<App>, E> {
+            Ok(Vec::new())
+        }
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<Vec<App>, D2::Error> {
+            d.deserialize_any(Apps)
+        }
+        fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Vec<App>, A::Error> {
+            Ok(vec![App::deserialize(MapAccessDeserializer::new(map))?])
+        }
+        fn visit_seq<A: de::SeqAccess<'de>>(self, seq: A) -> Result<Vec<App>, A::Error> {
+            Vec::deserialize(SeqAccessDeserializer::new(seq))
+        }
+    }
+    d.deserialize_any(Apps)
+}
+
+/// Apps from `--app <store>=<id>` flags, for example `app_store=6751919708`. A flag replaces the
+/// apps of a file, so the list is checked like a `business.toml` one.
+pub fn apps_from_specs(specs: &[String]) -> Result<Vec<App>, InputError> {
+    let apps = specs
+        .iter()
+        .map(|spec| {
+            let (store, id) = spec
+                .split_once('=')
+                .ok_or_else(|| invalid("app.store", format!("'{spec}' needs <store>=<id>")))?;
+            let store = match store {
+                "google_play" => AppStore::GooglePlay,
+                "app_store" => AppStore::AppStore,
+                other => {
+                    let msg = format!("unknown store '{other}', use google_play or app_store");
+                    return Err(invalid("app.store", msg));
+                }
+            };
+            Ok(App {
+                store,
+                id: id.to_string(),
+            })
+        })
+        .collect::<Result<Vec<_>, InputError>>()?;
+    check_apps(apps)
+}
+
+/// Every app must be valid, and a store has one app.
+fn check_apps(apps: Vec<App>) -> Result<Vec<App>, InputError> {
+    let mut out: Vec<App> = Vec::new();
+    for app in apps {
+        if out.iter().any(|a| a.store == app.store) {
+            let msg =
+                "one app per store: a second app of the same store cannot have its own campaign";
+            return Err(invalid("app.store", msg));
+        }
+        out.extend(check_app(Some(app))?);
+    }
+    Ok(out)
 }
 
 fn check_app(app: Option<App>) -> Result<Option<App>, InputError> {
@@ -414,7 +520,7 @@ pub struct InputFile {
     /// DESIGN.md, relative to the TOML file.
     pub design_file: Option<String>,
     pub focus: Option<Focus>,
-    pub app: Option<App>,
+    pub apps: Vec<App>,
     pub google_ads: GoogleAds,
 }
 
@@ -440,9 +546,10 @@ pub struct Input {
     /// The offer the account advertises. None: the whole business.
     #[serde(default)]
     pub focus: Option<Focus>,
-    /// The app `app_installs` campaigns promote.
-    #[serde(default)]
-    pub app: Option<App>,
+    /// The apps `app_installs` campaigns promote, one per store. A `workspace.json` from before
+    /// there were two stores holds a single `app`.
+    #[serde(default, alias = "app", deserialize_with = "apps_or_one")]
+    pub apps: Vec<App>,
     /// Account details for `--layout drive-folders`. Absent in older `workspace.json` files.
     #[serde(default)]
     pub google_ads: GoogleAds,
@@ -586,7 +693,7 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
         formats: check_formats(raw.campaigns, raw.brand.is_some(), b_tracking)?,
         design_file: raw.design.map(|d| d.file),
         focus: check_focus(raw.focus)?,
-        app: check_app(raw.app)?,
+        apps: check_apps(raw.app)?,
         google_ads: check_google_ads(raw.google_ads)?,
     })
 }
@@ -734,7 +841,7 @@ pub fn load_input(path: &Path) -> Result<Input, InputError> {
         formats: file.formats,
         design,
         focus: file.focus,
-        app: file.app,
+        apps: file.apps,
         google_ads: file.google_ads,
     })
 }
@@ -1105,9 +1212,10 @@ currency = "BRL"
 
     #[test]
     fn app_is_optional_and_checked() {
-        assert!(parse_input_toml(MINIMAL).unwrap().app.is_none());
+        assert!(parse_input_toml(MINIMAL).unwrap().apps.is_empty());
         let play = format!("{MINIMAL}\n[app]\nstore = \"google_play\"\nid = \"com.vinellu.app\"\n");
-        let app = parse_input_toml(&play).unwrap().app.unwrap();
+        let input = parse_input_toml(&play).unwrap();
+        let app = input.app_for(None).unwrap();
         assert_eq!(
             app.store_url(),
             "https://play.google.com/store/apps/details?id=com.vinellu.app"
@@ -1115,11 +1223,90 @@ currency = "BRL"
         assert_eq!(app.store_label(), "Google Play");
         let apple = format!("{MINIMAL}\n[app]\nstore = \"app_store\"\nid = \"1234567\"\n");
         assert_eq!(
-            parse_input_toml(&apple).unwrap().app.unwrap().store_url(),
+            parse_input_toml(&apple)
+                .unwrap()
+                .app_for(None)
+                .unwrap()
+                .store_url(),
             "https://apps.apple.com/app/id1234567"
         );
         let bad = format!("{MINIMAL}\n[app]\nstore = \"app_store\"\nid = \"com.x\"\n");
         assert_eq!(err_key(&bad), "app.id");
+    }
+
+    const BOTH_APPS: &str = "\n[[app]]\nstore = \"google_play\"\nid = \"com.vinellu.app\"\n\n[[app]]\nstore = \"app_store\"\nid = \"6751919708\"\n";
+
+    #[test]
+    fn an_app_per_store_is_accepted() {
+        let input = parse_input_toml(&format!("{MINIMAL}{BOTH_APPS}")).unwrap();
+        assert_eq!(input.apps.len(), 2);
+        let play = input.app_for(Some(AppStore::GooglePlay)).unwrap();
+        assert_eq!(play.id, "com.vinellu.app");
+        let apple = input.app_for(Some(AppStore::AppStore)).unwrap();
+        assert_eq!(apple.store_label(), "iTunes");
+        assert!(
+            input.app_for(None).is_none(),
+            "two apps: a campaign must name its store"
+        );
+    }
+
+    #[test]
+    fn the_app_flag_names_the_store_and_the_id() {
+        let specs = ["google_play=com.vinellu.app", "app_store=6751919708"].map(String::from);
+        let apps = apps_from_specs(&specs).unwrap();
+        assert_eq!(
+            apps.iter()
+                .map(|a| (a.store, a.id.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (AppStore::GooglePlay, "com.vinellu.app"),
+                (AppStore::AppStore, "6751919708")
+            ]
+        );
+        let key = |spec: &[&str]| match apps_from_specs(
+            &spec.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        ) {
+            Err(InputError::Invalid { key, .. }) => key,
+            other => panic!("expected an invalid app, got {other:?}"),
+        };
+        assert_eq!(key(&["com.vinellu.app"]), "app.store", "no store");
+        assert_eq!(key(&["play=com.vinellu.app"]), "app.store", "unknown store");
+        assert_eq!(
+            key(&["app_store=com.vinellu.app"]),
+            "app.id",
+            "id of the wrong store"
+        );
+        assert_eq!(
+            key(&["google_play=com.a.app", "google_play=com.b.app"]),
+            "app.store"
+        );
+    }
+
+    #[test]
+    fn two_apps_of_one_store_are_refused() {
+        let twice = "\n[[app]]\nstore = \"google_play\"\nid = \"com.a.app\"\n\n[[app]]\nstore = \"google_play\"\nid = \"com.b.app\"\n";
+        assert_eq!(err_key(&format!("{MINIMAL}{twice}")), "app.store");
+    }
+
+    #[test]
+    fn a_workspace_saved_with_one_app_still_loads() {
+        let mut input = crate::testutil::input();
+        input.apps = parse_input_toml(&format!("{MINIMAL}{BOTH_APPS}"))
+            .unwrap()
+            .apps;
+        let mut json = serde_json::to_value(&input).unwrap();
+        let first = json["apps"][0].clone();
+        let obj = json.as_object_mut().unwrap();
+        obj.remove("apps");
+        obj.insert("app".into(), first);
+        let old: Input = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(old.apps.len(), 1);
+        assert_eq!(old.apps[0].id, "com.vinellu.app");
+        json.as_object_mut()
+            .unwrap()
+            .insert("app".into(), serde_json::Value::Null);
+        let none: Input = serde_json::from_value(json).unwrap();
+        assert!(none.apps.is_empty());
     }
 
     #[test]

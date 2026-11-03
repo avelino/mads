@@ -97,7 +97,23 @@ Image campaigns (Performance Max and Demand Gen) need it. Without `[brand]` the 
 | `store` | string | yes | `google_play` or `app_store`. |
 | `id` | string | yes | The package name on Google Play (`com.example.app`), the numeric id on the App Store. |
 
-`app_installs` campaigns need it (`E24`). Their ads link to the store page. `mads init` writes it when a fetched page links to the app, Google Play first. `init --force` keeps a hand-written `[app]` when the site links to none.
+`app_installs` campaigns need it (`E24`). Their ads link to the store page.
+
+An app on each store takes one `[[app]]` table per store, at most one per store. Each App campaign promotes one of them, and the plan names the store of every campaign.
+
+```toml
+[[app]]
+store = "google_play"
+id = "com.vinellu.app"
+
+[[app]]
+store = "app_store"
+id = "6751919708"
+```
+
+A second app on the same store is refused when the file loads, with the key `app.store`. A `workspace.json` from before `[[app]]` holds one app and still loads.
+
+`mads init` writes the first app it finds for each store, Google Play first, as `[app]` for one app and `[[app]]` for two. `init --force` keeps the apps you wrote by hand. An app the site links replaces yours of the same store, and a store the site does not link keeps yours.
 
 ## [focus]
 

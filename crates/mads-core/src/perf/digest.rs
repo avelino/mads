@@ -195,6 +195,7 @@ fn read(p: &mut Performance, pass: &mut Pass, t: &Table, account: &Account) {
                 group(c, &g).search_terms.push(term);
             }
             Assets => group(c, &row.text(AD_GROUP)).assets.push(asset(&row)),
+            AdGroups => group(c, &row.text(AD_GROUP)).metrics = Some(metrics(&row)),
         }
     }
 }
@@ -385,15 +386,20 @@ fn stalled(c: &CampaignPerf, days: Option<u32>) -> bool {
     no_ads || silent
 }
 
+/// Campaign totals from its groups: the ad group report when it has them, else the keywords.
+fn sum_groups(groups: &[AdGroupPerf]) -> Metrics {
+    let mut sum = Metrics::default();
+    for g in groups {
+        sum.add(&g.totals());
+    }
+    sum
+}
+
 /// Totals, the thin flag, hidden term cost, and the term list cut to the most expensive.
 fn finish(c: &mut CampaignPerf, has_totals: bool, days: Option<u32>, mixed_windows: bool) {
     let empty = c.metrics.impressions == 0 && c.metrics.clicks == 0 && c.metrics.cost == 0.0;
     if !has_totals && empty {
-        let mut sum = Metrics::default();
-        for k in c.ad_groups.iter().flat_map(|g| &g.keywords) {
-            sum.add(&k.metrics);
-        }
-        c.metrics = sum;
+        c.metrics = sum_groups(&c.ad_groups);
     }
     let days = c.days_running.or(days);
     if let Some(d) = days.filter(|d| *d > 0) {

@@ -12,6 +12,7 @@ fn kw(text: &str, match_type: MatchType) -> Keyword {
 
 fn campaign(name: &str, groups: &[(&str, Vec<Keyword>)]) -> Campaign {
     Campaign {
+        app_store: None,
         kind: Default::default(),
         asset_groups: Vec::new(),
         name: name.into(),
@@ -149,6 +150,31 @@ fn without_a_campaign_report_totals_come_from_keywords() {
     assert_eq!(p.campaigns[0].metrics.clicks, 65);
     assert_eq!(p.campaigns[0].hidden_terms_cost, None);
     assert_eq!(p.campaigns[0].live_status, None);
+}
+
+const AD_GROUPS: &str = "Relatório do grupo de anúncios\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus do grupo de anúncios,Grupo de anúncios,Campanha,Código da moeda,CPC máx. padrão,Impr.,Custo,Cliques,Conversões,Valor conv.\nAtivado,Uvas tintas,\"Catálogo: uvas\",BRL,\"1,20\",\"2.300\",\"80,00\",70,\"2,00\",\"0,00\"\nAtivado,Grupo antigo,Rotulos antigo,BRL,\"1,00\",10,\"1,00\",1,\"0,00\",\"0,00\"\nTotal: Pesquisa,,,BRL,,\"2.310\",\"81,00\",71,\"2,00\",\"0,00\"\n";
+
+#[test]
+fn an_ad_group_report_gives_group_totals_and_no_keywords() {
+    let files: Vec<ReportInput> = vec![("g.csv".into(), read_table(AD_GROUPS.as_bytes()))];
+    let p = digest(&files, &account());
+    assert_eq!(p.reports[0].kind, ReportKind::AdGroups);
+    assert_eq!(p.ignored_campaigns, ["Rotulos antigo"]);
+    let g = &p.campaigns[0].ad_groups[0];
+    assert_eq!(g.name, "Uvas tintas");
+    let m = g.metrics.as_ref().unwrap();
+    assert_eq!((m.impressions, m.clicks, m.cost), (2300, 70, 80.0));
+    assert_eq!(m.conversions, 2.0);
+    assert!(g.keywords.is_empty() && g.search_terms.is_empty());
+    assert_eq!(
+        p.campaigns[0].metrics.clicks, 70,
+        "without a campaign report, totals come from the groups"
+    );
+    assert_eq!(
+        p.blind_reports(),
+        ["Keywords", "SearchTerms"],
+        "group totals say nothing about keywords"
+    );
 }
 
 #[test]

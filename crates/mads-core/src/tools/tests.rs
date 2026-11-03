@@ -1071,10 +1071,10 @@ async fn with_images_available_a_search_only_plan_must_say_why() {
 async fn an_app_campaign_lands_on_the_store_and_needs_no_logo() {
     let mut input = image_input();
     input.logo = None;
-    input.app = Some(crate::input::App {
+    input.apps = vec![crate::input::App {
         store: crate::input::AppStore::GooglePlay,
         id: "com.vinellu.app".into(),
-    });
+    }];
     let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
     let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
         .await
@@ -1123,11 +1123,127 @@ async fn an_app_campaign_lands_on_the_store_and_needs_no_logo() {
 
 fn app_input() -> crate::input::Input {
     let mut input = image_input();
-    input.app = Some(crate::input::App {
+    input.apps = vec![crate::input::App {
         store: crate::input::AppStore::GooglePlay,
         id: "com.vinellu.app".into(),
+    }];
+    input
+}
+
+fn both_apps_input() -> crate::input::Input {
+    let mut input = app_input();
+    input.apps.push(crate::input::App {
+        store: crate::input::AppStore::AppStore,
+        id: "6751919708".into(),
     });
     input
+}
+
+fn app_plan(android: Value, ios: Value) -> Value {
+    let app = |name: &str, store: Value| {
+        let mut c = json!({"name": name, "kind": "app_installs", "intent": "generic", "daily_budget": 10.0,
+            "bid_strategy": {"type": "maximize_conversions"}, "rationale": "instalacoes",
+            "ad_groups": [{"name": "app", "theme": "app de vinhos"}]});
+        if !store.is_null() {
+            c["app_store"] = store;
+        }
+        c
+    };
+    let mut p = image_plan_args();
+    p["campaigns"][1] = app("Vinellu - App Android", android);
+    p["campaigns"]
+        .as_array_mut()
+        .unwrap()
+        .push(app("Vinellu - App iOS", ios));
+    p
+}
+
+async fn plan_with(input: crate::input::Input, args: Value) -> (SharedWorkspace, ToolOutput) {
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    assert!(!t.call("set_brand_kit", brand_kit_args()).await.is_error);
+    let out = t.call("set_account_plan", args).await;
+    (ws, out)
+}
+
+#[tokio::test]
+async fn each_app_campaign_lands_on_the_store_page_of_its_own_app() {
+    let args = app_plan(json!("google_play"), json!("app_store"));
+    let (ws, out) = plan_with(both_apps_input(), args).await;
+    assert!(!out.is_error, "{}", out.content);
+    let ws = ws.lock().await;
+    let c = &ws.account.campaigns;
+    assert_eq!(c[1].app_store, Some(crate::input::AppStore::GooglePlay));
+    assert_eq!(
+        c[1].planned_ad_groups[0].final_url,
+        "https://play.google.com/store/apps/details?id=com.vinellu.app"
+    );
+    assert_eq!(c[2].app_store, Some(crate::input::AppStore::AppStore));
+    assert_eq!(
+        c[2].planned_ad_groups[0].final_url,
+        "https://apps.apple.com/app/id6751919708"
+    );
+    assert_eq!(c[0].app_store, None, "a search campaign has no app");
+}
+
+#[tokio::test]
+async fn with_two_apps_a_campaign_without_a_store_is_refused() {
+    let args = app_plan(json!("google_play"), Value::Null);
+    let (_, out) = plan_with(both_apps_input(), args).await;
+    assert!(out.is_error);
+    assert!(out.content.to_string().contains("E24"), "{}", out.content);
+}
+
+#[tokio::test]
+async fn a_live_app_campaign_cannot_change_its_store_e31() {
+    let args = app_plan(json!("google_play"), json!("app_store"));
+    let (ws, out) = plan_with(both_apps_input(), args.clone()).await;
+    assert!(!out.is_error, "{}", out.content);
+    {
+        // The plan went live: Android on Google Play, iOS on the App Store.
+        let mut guard = ws.lock().await;
+        let baseline = guard.account.clone();
+        guard.live = Some(crate::perf::Live {
+            baseline,
+            performance: Default::default(),
+        });
+    }
+    let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
+        .await
+        .unwrap();
+    let out = t.call("set_account_plan", args).await;
+    assert!(!out.is_error, "the same stores are fine: {}", out.content);
+    let swapped = app_plan(json!("app_store"), json!("google_play"));
+    let out = t.call("set_account_plan", swapped).await;
+    assert_eq!(error_codes(&out), ["E31", "E31"], "{}", out.content);
+    assert!(
+        out.content.to_string().contains("cannot change its app"),
+        "{}",
+        out.content
+    );
+}
+
+#[tokio::test]
+async fn two_campaigns_for_one_store_are_refused() {
+    let args = app_plan(json!("app_store"), json!("app_store"));
+    let (_, out) = plan_with(both_apps_input(), args).await;
+    assert!(out.content.to_string().contains("E30"), "{}", out.content);
+}
+
+#[tokio::test]
+async fn with_one_app_the_campaign_takes_its_store_without_naming_it() {
+    let mut p = image_plan_args();
+    p["campaigns"][1] = json!({"name": "Vinellu - App", "kind": "app_installs", "intent": "generic", "daily_budget": 20.0,
+        "bid_strategy": {"type": "maximize_conversions"}, "rationale": "instalacoes",
+        "ad_groups": [{"name": "app", "theme": "app de vinhos"}]});
+    let (ws, out) = plan_with(app_input(), p).await;
+    assert!(!out.is_error, "{}", out.content);
+    assert_eq!(
+        ws.lock().await.account.campaigns[1].app_store,
+        Some(crate::input::AppStore::GooglePlay)
+    );
 }
 
 #[tokio::test]

@@ -563,7 +563,10 @@ mod tests {
             "the tiny icon is skipped, the touch icon kept"
         );
         assert!(input.logo.is_some_and(|l| l.ends_with("brand/logo.png")));
-        assert_eq!(input.app.map(|a| a.id), Some("com.vinellu.app".to_string()));
+        assert_eq!(
+            input.apps.first().map(|a| a.id.clone()),
+            Some("com.vinellu.app".to_string())
+        );
         crate::images::check_logo(&std::fs::read(logo).unwrap()).unwrap();
         let design = std::fs::read_to_string(dir.path().join("DESIGN.md")).unwrap();
         assert!(
@@ -642,7 +645,7 @@ mod tests {
         assert_eq!(input.export.status, crate::input::ExportStatus::Enabled);
         assert_eq!(input.formats.len(), 2);
         assert_eq!(
-            input.app.map(|a| a.id),
+            input.apps.first().map(|a| a.id.clone()),
             Some("com.vinellu.app".to_string()),
             "the app the site links to wins over the old one"
         );

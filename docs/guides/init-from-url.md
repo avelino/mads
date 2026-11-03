@@ -119,7 +119,7 @@ init decides for every business whether it falls in a Google Ads restricted cont
 
 ## The app
 
-When a fetched page links to the business's app on Google Play or the App Store, init writes `[app]` with its store and id. It reads the whole page, not only visible links: many sites list their app only in JSON-LD (`downloadUrl`, `sameAs`). Google Play wins when both appear, because one App campaign takes one store. With `[app]` the plan can use `app_installs` campaigns.
+When a fetched page links to the business's app on Google Play or the App Store, init writes `[app]` with its store and id. It reads the whole page, not only visible links: many sites list their app only in JSON-LD (`downloadUrl`, `sameAs`). It keeps the first app of each store, Google Play first. One app is written as `[app]` and two as `[[app]]`, and each store gets its own App campaign. With an app the plan can use `app_installs` campaigns.
 
 ## The design
 

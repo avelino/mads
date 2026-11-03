@@ -487,6 +487,7 @@ mod tests {
             file: None,
         };
         ws.account.campaigns.push(Campaign {
+            app_store: None,
             name: "C".into(),
             slug: "c".into(),
             kind: CampaignKind::PerformanceMax,
@@ -637,6 +638,7 @@ mod design_tests {
         input.design = "# Design\n\n## Colors\n\n- Pink #EE395D: logo\n".into();
         let mut ws = Workspace::new(input);
         ws.account.campaigns.push(Campaign {
+            app_store: None,
             name: "C".into(),
             slug: "c".into(),
             kind: CampaignKind::DemandGen,
@@ -781,6 +783,7 @@ mod cap_tests {
         // The Vinellu run: 8 briefs in the first group, 1 in the last, a cap that only fits 3.
         let mut ws = Workspace::new(testutil::input());
         ws.account.campaigns.push(Campaign {
+            app_store: None,
             name: "C".into(),
             slug: "c".into(),
             kind: CampaignKind::DemandGen,

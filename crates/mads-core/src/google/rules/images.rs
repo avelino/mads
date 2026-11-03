@@ -4,8 +4,10 @@ use std::collections::BTreeSet;
 
 use super::{NAME, Rules, count, dups, length};
 use crate::{
-    google::{AspectRatio, AssetGroup, Campaign, CampaignKind, ImageBrief, Issue, normalize},
-    input::slugify,
+    google::{
+        Account, AspectRatio, AssetGroup, Campaign, CampaignKind, ImageBrief, Issue, normalize,
+    },
+    input::{AppStore, slugify},
 };
 
 const BUSINESS_NAME: usize = 25;
@@ -84,6 +86,53 @@ fn ratio_count(images: &[ImageBrief], r: AspectRatio) -> usize {
 }
 
 impl Rules<'_> {
+    /// Why an App campaign cannot promote an app, or None when it can. A business with one app
+    /// needs no store on the campaign. With an app per store, the campaign names which one.
+    fn app_problem(&self, store: Option<AppStore>) -> Option<String> {
+        match (store, self.app_stores.as_slice()) {
+            (_, []) => Some(
+                "app campaigns need the app: set [app] store and id in business.toml".to_string(),
+            ),
+            (None, [_]) => None,
+            (None, _) => Some(
+                "the business has an app for each store: name the store of this campaign with app_store"
+                    .to_string(),
+            ),
+            (Some(s), stores) if stores.contains(&s) => None,
+            (Some(s), _) => Some(format!(
+                "no app for the store {}: add its [[app]] to business.toml",
+                s.key()
+            )),
+        }
+    }
+
+    /// E30: two App campaigns for one store would bid against each other for the same installs.
+    pub(super) fn one_app_campaign_per_store(&self, out: &mut Vec<Issue>, a: &Account) {
+        let mut seen = BTreeSet::new();
+        for (i, c) in a.campaigns.iter().enumerate() {
+            if c.kind != CampaignKind::AppInstalls {
+                continue;
+            }
+            let only = match self.app_stores.as_slice() {
+                [only] => Some(*only),
+                _ => None,
+            };
+            let Some(store) = c.app_store.or(only) else {
+                continue;
+            };
+            if !seen.insert(store.key()) {
+                let msg = format!(
+                    "a second App campaign for the store {}: one campaign per store",
+                    store.key()
+                );
+                out.push(Issue::error(
+                    "E30",
+                    format!("campaigns[{i}].app_store"),
+                    msg,
+                ));
+            }
+        }
+    }
     /// Parts of a campaign that belong to the other kind.
     pub(super) fn kind_fit(&self, out: &mut Vec<Issue>, c: &Campaign, path: &str) {
         let wrong = |what: &str| format!("a {} campaign has no {what}", c.kind.label());
@@ -110,8 +159,7 @@ impl Rules<'_> {
                 ));
             }
             if c.kind == CampaignKind::AppInstalls {
-                if !self.has_app {
-                    let msg = "app campaigns need the app: set [app] store and id in business.toml";
+                if let Some(msg) = self.app_problem(c.app_store) {
                     out.push(Issue::error("E24", path, msg));
                 }
             } else if !self.has_logo {
@@ -452,6 +500,7 @@ mod tests {
             CampaignKind::AppInstalls => BidStrategy::MaximizeConversions,
         };
         Campaign {
+            app_store: None,
             name: "Vinellu - Imagem".into(),
             slug: "vinellu-imagem".into(),
             kind,
@@ -661,10 +710,10 @@ mod tests {
 
     fn app_input(logo: bool) -> Input {
         let mut i = input(logo);
-        i.app = Some(crate::input::App {
+        i.apps = vec![crate::input::App {
             store: crate::input::AppStore::GooglePlay,
             id: "com.vinellu.app".into(),
-        });
+        }];
         i
     }
 
@@ -676,6 +725,60 @@ mod tests {
             codes(&app_input(false), &app_campaign())
         );
         assert!(codes(&input(true), &app_campaign()).contains(&"E24".to_string()));
+    }
+
+    fn both_apps_input() -> Input {
+        let mut i = app_input(false);
+        i.apps.push(crate::input::App {
+            store: crate::input::AppStore::AppStore,
+            id: "6751919708".into(),
+        });
+        i
+    }
+
+    #[test]
+    fn with_two_apps_an_app_campaign_names_its_store() {
+        let mut c = app_campaign();
+        assert!(codes(&both_apps_input(), &c).contains(&"E24".to_string()));
+        c.app_store = Some(crate::input::AppStore::AppStore);
+        assert!(
+            codes(&both_apps_input(), &c).is_empty(),
+            "{:?}",
+            codes(&both_apps_input(), &c)
+        );
+    }
+
+    #[test]
+    fn an_app_campaign_for_a_store_without_an_app_is_refused() {
+        let mut c = app_campaign();
+        c.app_store = Some(crate::input::AppStore::AppStore);
+        assert!(codes(&app_input(false), &c).contains(&"E24".to_string()));
+    }
+
+    #[test]
+    fn e30_two_app_campaigns_cannot_share_a_store() {
+        let inp = both_apps_input();
+        let account_codes = |stores: [Option<crate::input::AppStore>; 2]| -> Vec<String> {
+            let mut first = app_campaign();
+            first.app_store = stores[0];
+            let mut second = app_campaign();
+            second.name = "Other app campaign".into();
+            second.slug = "other-app-campaign".into();
+            second.app_store = stores[1];
+            let account = Account {
+                brand_kit: None,
+                campaigns: vec![first, second],
+            };
+            Rules::new(&inp, 50)
+                .account(&account, false)
+                .into_iter()
+                .filter(|i| i.code == "E30")
+                .map(|i| i.code)
+                .collect()
+        };
+        use crate::input::AppStore::{AppStore, GooglePlay};
+        assert_eq!(account_codes([Some(GooglePlay), Some(GooglePlay)]).len(), 1);
+        assert!(account_codes([Some(GooglePlay), Some(AppStore)]).is_empty());
     }
 
     #[test]

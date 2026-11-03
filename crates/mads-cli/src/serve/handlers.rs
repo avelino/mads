@@ -1180,7 +1180,10 @@ pub async fn optimize_prepare(
         return bad_request("envie pelo menos um CSV".into());
     }
     let out = project_dir.join("out");
-    let prepared = match optimize::prepare(&run.dir, &upload, &out) {
+    // The studio runs an optimization as-is: the budget and app overrides are
+    // CLI flags for now, so the baseline keeps what it runs with.
+    let prepared = match optimize::prepare(&run.dir, &upload, &out, &optimize::Overrides::default())
+    {
         Ok(prepared) => prepared,
         Err(e) => {
             let _ = std::fs::remove_dir_all(&upload);

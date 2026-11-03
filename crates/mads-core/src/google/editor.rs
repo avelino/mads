@@ -290,7 +290,7 @@ impl Ctx<'_> {
             row.set("Languages", self.input.business.language_primary())
         };
         let suffix = e.url_suffix.replace("{mads_campaign}", &c.slug);
-        match (c.kind, &self.input.app) {
+        match (c.kind, self.input.app_for(c.app_store)) {
             (CampaignKind::AppInstalls, Some(app)) => row
                 .set("App campaign store", app.store_label())
                 .set("App campaign package name", &app.id)
@@ -526,6 +526,7 @@ mod tests {
 
     fn demand_gen() -> Campaign {
         Campaign {
+            app_store: None,
             name: "Feed".into(),
             slug: "feed".into(),
             kind: CampaignKind::DemandGen,
@@ -586,6 +587,7 @@ mod tests {
 
     fn search(name: &str, groups: &[(&str, &[&str])]) -> Campaign {
         Campaign {
+            app_store: None,
             name: name.into(),
             slug: crate::input::slugify(name),
             kind: CampaignKind::Search,

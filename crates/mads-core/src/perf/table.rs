@@ -14,6 +14,8 @@ pub enum ReportKind {
     Keywords,
     Campaigns,
     CampaignsByDay,
+    /// One row per ad group with its totals. Says nothing about keywords or search terms.
+    AdGroups,
     Assets,
 }
 
@@ -56,18 +58,25 @@ pub(super) const CAMPAIGN: &[&str] = &["campanha", "campaign"];
 pub(super) const AD_GROUP: &[&str] = &["grupo de anuncios", "ad group"];
 pub(super) const ASSET: &[&str] = &["recurso", "asset"];
 pub(super) const DAY: &[&str] = &["dia", "day"];
+/// Columns only the ads report has: one row per ad, not per ad group.
+const AD: &[&str] = &[
+    "status do anuncio",
+    "tipo de anuncio",
+    "ad status",
+    "ad type",
+];
+
+const UNKNOWN: &str =
+    "no known report header (search terms, keywords, campaigns, ad groups or assets)";
 
 /// Reads one exported report. Err says why the file is not a report mads understands.
 pub fn read_table(bytes: &[u8]) -> Result<Table, String> {
     let text = decode(bytes)?;
-    let (records, at, kind) = b",\t"
+    let parsed: Vec<Vec<Vec<String>>> = b",\t".iter().filter_map(|&d| records(&text, d)).collect();
+    let (records, at, kind) = parsed
         .iter()
-        .find_map(|&d| {
-            let r = records(&text, d)?;
-            let (at, kind) = header_at(&r)?;
-            Some((r, at, kind))
-        })
-        .ok_or("no known report header (search terms, keywords, campaigns or assets)")?;
+        .find_map(|r| header_at(r).map(|(at, kind)| (r, at, kind)))
+        .ok_or_else(|| unknown(&parsed))?;
     let header: Vec<String> = records[at].iter().map(|h| fold(h)).collect();
     let window = records[..at]
         .iter()
@@ -129,6 +138,32 @@ fn records(text: &str, delimiter: u8) -> Option<Vec<Vec<String>>> {
         .ok()
 }
 
+/// Why no header was found, naming the header the file has: the widest record of any delimiter.
+fn unknown(parsed: &[Vec<Vec<String>>]) -> String {
+    // `rev`: of records equally wide, the first is the header, the others are its rows.
+    let Some(seen) = parsed
+        .iter()
+        .flatten()
+        .filter(|r| window(&r.join(",")).is_none())
+        .rev()
+        .max_by_key(|r| r.len())
+    else {
+        return UNKNOWN.to_string();
+    };
+    let folded: Vec<String> = seen.iter().map(|h| fold(h)).collect();
+    if folded.iter().any(|h| AD.contains(&h.as_str())) {
+        return format!(
+            "{UNKNOWN}: an ads report has one row per ad, and mads reads no ad-level numbers. Export the search keywords and search terms reports instead"
+        );
+    }
+    const SHOWN: usize = 6;
+    let mut names: Vec<&str> = seen.iter().take(SHOWN).map(|h| h.trim()).collect();
+    if seen.len() > SHOWN {
+        names.push("...");
+    }
+    format!("{UNKNOWN}, saw: {}", names.join(", "))
+}
+
 /// The first record that is a known report header, and the report kind it names.
 fn header_at(records: &[Vec<String>]) -> Option<(usize, ReportKind)> {
     records.iter().enumerate().find_map(|(i, r)| {
@@ -151,6 +186,10 @@ fn kind_of(header: &[String]) -> Option<ReportKind> {
         } else {
             ReportKind::Campaigns
         })
+    } else if any(CAMPAIGN) && !any(KEYWORD) && !any(AD) && !any(DAY) {
+        // A keyword or ad report without its telling column has many rows per ad group: read as
+        // group totals, the last row would win.
+        Some(ReportKind::AdGroups)
     } else {
         None
     }
@@ -333,8 +372,50 @@ mod tests {
             kind("Recurso,Campanha,Grupo de anúncios"),
             Ok(ReportKind::Assets)
         );
-        assert!(kind("Campanha,Grupo de anúncios,Custo").is_err());
+        assert_eq!(
+            kind("Campanha,Grupo de anúncios,Custo"),
+            Ok(ReportKind::AdGroups)
+        );
+        assert!(
+            kind("Palavra-chave,Campanha,Grupo de anúncios,Custo").is_err(),
+            "keyword rows without a match type are not ad group totals"
+        );
         assert!(kind("foo,bar").is_err());
+    }
+
+    /// The shape of the pt-BR ad group export: title, period, two currency columns, the
+    /// ad group before the campaign, a decimal without thousands dot, `Total:` rows per type.
+    const AD_GROUPS_PT: &str = "Relatório do grupo de anúncios\n1 de outubro de 2026 - 2 de novembro de 2026\nStatus do grupo de anúncios,Grupo de anúncios,Campanha,Código da moeda,CPC máx. padrão,Status,Motivos do status,Tipo de grupo de anúncios,Código da moeda,CPM médio,Impr.,Interações,Custo,Cliques,Taxa de conv.,Valor conv.,Valor conv. / custo,Conversões,CPC méd.,Custo / conv.\nAtivado,Uvas tintas,Catálogo,BRL,\"1,20\",Qualificado,,Padrão,BRL,\"33,99\",123.125,\"20.313\",\"4185,21\",19.611,\"16,79%\",\"0,00\",\"0,00\",\"3.410,00\",\"0,21\",\"1,23\"\nTotal: App,,,,,,,,BRL,\"33,99\",123.125,\"20.313\",\"4185,21\",19.611,\"16,79%\",\"0,00\",\"0,00\",\"3.410,00\",\"0,21\",\"1,23\"\n";
+
+    #[test]
+    fn reads_a_portuguese_ad_group_report() {
+        let t = read_table(AD_GROUPS_PT.as_bytes()).unwrap();
+        assert_eq!(t.kind, ReportKind::AdGroups);
+        assert_eq!(t.window.as_ref().map(|w| w.days), Some(33));
+        let rows: Vec<Row> = t.rows().collect();
+        assert_eq!(rows.len(), 1, "the Total row is dropped");
+        assert_eq!(rows[0].text(AD_GROUP), "Uvas tintas");
+        assert_eq!(rows[0].text(CAMPAIGN), "Catálogo");
+        assert_eq!(rows[0].number(&["impr"]), Some(123_125.0));
+        assert_eq!(rows[0].number(&["custo"]), Some(4185.21));
+        assert_eq!(rows[0].number(&["conversoes"]), Some(3410.0));
+    }
+
+    #[test]
+    fn an_ads_report_is_refused_with_what_to_export_instead() {
+        let csv = "Relatório de anúncios\n1 de outubro de 2026 - 2 de novembro de 2026\nStatus do anúncio,URL final,Título 1,Posição do título 1,Campanha,Grupo de anúncios,Status,Qualidade do anúncio,Tipo de anúncio,Impr.,Custo,Conversões\nAtivado,https://x.test,Vinho,-,C,G,Qualificado,Boa,Anúncio responsivo,10,\"1,00\",\"0,00\"\n";
+        let err = read_table(csv.as_bytes()).unwrap_err();
+        assert!(err.starts_with("no known report header"), "{err}");
+        assert!(err.contains("one row per ad"), "{err}");
+        assert!(err.contains("search keywords"), "{err}");
+    }
+
+    #[test]
+    fn an_unknown_header_is_named_in_the_reason() {
+        let csv = "Relatório qualquer\nOct 3, 2026 - Oct 5, 2026\nFoo,Bar,Baz\n1,2,3\n";
+        let err = read_table(csv.as_bytes()).unwrap_err();
+        assert!(err.starts_with("no known report header"), "{err}");
+        assert!(err.contains("saw: Foo, Bar, Baz"), "{err}");
     }
 
     #[test]

@@ -405,6 +405,7 @@ mod tests {
                 slug: "acme".into(),
                 kind: Default::default(),
                 intent: Intent::Brand,
+                app_store: None,
                 daily_budget: Cents(5000),
                 bid_strategy: mads_core::google::BidStrategy::ManualCpc,
                 rationale: String::new(),

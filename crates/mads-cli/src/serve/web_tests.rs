@@ -53,6 +53,7 @@ fn fixture() -> (TempDir, AppState) {
         slug: "acme-marca".into(),
         kind: CampaignKind::Search,
         intent: Intent::Brand,
+        app_store: None,
         daily_budget: Cents(5000),
         bid_strategy: BidStrategy::ManualCpc,
         rationale: "protege a marca".into(),

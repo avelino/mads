@@ -270,7 +270,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
-            app: None,
+            apps: Vec::new(),
             google_ads: Default::default(),
             business: Business {
                 name: "Acme".into(),
@@ -316,6 +316,7 @@ mod tests {
                 descriptions: vec!["Kit, with comma".into()],
             }),
             campaigns: vec![Campaign {
+                app_store: None,
                 kind: Default::default(),
                 asset_groups: Vec::new(),
                 name: "Acme - Brand".into(),

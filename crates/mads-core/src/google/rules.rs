@@ -6,7 +6,7 @@ use super::{
     Account, AdGroup, Assets, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Intent, Issue,
     Keyword, MatchType, Rsa, char_len, contains_word_sequence, merge_rsa, normalize,
 };
-use crate::input::{AllowedUrls, Budget, Business, Input, fold};
+use crate::input::{AllowedUrls, AppStore, Budget, Business, Input, fold};
 
 const HEADLINE: usize = 30;
 const DESCRIPTION: usize = 90;
@@ -33,7 +33,8 @@ pub struct Rules<'a> {
     /// Catalog id to whether the item has a real photo.
     catalog_photos: BTreeMap<String, bool>,
     has_logo: bool,
-    has_app: bool,
+    /// Stores `business.toml` has an app for.
+    app_stores: Vec<AppStore>,
     /// Formats `business.toml` requires, at least one campaign each.
     formats: &'a [CampaignKind],
     /// With `[focus]`, the only final URLs allowed.
@@ -96,7 +97,7 @@ impl<'a> Rules<'a> {
                 .map(|c| (c.id.clone(), c.image.is_some()))
                 .collect(),
             has_logo: input.logo.is_some(),
-            has_app: input.app.is_some(),
+            app_stores: input.apps.iter().map(|a| a.store).collect(),
             formats: &input.formats,
             focus,
             focus_terms: input
@@ -154,6 +155,7 @@ impl<'a> Rules<'a> {
         count(&mut out, "campaigns", a.campaigns.len(), 1, 5, "campaigns");
         self.required_formats(&mut out, a);
         self.account_budget(&mut out, a);
+        self.one_app_campaign_per_store(&mut out, a);
         dup_names(
             &mut out,
             "campaigns",
@@ -850,7 +852,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
-            app: None,
+            apps: Vec::new(),
             google_ads: Default::default(),
             business: Business {
                 name: s("Vinellu"),
@@ -953,6 +955,7 @@ mod tests {
 
     fn campaign(name: &str, budget: u64) -> Campaign {
         Campaign {
+            app_store: None,
             kind: Default::default(),
             asset_groups: Vec::new(),
             name: s(name),

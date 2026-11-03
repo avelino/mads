@@ -106,7 +106,7 @@ Builds the account and writes the run directory.
 | `--skip-url-check` | | off | Do not request the final and sitelink URLs. |
 | `--max-ad-groups <MAX_AD_GROUPS>` | | `50` | Ad groups allowed in the whole account. |
 | `--image-provider <IMAGE_PROVIDER>` | `MADS_IMAGE_PROVIDER` | `auto` | Image model for Performance Max and Demand Gen: `auto`, `gemini`, `openai` or `none`. `auto` picks gemini when `GEMINI_API_KEY` is set, then openai when `OPENAI_API_KEY` is set, else none. An unknown name exits `2`. |
-| `--image-model <IMAGE_MODEL>` | `MADS_IMAGE_MODEL` | | Image model name. Defaults `gemini-2.5-flash-image` and `gpt-image-1`. |
+| `--image-model <IMAGE_MODEL>` | `MADS_IMAGE_MODEL` | | Image model name. Defaults `gemini-2.5-flash-image` and `gpt-image-2`. |
 | `--max-images <MAX_IMAGES>` | | `40` | New pictures allowed in one run. See [Image campaigns](../guides/image-campaigns.md). |
 | `--layout <LAYOUT>` | | the run's layout, else `bulk` | File set to write. `bulk` is files 1 to 5 plus `editor/account.csv`. `drive-folders` is the ads automation package in `google-ads/automation/`, saved locally: Google Sheets workbooks for the Search campaigns and a Google Ads script that also creates the Performance Max, Demand Gen and App campaigns. `run.json` keeps the layout, so `--resume` without the flag writes the same set. See [Ads automation package](../howto/google-ads-editor-drive-folders.md). |
 
@@ -147,7 +147,9 @@ Starts a new run from a finished one and the CSV reports of its live account, an
 | Argument or flag | Default | Description |
 |---|---|---|
 | `<RUN_DIR>` | | Finished run directory whose account is live in Google Ads. Required. |
-| `--reports <REPORTS>` | | Folder with the CSV reports exported from Google Ads. Required. |
+| `--reports <REPORTS>` | | Folder with the CSV reports exported from Google Ads. Required. See [Export Google Ads reports](../guides/export-google-ads-reports.md). |
+| `--daily-budget <AMOUNT>` | the base run's | New daily budget of the whole account, in its currency, greater than 0 with at most 2 decimals. The campaigns of the new plan sum to it. |
+| `--app <STORE=ID>` | the base run's | App to promote, such as `google_play=com.example.app` or `app_store=6751919708`. Repeat it for one app per store. It replaces the apps of the base run. An unknown store, an id that does not fit its store or two apps of one store exit `2`. |
 
 It takes every flag of `mads generate` except `[BUSINESS]` and `--resume`: `--out`, `--parallel`, `--skip-url-check`, `--max-ad-groups`, `--layout`, the image flags and the agent flags, with the same defaults. Without `--layout`, the new run takes the layout of the base run from its `run.json`, and a base run without one is `bulk`. An explicit `--layout` wins. Under `drive-folders` the structural files edit what is live and pause what the new run dropped. See [Over a live account](../howto/google-ads-editor-drive-folders.md#over-a-live-account).
 

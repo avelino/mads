@@ -121,9 +121,17 @@ pub struct GenerateArgs {
 pub struct OptimizeArgs {
     /// Finished run directory whose account is live in Google Ads. It is not changed.
     pub run_dir: PathBuf,
-    /// Folder with the CSV reports exported from Google Ads: search terms, keywords, campaigns, assets.
+    /// Folder with the CSV reports exported from Google Ads: search terms, keywords, campaigns, ad groups, assets.
     #[arg(long)]
     pub reports: PathBuf,
+    /// New daily budget of the whole account, in its currency. Without it the base run's budget stays.
+    #[arg(long)]
+    pub daily_budget: Option<f64>,
+    /// App to promote, as <store>=<id>, such as google_play=com.example.app or app_store=6751919708.
+    /// Repeat it for one app per store. It replaces the apps of the base run, which has the ones
+    /// business.toml had when it was generated. Without it they stay.
+    #[arg(long = "app", value_name = "STORE=ID")]
+    pub apps: Vec<String>,
     #[command(flatten)]
     pub run: RunArgs,
 }
@@ -147,7 +155,7 @@ pub struct RunArgs {
     /// auto picks gemini when GEMINI_API_KEY is set, then openai when OPENAI_API_KEY is set.
     #[arg(long, env = "MADS_IMAGE_PROVIDER", default_value = "auto")]
     pub image_provider: String,
-    /// Image model name, such as gemini-2.5-flash-image or gpt-image-1.
+    /// Image model name, such as gemini-2.5-flash-image or gpt-image-2.
     #[arg(long, env = "MADS_IMAGE_MODEL")]
     pub image_model: Option<String>,
     /// New images allowed in one run. Every image costs money.
@@ -381,6 +389,41 @@ mod tests {
         assert_eq!(o.run_dir, std::path::PathBuf::from("out/x"));
         assert_eq!(o.reports, std::path::PathBuf::from("perf"));
         assert_eq!((o.run.parallel, o.run.max_ad_groups), (4, 50));
+        assert_eq!(o.daily_budget, None);
+        assert!(o.apps.is_empty());
+        let cli = Cli::try_parse_from([
+            "mads",
+            "optimize",
+            "out/x",
+            "--reports",
+            "perf",
+            "--daily-budget",
+            "500",
+        ])
+        .unwrap();
+        let Command::Optimize(o) = cli.command else {
+            panic!("expected optimize")
+        };
+        assert_eq!(o.daily_budget, Some(500.0));
+        let cli = Cli::try_parse_from([
+            "mads",
+            "optimize",
+            "out/x",
+            "--reports",
+            "perf",
+            "--app",
+            "google_play=com.vinellu.app",
+            "--app",
+            "app_store=6751919708",
+        ])
+        .unwrap();
+        let Command::Optimize(o) = cli.command else {
+            panic!("expected optimize")
+        };
+        assert_eq!(
+            o.apps,
+            ["google_play=com.vinellu.app", "app_store=6751919708"]
+        );
     }
 
     #[test]

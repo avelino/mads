@@ -258,6 +258,7 @@ fn report_kind(kind: ReportKind) -> &'static str {
     match kind {
         ReportKind::SearchTerms => "Termos de busca",
         ReportKind::Keywords => "Palavras-chave",
+        ReportKind::AdGroups => "Grupos de anúncios",
         ReportKind::Campaigns => "Campanhas",
         ReportKind::CampaignsByDay => "Campanhas por dia",
         ReportKind::Assets => "Anúncios",

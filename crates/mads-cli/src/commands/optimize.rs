@@ -1,4 +1,11 @@
-use mads_core::{optimize::prepare, perf::Performance, run::saved_layout, workspace::Workspace};
+use mads_core::{
+    google::Cents,
+    input::apps_from_specs,
+    optimize::{Overrides, prepare},
+    perf::Performance,
+    run::saved_layout,
+    workspace::Workspace,
+};
 
 use crate::{
     cli::{CliError, Layout, OptimizeArgs},
@@ -11,8 +18,33 @@ pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
         code: 1,
         message: format!("cannot read run {}: {e}", args.run_dir.display()),
     })?;
+    let daily = args
+        .daily_budget
+        .map(|v| {
+            Cents::from_f64(v).ok_or_else(|| CliError {
+                code: 2,
+                message: "--daily-budget must be greater than 0 with at most 2 decimals".into(),
+            })
+        })
+        .transpose()?;
+    let apps = (!args.apps.is_empty())
+        .then(|| apps_from_specs(&args.apps))
+        .transpose()
+        .map_err(|e| CliError {
+            code: 2,
+            message: e.to_string(),
+        })?;
     let drivers = drivers_for(&args.run, &base.input).await?;
-    let prepared = prepare(&args.run_dir, &args.reports, &args.run.out).map_err(|e| CliError {
+    let prepared = prepare(
+        &args.run_dir,
+        &args.reports,
+        &args.run.out,
+        &Overrides {
+            daily_budget: daily,
+            apps,
+        },
+    )
+    .map_err(|e| CliError {
         code: 1,
         message: e.to_string(),
     })?;

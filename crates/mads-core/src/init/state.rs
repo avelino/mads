@@ -117,7 +117,7 @@ pub struct KeptByHand {
     max_cpc: Option<toml::Value>,
     export: Option<toml::Value>,
     campaigns: Option<toml::Value>,
-    app: Option<crate::input::App>,
+    apps: Vec<crate::input::App>,
     google_ads: Option<toml::Value>,
 }
 
@@ -131,7 +131,7 @@ impl KeptByHand {
             max_cpc: old.get("budget").and_then(|b| b.get("max_cpc")).cloned(),
             export: old.get("export").cloned(),
             campaigns: old.get("campaigns").cloned(),
-            app: old.get("app").cloned().and_then(|v| v.try_into().ok()),
+            apps: old.get("app").map(kept_apps).unwrap_or_default(),
             google_ads: old.get("google_ads").cloned(),
         }
     }
@@ -142,7 +142,7 @@ impl KeptByHand {
             ("budget.max_cpc", self.max_cpc.is_some()),
             ("[export]", self.export.is_some()),
             ("[campaigns]", self.campaigns.is_some()),
-            ("[app]", self.app.is_some()),
+            ("[app]", !self.apps.is_empty()),
             ("[google_ads]", self.google_ads.is_some()),
         ]
         .into_iter()
@@ -161,6 +161,22 @@ struct OutBrand<'a> {
     logo: &'a str,
 }
 
+/// One app is written as `[app]`, more as `[[app]]`.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum OutApps<'a> {
+    One(&'a crate::input::App),
+    Many(&'a [crate::input::App]),
+}
+
+/// `[app]` and `[[app]]` of an earlier file. What does not parse is dropped.
+fn kept_apps(value: &toml::Value) -> Vec<crate::input::App> {
+    match value {
+        toml::Value::Array(_) => value.clone().try_into().unwrap_or_default(),
+        _ => value.clone().try_into().ok().into_iter().collect(),
+    }
+}
+
 #[derive(Serialize)]
 struct OutFile<'a> {
     business: &'a BusinessDraft,
@@ -176,7 +192,7 @@ struct OutFile<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     focus: Option<&'a FocusDraft>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    app: Option<&'a crate::input::App>,
+    app: Option<OutApps<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     export: Option<&'a toml::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -225,8 +241,8 @@ pub struct InitState {
     focus_required: bool,
     start_url: String,
     kept: KeptByHand,
-    /// The first Google Play app the site links to, else the first App Store one.
-    app: Option<crate::input::App>,
+    /// The first app of each store the site links to.
+    apps: Vec<crate::input::App>,
 }
 
 fn bare_host(url: &str) -> Option<String> {
@@ -269,7 +285,7 @@ impl InitState {
             focus_required: false,
             start_url: start_url.to_string(),
             kept: KeptByHand::default(),
-            app: None,
+            apps: Vec::new(),
         }
     }
 
@@ -278,7 +294,7 @@ impl InitState {
     pub fn stale_formats_note(&self) -> Option<String> {
         let formats = self.kept.campaigns.as_ref()?.get("formats")?.as_array()?;
         let has_app_format = formats.iter().any(|f| f.as_str() == Some("app_installs"));
-        let app = self.app.as_ref().or(self.kept.app.as_ref())?;
+        let app = self.apps(&self.kept).into_iter().next()?;
         (!has_app_format).then(|| {
             format!(
                 "kept formats leave out the app {} found on the site: add \"app_installs\" to [campaigns] formats to advertise it",
@@ -287,20 +303,30 @@ impl InitState {
         })
     }
 
-    /// Keeps the app a page links to. Google Play wins over the App Store: one campaign takes one store.
+    /// Keeps the first app a page links to for each store: a campaign takes one store.
     pub fn note_app_links(&mut self, links: &[String]) {
-        use crate::input::{App, AppStore};
-        for app in links.iter().filter_map(|l| App::from_store_link(l)) {
-            let better = match &self.app {
-                None => true,
-                Some(current) => {
-                    current.store == AppStore::AppStore && app.store == AppStore::GooglePlay
-                }
-            };
-            if better {
-                self.app = Some(app);
+        for app in links
+            .iter()
+            .filter_map(|l| crate::input::App::from_store_link(l))
+        {
+            if !self.apps.iter().any(|a| a.store == app.store) {
+                self.apps.push(app);
             }
         }
+    }
+
+    /// The apps for `business.toml`, Google Play first. What the site links wins over an earlier
+    /// file for its store, and a store the site does not link keeps the app written by hand.
+    fn apps(&self, kept: &KeptByHand) -> Vec<crate::input::App> {
+        let mut apps = kept.apps.clone();
+        for app in &self.apps {
+            match apps.iter_mut().find(|a| a.store == app.store) {
+                Some(old) => *old = app.clone(),
+                None => apps.push(app.clone()),
+            }
+        }
+        apps.sort_by_key(|a| a.store != crate::input::AppStore::GooglePlay);
+        apps
     }
 
     /// Carries hand-written parts of an earlier business.toml into the new one.
@@ -475,6 +501,7 @@ impl InitState {
         complete: bool,
         kept: &KeptByHand,
     ) -> Result<String, String> {
+        let apps = self.apps(kept);
         let file = OutFile {
             business,
             budget: OutBudget {
@@ -495,7 +522,12 @@ impl InitState {
             design: (complete && self.design_markdown(&business.name).is_some())
                 .then_some(OutFileRef { file: DESIGN_FILE }),
             focus: Some(&business.focus).filter(|f| !f.is_empty()),
-            app: self.app.as_ref().or(kept.app.as_ref()).filter(|_| complete),
+            app: match apps.as_slice() {
+                _ if !complete => None,
+                [] => None,
+                [one] => Some(OutApps::One(one)),
+                many => Some(OutApps::Many(many)),
+            },
             export: kept.export.as_ref().filter(|_| complete),
             campaigns: kept.campaigns.as_ref().filter(|_| complete),
             google_ads: kept.google_ads.as_ref().filter(|_| complete),
@@ -800,6 +832,64 @@ mod tests {
         let mut s = state();
         assert_eq!(s.set_business(business()), Ok(()));
         assert!(s.business().is_some());
+    }
+
+    const PLAY: &str = "https://play.google.com/store/apps/details?id=com.vinellu.app";
+    const APPLE: &str = "https://apps.apple.com/br/app/vinellu/id6751919708";
+
+    fn rendered_apps(s: &InitState) -> (String, Vec<(crate::input::AppStore, String)>) {
+        let toml = s.render_files().unwrap().toml;
+        let apps = parse_input_toml(&toml)
+            .unwrap()
+            .apps
+            .into_iter()
+            .map(|a| (a.store, a.id))
+            .collect();
+        (toml, apps)
+    }
+
+    #[test]
+    fn links_to_both_stores_become_an_app_each() {
+        use crate::input::AppStore::{AppStore, GooglePlay};
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        s.note_app_links(&[APPLE.to_string(), PLAY.to_string()]);
+        let (toml, apps) = rendered_apps(&s);
+        assert_eq!(
+            apps,
+            [
+                (GooglePlay, "com.vinellu.app".to_string()),
+                (AppStore, "6751919708".to_string())
+            ]
+        );
+        assert!(toml.contains("[[app]]"), "{toml}");
+    }
+
+    #[test]
+    fn the_first_link_of_a_store_wins_and_one_app_stays_a_table() {
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        let other = "https://play.google.com/store/apps/details?id=com.other.app";
+        s.note_app_links(&[PLAY.to_string(), other.to_string()]);
+        let (toml, apps) = rendered_apps(&s);
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].1, "com.vinellu.app");
+        assert!(
+            toml.contains("[app]") && !toml.contains("[[app]]"),
+            "{toml}"
+        );
+    }
+
+    #[test]
+    fn force_keeps_a_hand_written_app_per_store() {
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        let old = "[[app]]\nstore = \"google_play\"\nid = \"com.vinellu.app\"\n\n[[app]]\nstore = \"app_store\"\nid = \"6751919708\"\n";
+        s.keep(KeptByHand::from_toml(old));
+        assert_eq!(rendered_apps(&s).1.len(), 2);
+        // The site links only Google Play: the iOS app written by hand stays.
+        s.note_app_links(&[PLAY.to_string()]);
+        assert_eq!(rendered_apps(&s).1.len(), 2);
     }
 
     #[test]

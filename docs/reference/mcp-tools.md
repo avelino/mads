@@ -46,7 +46,7 @@ When `business.toml` has `[campaigns] formats`, the result also has `required_fo
 
 `focus` is the `[focus]` table of `business.toml`, or null. With a focus, every landing page must be a focus URL (`E22`), and a planned group without entity lands on the first focus URL instead of `business.url`. Both `get_brief` tools return it too.
 
-`app` is the `[app]` table with its `store_url`, or null. `app_campaigns.available` says whether `app_installs` can be planned: it needs an image model and `[app]`, not a logo. The planned groups of an App campaign land on the store page.
+`apps` lists the `[app]` and `[[app]]` tables, each with its `store`, `id` and `store_url`, and is empty without one. `app_campaigns.available` says whether `app_installs` can be planned: it needs an image model and an app, not a logo. The planned groups of an App campaign land on the store page of its app.
 
 `catalog_photos` counts the catalog items with an `image`. `image_campaigns.available` is `true` only when the run has an image model and `business.toml` has a logo. Otherwise `reason` says which one is missing, `no image model in this run (set --image-provider and its API key)` or `no logo: set [brand] logo in business.toml`.
 
@@ -96,6 +96,7 @@ Each campaign.
 | `daily_budget` | number | yes | In currency units, at most 2 decimals. All campaigns must sum to `budget.daily`. |
 | `bid_strategy` | object | yes | `{"type": "..."}`. `search` takes `manual_cpc`, other types return `UNSUPPORTED`. `performance_max` and `app_installs` take `maximize_conversions`. `demand_gen` takes `maximize_clicks` or `maximize_conversions`. A mismatch is `E17`. |
 | `rationale` | string | yes | Why this budget share and bidding. |
+| `app_store` | string | no | `app_installs` only. `google_play` or `app_store`, the store of the app to promote. `auto` (default) takes the only app of the business. With an app on each store, every App campaign names its store (`E24`), and two campaigns cannot share one (`E30`). |
 | `ad_groups` | array | yes | The planned ad groups of a Search campaign, the planned asset groups of an image campaign. |
 
 Each ad group.
@@ -141,7 +142,7 @@ No arguments. Returns what the agent needs.
 
 `entities` are the full catalog rows of the entities in this campaign's ad groups. `built_ad_groups` is what an earlier attempt already saved.
 
-In a `mads optimize` run the result also has `live`, `performance` and `live_detail`, one line per ad group. `live` is this campaign as it ran: daily budget, negatives, and for each ad group its CPC and how many keywords and negatives it had, plus the asset group names. It is null for a campaign that did not run. `performance` is the campaign's totals and, per ad group, its totals, how many keywords had traffic, how many carry each signal (`below_first_page`, `rarely_shown`, `low_quality`), the search term count and the cost of terms without conversions. `live_detail` tells the agent to call `get_ad_group_performance` for the rest. The image campaign `get_brief` returns the same fields.
+In a `mads optimize` run the result also has `live`, `performance` and `live_detail`, one line per ad group. `live` is this campaign as it ran: daily budget, negatives, and for each ad group its CPC and how many keywords and negatives it had, plus the asset group names. It is null for a campaign that did not run. `performance` is the campaign's totals and, per ad group, its totals (from the ad groups report when there is one, else summed from its keywords), how many keywords had traffic, how many carry each signal (`below_first_page`, `rarely_shown`, `low_quality`), the search term count and the cost of terms without conversions. `live_detail` tells the agent to call `get_ad_group_performance` for the rest. The image campaign `get_brief` returns the same fields.
 
 The detail is a separate tool because one call with every group does not fit. A catalog campaign with 7 ad groups and 200 keywords reached 56,000 characters, and Claude Code saves a tool result that large to a file the agent cannot read. The summary of that campaign takes about 20,000 with the rest of the brief, and each group about 8,000 or less.
 
@@ -157,7 +158,7 @@ Only in a `mads optimize` run, for campaign and image campaign missions. Read on
 {"ad_group": "", "live": {"name": "", "default_cpc": 0.0, "final_url": "", "keywords": ["\"phrase\"", "[exact]"], "negatives": [], "rsa": {}}, "performance": {"keywords": [], "keywords_without_traffic": {"count": 0, "below_first_page": 0, "rarely_shown": 0, "low_quality": 0, "examples": []}, "search_terms": [], "search_terms_total": 0, "cost_without_conversions": 0.0}}
 ```
 
-`live` is the group as it ran. For an asset group it is the asset group itself. `performance.keywords` lists only the keywords that had impressions, with their numbers, signals, max CPC and, when the report has them, Quality Score and bid estimates. The others are counted in `keywords_without_traffic`. `search_terms` has the 20 most expensive terms with their state, and `assets` the labels Google gave the texts when an assets report was read. Numbers that are zero or missing are left out.
+`live` is the group as it ran. For an asset group it is the asset group itself. `performance.keywords` lists only the keywords that had impressions, with their numbers, signals, max CPC and, when the report has them, Quality Score and bid estimates. The others are counted in `keywords_without_traffic`. `search_terms` has the 20 most expensive terms with their state, and `assets` the labels Google gave the texts when an assets report was read. `metrics` holds the group totals when an ad groups report was read. Numbers that are zero or missing are left out.
 
 A name that neither the run nor the reports know fails with `NOT_FOUND`, and the message lists the groups that ran. `upsert_ad_group` and `upsert_asset_group` refuse a group that ran with `LIVE_DETAIL` until the mission called this tool with it.
 

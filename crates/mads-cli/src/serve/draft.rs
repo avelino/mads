@@ -236,7 +236,9 @@ fn fill(draft: &mut DraftView, input: &Input, toml: &str) {
             .collect::<Vec<_>>()
             .join("\n");
     }
-    if let Some(app) = &input.app {
+    // A business.toml holds one app per store now; the studio form edits the
+    // first and leaves any other store's app untouched.
+    if let Some(app) = input.apps.first() {
         draft.app_store = match app.store {
             mads_core::input::AppStore::GooglePlay => "google_play".into(),
             mads_core::input::AppStore::AppStore => "app_store".into(),
@@ -390,12 +392,29 @@ pub fn save(project_dir: &Path, payload: &DraftPayload) -> Result<(), String> {
     if payload.app_id.trim().is_empty() {
         root.remove("app");
     } else {
-        let app = table(&mut root, "app")?;
+        // `[[app]]` is one table per store; the form edits the first entry and
+        // leaves any other store's app untouched.
         let store = if payload.app_store.trim() == "app_store" {
             "app_store"
         } else {
             "google_play"
         };
+        if !root.get("app").is_some_and(toml::Value::is_array) {
+            root.insert(
+                "app".into(),
+                toml::Value::Array(vec![toml::Value::Table(toml::Table::new())]),
+            );
+        }
+        let apps = root
+            .get_mut("app")
+            .and_then(toml::Value::as_array_mut)
+            .ok_or_else(|| "[[app]] não é uma lista de tabelas".to_string())?;
+        if apps.is_empty() {
+            apps.push(toml::Value::Table(toml::Table::new()));
+        }
+        let app = apps[0]
+            .as_table_mut()
+            .ok_or_else(|| "[[app]] precisa de tabelas".to_string())?;
         insert_string(app, "store", store);
         insert_string(app, "id", &payload.app_id);
     }

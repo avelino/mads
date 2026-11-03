@@ -48,6 +48,7 @@ mod tests {
 
     fn campaign() -> Campaign {
         Campaign {
+            app_store: None,
             kind: Default::default(),
             asset_groups: Vec::new(),
             name: "Vinellu - Catalogo".into(),
@@ -198,6 +199,14 @@ mod tests {
             "business.restricted",
             "NO_APP_REASON",
             "NO_IMAGE_REASON",
+            "`apps`",
+            "`app_store`",
+            "one campaign per store",
+            "E30",
+            "E31",
+            "cannot change the app",
+            "cost per install",
+            "test share",
             "required_formats",
             "E21",
             "`focus`",

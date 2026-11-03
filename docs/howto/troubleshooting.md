@@ -231,7 +231,7 @@ error: run has unfinished missions (campaign:vinellu-marca); finish it with `mad
 error: no Google Ads report in perf: export search terms, keywords or campaigns as CSV (no .csv file)
 ```
 
-`mads optimize` starts from a finished run and a folder of reports. The third error lists every CSV of the folder with the reason it was not read, such as `x.csv: no known report header (search terms, keywords, campaigns or assets)`. Export the report again from Google Ads as CSV. A header renamed by hand is not recognized. No run directory is created in any of these cases. See [Optimize a live account](../guides/optimize.md).
+`mads optimize` starts from a finished run and a folder of reports. The third error lists every CSV of the folder with the reason it was not read, such as `x.csv: no known report header (search terms, keywords, campaigns, ad groups or assets), saw: Foo, Bar, Baz`. The reason names the first columns of the header it found. An export of the Ads page is refused with `an ads report has one row per ad, and mads reads no ad-level numbers`: export the search keywords and search terms reports instead. Export the report again from Google Ads as CSV. A header renamed by hand is not recognized. No run directory is created in any of these cases. See [Optimize a live account](../guides/optimize.md).
 
 `warning: the reports cover different dates` is not an error. The run goes on, but the cost hidden from search terms is left out. Export every report for the same dates.
 

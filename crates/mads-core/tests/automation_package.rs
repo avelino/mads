@@ -51,6 +51,8 @@ fn input(google_ads: GoogleAds) -> Input {
             daily: Cents(5000),
             currency: "BRL".into(),
             max_cpc: Some(Cents(300)),
+            target_cpa: None,
+            target_cpi: None,
         },
         export: ExportConfig {
             status: ExportStatus::Enabled,

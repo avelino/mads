@@ -9,7 +9,7 @@ use std::{
 use crate::{
     google::{Account, CampaignKind, Cents},
     images::EDITOR_DIR,
-    input::{App, Input},
+    input::{App, ExportStatus, Input},
     perf::{Live, Performance, ReportInput, digest, read_table},
     run::{PLATFORM_DIR, RunDir},
     workspace::{MissionStatus, Workspace},
@@ -46,6 +46,12 @@ pub struct Overrides {
     pub daily_budget: Option<Cents>,
     /// Replaces the apps App campaigns promote.
     pub apps: Option<Vec<App>>,
+    /// Replaces the status campaigns without a live status are exported with.
+    pub export_status: Option<ExportStatus>,
+    /// Replaces the most the advertiser pays for one conversion.
+    pub target_cpa: Option<Cents>,
+    /// Replaces the most the advertiser pays for one app install.
+    pub target_cpi: Option<Cents>,
 }
 
 /// Creates the optimization run under `out` and returns its directory. Nothing is written when
@@ -73,6 +79,11 @@ pub fn prepare(
     let mut ws = Workspace::new(old.input.clone());
     if let Some(daily) = overrides.daily_budget {
         ws.input.budget.daily = daily;
+    }
+    ws.input.budget.target_cpa = overrides.target_cpa.or(ws.input.budget.target_cpa);
+    ws.input.budget.target_cpi = overrides.target_cpi.or(ws.input.budget.target_cpi);
+    if let Some(status) = overrides.export_status {
+        ws.input.export.status = status;
     }
     if let Some(apps) = &overrides.apps {
         ws.input.apps = apps.clone();
@@ -182,7 +193,7 @@ mod tests {
     use super::*;
     use crate::{
         google::{BidStrategy, Campaign, Cents, Intent},
-        input::AppStore,
+        input::{AppStore, ExportStatus},
         testutil,
         workspace::MissionState,
     };
@@ -317,6 +328,64 @@ mod tests {
         let kept = prepare(&base, &perf, &tmp.path().join("c"), &Overrides::default()).unwrap();
         let kept = Workspace::load(&kept.run_dir.join("workspace.json")).unwrap();
         assert!(kept.input.apps.is_empty(), "no flag, the base apps stay");
+    }
+
+    #[test]
+    fn new_targets_replace_the_targets_of_the_new_run_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run(tmp.path(), MissionStatus::Finished);
+        let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
+        let overrides = Overrides {
+            target_cpa: Some(Cents(4000)),
+            target_cpi: Some(Cents(250)),
+            ..Overrides::default()
+        };
+        let p = prepare(&base, &perf, &tmp.path().join("b"), &overrides).unwrap();
+        let ws = Workspace::load(&p.run_dir.join("workspace.json")).unwrap();
+        assert_eq!(ws.input.budget.target_cpa, Some(Cents(4000)));
+        assert_eq!(ws.input.budget.target_cpi, Some(Cents(250)));
+        let old = Workspace::load(&base.join("workspace.json")).unwrap();
+        assert_eq!(
+            old.input.budget.target_cpa, None,
+            "the base run is not touched"
+        );
+        let kept = prepare(&base, &perf, &tmp.path().join("c"), &Overrides::default()).unwrap();
+        let kept = Workspace::load(&kept.run_dir.join("workspace.json")).unwrap();
+        assert_eq!(kept.input.budget.target_cpa, None, "no flag, none appears");
+    }
+
+    #[test]
+    fn a_new_export_status_replaces_the_status_of_the_new_run_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run(tmp.path(), MissionStatus::Finished);
+        let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
+        let before = Workspace::load(&base.join("workspace.json"))
+            .unwrap()
+            .input
+            .export
+            .status;
+        let want = match before {
+            ExportStatus::Paused => ExportStatus::Enabled,
+            ExportStatus::Enabled => ExportStatus::Paused,
+        };
+        let overrides = Overrides {
+            export_status: Some(want),
+            ..Overrides::default()
+        };
+        let p = prepare(&base, &perf, &tmp.path().join("b"), &overrides).unwrap();
+        let ws = Workspace::load(&p.run_dir.join("workspace.json")).unwrap();
+        assert_eq!(ws.input.export.status, want);
+        let old = Workspace::load(&base.join("workspace.json")).unwrap();
+        assert_eq!(
+            old.input.export.status, before,
+            "the base run is not touched"
+        );
+        let kept = prepare(&base, &perf, &tmp.path().join("c"), &Overrides::default()).unwrap();
+        let kept = Workspace::load(&kept.run_dir.join("workspace.json")).unwrap();
+        assert_eq!(
+            kept.input.export.status, before,
+            "no flag, the status stays"
+        );
     }
 
     #[test]

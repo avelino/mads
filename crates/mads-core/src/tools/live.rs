@@ -10,10 +10,11 @@ use super::{
     schema::schema_for,
 };
 use crate::{
-    google::{AdGroup, Campaign, Issue, Keyword, MatchType, normalize},
+    google::{AdGroup, Campaign, CampaignKind, Cents, Issue, Keyword, MatchType, normalize},
+    input::Budget,
     perf::{
-        AdGroupPerf, JUDGE_CONVERSIONS, KeywordPerf, Live, Metrics, Performance, ReportKind,
-        STALLED_DAYS, Signal, THIN_CLICKS, THIN_DAYS, TermPerf,
+        AdGroupPerf, JUDGE_CONVERSIONS, KeywordPerf, Live, Metrics, NO_RESULT_TARGETS, Performance,
+        ReportKind, STALLED_DAYS, Signal, THIN_CLICKS, THIN_DAYS, TermPerf, VsTarget, vs_target,
     },
 };
 
@@ -104,8 +105,79 @@ fn live_rules(p: &Performance) -> String {
     rules.join(" ")
 }
 
+/// What the advertiser accepts to pay for a result of this kind of campaign, in currency units.
+/// An install is not a conversion on the site, so App campaigns have their own target.
+fn target_for(kind: CampaignKind, b: &Budget) -> Option<f64> {
+    let target = if kind == CampaignKind::AppInstalls {
+        b.target_cpi
+    } else {
+        b.target_cpa
+    };
+    target.map(cents_to_f64)
+}
+
+/// How a campaign that ran did against the target of its kind. None without a target or
+/// without numbers that say.
+pub(super) fn verdict_of(live: &Live, b: &Budget, name: &str) -> Option<VsTarget> {
+    let kind = live
+        .baseline
+        .campaigns
+        .iter()
+        .find(|c| normalize(&c.name) == normalize(name))?
+        .kind;
+    vs_target(live.performance.campaign(name)?, target_for(kind, b)?)
+}
+
+const CAP_RULE: &str = "budget_cap is the most daily budget that campaign may get (E27). Split the account budget with the caps in mind: a capped campaign takes less than the share its intent would suggest, and the rest goes to the others. A cap wins over any share suggested for an intent.";
+
+/// The most daily budget a campaign may get, and why (E27). None: nothing limits it. The plan
+/// sees the number in `get_business`, so it splits the budget with the caps in mind instead of
+/// finding them one refused call at a time.
+pub(super) fn budget_cap(live: &Live, b: &Budget, name: &str) -> Option<(&'static str, Cents)> {
+    let perf = live.performance.campaign(name)?;
+    let ran = live
+        .baseline
+        .campaigns
+        .iter()
+        .find(|o| normalize(&o.name) == normalize(name))?
+        .daily_budget;
+    if perf.stalled {
+        return Some((
+            "stalled: no ads, or no impression for a week. Fix it or cut its budget",
+            ran,
+        ));
+    }
+    if perf.untracked {
+        // Under its budget, a cut down to what it spends changes nothing it gets.
+        let spent = perf
+            .avg_daily_cost
+            .map(|a| Cents((a.ceil() * 100.0) as u64));
+        return Some((
+            "untracked: clicks and no conversion while other campaigns convert. Its result is not measured, and it gets no more than it spends",
+            spent.map_or(ran, |s| s.min(ran)),
+        ));
+    }
+    matches!(
+        verdict_of(live, b, name),
+        Some(VsTarget::Over | VsTarget::NoResult)
+    )
+    .then_some((
+        "over its target: each conversion costs more than budget.target_cpa or target_cpi, or it spent twice that with none",
+        ran,
+    ))
+}
+
+fn target_rule(b: &Budget) -> Option<String> {
+    if b.target_cpa.is_none() && b.target_cpi.is_none() {
+        return None;
+    }
+    Some(format!(
+        "vs_target compares what each conversion cost with the target in `budget` (target_cpa for campaigns, target_cpi for App campaigns): within is at or under it, over is above it, no_result is {NO_RESULT_TARGETS} targets spent with no conversion. An over or no_result campaign gets no more budget than it ran with (E27), thin or not. Give the money freed to a within campaign that its budget limits. A campaign with no vs_target has no target for its kind or not enough numbers yet."
+    ))
+}
+
 /// For the plan: every campaign as it ran, and campaign totals without keyword detail.
-pub fn business_view(live: &Live) -> (Value, Value) {
+pub fn business_view(live: &Live, budget: &Budget) -> (Value, Value) {
     let account = json!({"campaigns": live.baseline.campaigns.iter().map(|c| json!({
         "name": c.name, "kind": c.kind, "intent": c.intent,
         "daily_budget": cents_to_f64(c.daily_budget), "bid_strategy": c.bid_strategy,
@@ -119,12 +191,25 @@ pub fn business_view(live: &Live) -> (Value, Value) {
             let mut v = serde_json::to_value(c).unwrap_or(Value::Null);
             if let Some(o) = v.as_object_mut() {
                 o.remove("ad_groups");
+                if let Some(verdict) = verdict_of(live, budget, &c.name) {
+                    o.insert("vs_target".into(), json!(verdict));
+                }
+                if let Some((_, cap)) = budget_cap(live, budget, &c.name) {
+                    o.insert("budget_cap".into(), json!(cents_to_f64(cap)));
+                }
             }
             v
         })
         .collect();
+    let mut rules = live_rules(p);
+    if campaigns.iter().any(|c| c.get("budget_cap").is_some()) {
+        rules = format!("{rules} {CAP_RULE}");
+    }
+    if let Some(rule) = target_rule(budget) {
+        rules = format!("{rules} {rule}");
+    }
     let perf = json!({
-        "window": p.window, "thin_rule": thin_rule(), "live_rules": live_rules(p),
+        "window": p.window, "thin_rule": thin_rule(), "live_rules": rules,
         "idle_budget": p.idle_budget, "missing_reports": p.missing_reports,
         "ignored_campaigns": p.ignored_campaigns, "campaigns": campaigns,
     });

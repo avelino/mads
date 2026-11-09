@@ -92,6 +92,8 @@ struct RawBudget {
     daily: f64,
     currency: String,
     max_cpc: Option<f64>,
+    target_cpa: Option<f64>,
+    target_cpi: Option<f64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -478,6 +480,12 @@ pub struct Budget {
     pub daily: Cents,
     pub currency: String,
     pub max_cpc: Option<Cents>,
+    /// Most the advertiser pays for one conversion. The plan judges campaigns against it.
+    #[serde(default)]
+    pub target_cpa: Option<Cents>,
+    /// Most the advertiser pays for one app install. `target_cpa` stands for the other campaigns.
+    #[serde(default)]
+    pub target_cpi: Option<Cents>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -643,15 +651,16 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
     if c.len() != 3 || !c.chars().all(|ch| ch.is_ascii_uppercase()) {
         return Err(invalid("budget.currency", "must be 3 uppercase letters"));
     }
-    let max_cpc = match raw.budget.max_cpc {
-        Some(v) => Some(Cents::from_f64(v).ok_or_else(|| {
-            invalid(
-                "budget.max_cpc",
-                "must be greater than 0 with at most 2 decimals",
-            )
-        })?),
-        None => None,
+    let money = |key: &str, v: Option<f64>| {
+        v.map(|v| {
+            Cents::from_f64(v)
+                .ok_or_else(|| invalid(key, "must be greater than 0 with at most 2 decimals"))
+        })
+        .transpose()
     };
+    let max_cpc = money("budget.max_cpc", raw.budget.max_cpc)?;
+    let target_cpa = money("budget.target_cpa", raw.budget.target_cpa)?;
+    let target_cpi = money("budget.target_cpi", raw.budget.target_cpi)?;
 
     let b_tracking = b.conversion_tracking;
     let primary = b.language.split('-').next().unwrap_or("").to_lowercase();
@@ -685,6 +694,8 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
             daily,
             currency: raw.budget.currency,
             max_cpc,
+            target_cpa,
+            target_cpi,
         },
         export,
         catalog_file: raw.catalog.map(|c| c.file),
@@ -1000,6 +1011,31 @@ currency = "BRL"
             "[[business.pages]]\nname = \"App\"\nurl = \"/app\"\n\n[budget]",
         );
         assert_eq!(err_key(&toml), "business.pages[0].url");
+    }
+
+    #[test]
+    fn targets_are_optional_and_checked_like_the_budget() {
+        let f = parse_input_toml(MINIMAL).unwrap();
+        assert_eq!((f.budget.target_cpa, f.budget.target_cpi), (None, None));
+        let toml = with(
+            "currency = \"BRL\"",
+            "currency = \"BRL\"\ntarget_cpa = 40.0\ntarget_cpi = 2.5",
+        );
+        let f = parse_input_toml(&toml).unwrap();
+        assert_eq!(f.budget.target_cpa, Some(Cents(4000)));
+        assert_eq!(f.budget.target_cpi, Some(Cents(250)));
+        for key in ["target_cpa", "target_cpi"] {
+            let bad = with(
+                "currency = \"BRL\"",
+                &format!("currency = \"BRL\"\n{key} = 0"),
+            );
+            assert_eq!(err_key(&bad), format!("budget.{key}"));
+            let bad = with(
+                "currency = \"BRL\"",
+                &format!("currency = \"BRL\"\n{key} = 1.234"),
+            );
+            assert_eq!(err_key(&bad), format!("budget.{key}"));
+        }
     }
 
     #[test]

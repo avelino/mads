@@ -118,7 +118,7 @@ fn campaign(md: &mut String, o: &Campaign, c: &Campaign, comma: bool, paused: bo
     lines.extend(asset_groups(o, c));
     lines.extend(negatives("campaign", &o.negatives, &c.negatives));
     let head = if paused {
-        format!("**{}** stays paused, as it is in Google Ads", c.name)
+        format!("**{}** is paused in Google Ads and comes enabled", c.name)
     } else {
         format!("**{}**", c.name)
     };
@@ -372,7 +372,7 @@ mod tests {
             "new asset group rose",
             "asset group brancos dropped, paused by the import",
             "tintos: new texts",
-            "**Marca** stays paused, as it is in Google Ads",
+            "**Marca** is paused in Google Ads and comes enabled",
         ] {
             assert!(md.contains(needle), "missing {needle} in\n{md}");
         }

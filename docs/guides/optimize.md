@@ -14,13 +14,37 @@ To change how much the account spends per day, pass `--daily-budget`. The plan m
 mads optimize out/<run-id> --reports perf/2026-10-17 --daily-budget 500 --provider anthropic --model <model-id>
 ```
 
-`optimize` starts from the input saved in the base run, not from `business.toml`. A change you made to the file after that run, such as a new app, does not reach it. `--daily-budget` and `--app` are the two you can change here. To add the iOS app to an account that ran with Android only:
+`optimize` starts from the input saved in the base run, not from `business.toml`. A change you made to the file after that run, such as a new app, does not reach it. `--daily-budget`, `--app`, `--status`, `--target-cpa` and `--target-cpi` are the ones you can change here. To add the iOS app to an account that ran with Android only:
 
 ```bash
 mads optimize out/<run-id> --reports perf/2026-10-17 --app google_play=com.example.app --app app_store=6751919708 --provider anthropic --model <model-id>
 ```
 
 The live App campaign keeps its store (`E31` refuses moving it), the other store comes in as a new campaign, and the plan splits the app budget by the cost per install of each. See [Android and iOS](image-campaigns.md#android-and-ios).
+
+New campaigns leave `Paused` when the base run was generated with `export.status = "Paused"`, even if `business.toml` says `Enabled` now. Pass `--status enabled` to export the ones that are not in the account yet as enabled. A campaign that is already in the account comes enabled when the plan keeps it, even if it is paused there: the plan keeps what is worth the money and leaves out what is not.
+
+## Set a target
+
+Without a target, the plan decides what a good result is. With one, it has a number to hold each campaign to. Both keys are optional, in `[budget]`:
+
+```toml
+[budget]
+daily = 850
+currency = "BRL"
+target_cpa = 40.0   # the most you pay for one conversion
+target_cpi = 2.5    # the most you pay for one app install
+```
+
+Each campaign that ran gets a `vs_target` in what the plan reads:
+
+- `within`: each conversion cost the target or less.
+- `over`: each conversion cost more than the target.
+- `no_result`: the campaign spent twice the target and converted nothing. The factor is a line mads draws, not a Google rule.
+
+A campaign marked `over` or `no_result` gets no more daily budget than it ran with, thin or not (`E27`), and the plan leaves it out unless something broken explains the result. A `within` campaign that its budget limits is where the freed money goes. App campaigns are judged by `target_cpi` only, and every other campaign by `target_cpa`. A campaign without a target for its kind, or with too little spend to say, has no `vs_target`.
+
+`optimize` reads the input saved in the base run, so a target you add to `business.toml` later does not reach it. Pass `--target-cpa` and `--target-cpi` to set them in the new run. `mads init --force` keeps both keys in the file, like `max_cpc`.
 
 ## Export the reports
 

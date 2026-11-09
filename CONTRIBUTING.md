@@ -28,7 +28,7 @@ Clippy runs with `unwrap_used = "warn"` for the workspace, and `-D warnings` tur
 ```text
 crates/
   mads-core/         library, no network IO
-    prompts/         system prompts embedded with include_str!
+    prompts/         system prompts embedded with include_str!, the plan one in sections (plan/)
     src/input/       business.toml, catalog.csv, slugify, allowed URLs
     src/google/      domain model, rules, keyword expansion, RSA merge, CSV export
     src/init/        the init mission: tools, draft state, run

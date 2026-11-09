@@ -8,7 +8,7 @@ use mads_core::{
 };
 
 use crate::{
-    cli::{CliError, Layout, OptimizeArgs},
+    cli::{CliError, Layout, OptimizeArgs, StatusArg},
     commands::generate::{drivers_for, execute},
     render::Format,
 };
@@ -18,15 +18,18 @@ pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
         code: 1,
         message: format!("cannot read run {}: {e}", args.run_dir.display()),
     })?;
-    let daily = args
-        .daily_budget
-        .map(|v| {
+    let money = |flag: &str, v: Option<f64>| {
+        v.map(|v| {
             Cents::from_f64(v).ok_or_else(|| CliError {
                 code: 2,
-                message: "--daily-budget must be greater than 0 with at most 2 decimals".into(),
+                message: format!("{flag} must be greater than 0 with at most 2 decimals"),
             })
         })
-        .transpose()?;
+        .transpose()
+    };
+    let daily = money("--daily-budget", args.daily_budget)?;
+    let target_cpa = money("--target-cpa", args.target_cpa)?;
+    let target_cpi = money("--target-cpi", args.target_cpi)?;
     let apps = (!args.apps.is_empty())
         .then(|| apps_from_specs(&args.apps))
         .transpose()
@@ -42,6 +45,9 @@ pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
         &Overrides {
             daily_budget: daily,
             apps,
+            export_status: args.status.map(StatusArg::core),
+            target_cpa,
+            target_cpi,
         },
     )
     .map_err(|e| CliError {

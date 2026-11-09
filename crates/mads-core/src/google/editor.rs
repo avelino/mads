@@ -207,13 +207,13 @@ fn dropped_in<'a>(old: &'a Campaign, c: &'a Campaign, out: &mut Vec<Dropped<'a>>
 }
 
 impl Ctx<'_> {
-    /// A campaign already in the account keeps the status it has there, so an import over a live
-    /// account neither pauses what serves nor turns on what the advertiser paused.
+    /// A campaign the plan keeps is one worth the money, so it is exported enabled even when it
+    /// is paused in the account: the plan leaves out what should stay off, and the import pauses
+    /// that. A campaign the account does not have yet follows `export.status`.
     fn status_of(&self, c: &Campaign) -> &'static str {
         let live = self.live.and_then(|l| l.performance.campaign(&c.name));
         match live.and_then(|p| p.live_status) {
-            Some(LiveStatus::Enabled) => ACTIVE,
-            Some(LiveStatus::Paused) => PAUSED,
+            Some(LiveStatus::Enabled | LiveStatus::Paused) => ACTIVE,
             _ => self.status,
         }
     }
@@ -722,6 +722,27 @@ mod tests {
                 "{name} must not be written: Editor would create it"
             );
         }
+    }
+
+    #[test]
+    fn a_paused_live_campaign_the_plan_keeps_is_enabled() {
+        let new = Account {
+            brand_kit: None,
+            campaigns: vec![search("Catalogo", &[("tintos", &["malbec"])])],
+        };
+        let base = live(
+            vec![search("Catalogo", &[("tintos", &["malbec"])])],
+            &[("catalogo", LiveStatus::Paused)],
+        );
+        let file = export_editor_live(&crate::testutil::input(), &new, Some(&base)).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        let statuses: Vec<_> = rows
+            .iter()
+            .filter(|r| r.get("Campaign").map(String::as_str) == Some("Catalogo"))
+            .filter_map(|r| r.get("Campaign Status"))
+            .collect();
+        assert!(!statuses.is_empty());
+        assert!(statuses.iter().all(|s| *s == "Enabled"), "{statuses:?}");
     }
 
     #[test]

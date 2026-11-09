@@ -622,7 +622,7 @@ mod tests {
         );
     }
 
-    const OLD_TOML: &str = "[business]\nname = \"Old\"\n\n[budget]\ndaily = 1.0\ncurrency = \"USD\"\nmax_cpc = 2.5\n\n[export]\nstatus = \"Enabled\"\n\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n\n[app]\nstore = \"app_store\"\nid = \"123\"\n\n[google_ads]\ncustomer_id = \"123-456-7890\"\ndevices = \"Mobile\"\n";
+    const OLD_TOML: &str = "[business]\nname = \"Old\"\n\n[budget]\ndaily = 1.0\ncurrency = \"USD\"\nmax_cpc = 2.5\ntarget_cpa = 40.0\ntarget_cpi = 2.5\n\n[export]\nstatus = \"Enabled\"\n\n[campaigns]\nformats = [\"search\", \"demand_gen\"]\n\n[app]\nstore = \"app_store\"\nid = \"123\"\n\n[google_ads]\ncustomer_id = \"123-456-7890\"\ndevices = \"Mobile\"\n";
 
     #[tokio::test]
     async fn force_keeps_what_a_person_wrote_by_hand() {
@@ -638,6 +638,8 @@ mod tests {
             "the draft replaces [business]"
         );
         assert_eq!(input.budget.max_cpc, Some(Cents(250)));
+        assert_eq!(input.budget.target_cpa, Some(Cents(4000)));
+        assert_eq!(input.budget.target_cpi, Some(Cents(250)));
         assert_eq!(input.export.status, crate::input::ExportStatus::Enabled);
         assert_eq!(input.formats.len(), 2);
         assert_eq!(

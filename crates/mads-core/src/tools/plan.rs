@@ -15,7 +15,7 @@ use crate::{
         Account, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Intent, Issue,
         PlannedAdGroup, Rules, normalize,
     },
-    input::{AppStore, slugify},
+    input::{AppStore, Budget, slugify},
     perf::{AdGroupPerf, Live},
     workspace::Workspace,
 };
@@ -183,6 +183,8 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
             "daily": cents_to_f64(b.daily),
             "currency": b.currency,
             "max_cpc": b.max_cpc.map(cents_to_f64),
+            "target_cpa": b.target_cpa.map(cents_to_f64),
+            "target_cpi": b.target_cpi.map(cents_to_f64),
         },
         "catalog_size": ws.input.catalog.len(),
         "catalog_photos": ws.input.catalog.iter().filter(|c| c.image.is_some()).count(),
@@ -199,7 +201,7 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
         result["required_formats"] = json!(ws.input.formats);
     }
     if let Some(live) = &ws.live {
-        let (account, performance) = super::live::business_view(live);
+        let (account, performance) = super::live::business_view(live, b);
         result["live_account"] = account;
         result["performance"] = performance;
     }
@@ -330,7 +332,7 @@ async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput
     check_slugs(&campaigns, &mut issues);
     if let Some(live) = &ws.live {
         check_live_groups(&campaigns, live, &mut issues);
-        check_live_budgets(&campaigns, live, &mut issues);
+        check_live_budgets(&campaigns, live, &ws.input.budget, &mut issues);
         check_live_app_stores(&campaigns, live, &mut issues);
     }
     // `[campaigns] formats` is the advertiser's choice: E21 checks it, nothing else asks why.
@@ -663,32 +665,14 @@ fn check_live_app_stores(campaigns: &[Campaign], live: &Live, issues: &mut Vec<I
 /// E27: a campaign that is stalled or spends without conversions gets no more budget than it
 /// ran with. On a live account the plan kept 50 a day on a Demand Gen with no ads for 15 days and
 /// grew Search clicks nobody could measure, while the App campaign converted at its budget limit.
-fn check_live_budgets(campaigns: &[Campaign], live: &Live, issues: &mut Vec<Issue>) {
+fn check_live_budgets(
+    campaigns: &[Campaign],
+    live: &Live,
+    budget: &Budget,
+    issues: &mut Vec<Issue>,
+) {
     for (i, c) in campaigns.iter().enumerate() {
-        let (Some(perf), Some(ran)) = (
-            live.performance.campaign(&c.name),
-            live.baseline
-                .campaigns
-                .iter()
-                .find(|o| normalize(&o.name) == normalize(&c.name)),
-        ) else {
-            continue;
-        };
-        let (why, limit) = if perf.stalled {
-            (
-                "stalled: no ads, or no impression for a week. Fix it or cut its budget",
-                ran.daily_budget,
-            )
-        } else if perf.untracked {
-            // Under its budget, a cut down to what it spends changes nothing it gets.
-            let spent = perf
-                .avg_daily_cost
-                .map(|a| Cents((a.ceil() * 100.0) as u64));
-            (
-                "untracked: clicks and no conversion while other campaigns convert. Its result is not measured, and it gets no more than it spends",
-                spent.map_or(ran.daily_budget, |s| s.min(ran.daily_budget)),
-            )
-        } else {
+        let Some((why, limit)) = super::live::budget_cap(live, budget, &c.name) else {
             continue;
         };
         if c.daily_budget > limit {

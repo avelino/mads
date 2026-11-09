@@ -101,8 +101,37 @@ pub struct OptimizeArgs {
     /// business.toml had when it was generated. Without it they stay.
     #[arg(long = "app", value_name = "STORE=ID")]
     pub apps: Vec<String>,
+    /// Status of the campaigns that are not in the account yet: paused or enabled. It replaces the
+    /// export.status of the base run, which has the one business.toml had when it was generated.
+    /// Campaigns already in the account keep the status they have there. Without it the base
+    /// run's status stays.
+    #[arg(long, value_enum)]
+    pub status: Option<StatusArg>,
+    /// The most you pay for one conversion, in the account currency. The plan holds each campaign to
+    /// it. Without it the base run's target stays, and without one there is none.
+    #[arg(long)]
+    pub target_cpa: Option<f64>,
+    /// The most you pay for one app install, in the account currency. App campaigns are judged by it.
+    #[arg(long)]
+    pub target_cpi: Option<f64>,
     #[command(flatten)]
     pub run: RunArgs,
+}
+
+/// Value of `--status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum StatusArg {
+    Paused,
+    Enabled,
+}
+
+impl StatusArg {
+    pub fn core(self) -> mads_core::input::ExportStatus {
+        match self {
+            StatusArg::Paused => mads_core::input::ExportStatus::Paused,
+            StatusArg::Enabled => mads_core::input::ExportStatus::Enabled,
+        }
+    }
 }
 
 /// Flags shared by the commands that run missions.
@@ -347,6 +376,47 @@ mod tests {
     }
 
     #[test]
+    fn optimize_takes_the_targets() {
+        let cli = Cli::try_parse_from([
+            "mads",
+            "optimize",
+            "out/x",
+            "--reports",
+            "perf",
+            "--target-cpa",
+            "40",
+            "--target-cpi",
+            "2.5",
+        ])
+        .unwrap();
+        let Command::Optimize(o) = cli.command else {
+            panic!("expected optimize")
+        };
+        assert_eq!((o.target_cpa, o.target_cpi), (Some(40.0), Some(2.5)));
+    }
+
+    #[test]
+    fn optimize_status_takes_paused_or_enabled() {
+        let parse = |v: &str| {
+            Cli::try_parse_from([
+                "mads",
+                "optimize",
+                "out/x",
+                "--reports",
+                "perf",
+                "--status",
+                v,
+            ])
+        };
+        let Command::Optimize(o) = parse("enabled").unwrap().command else {
+            panic!("expected optimize")
+        };
+        assert_eq!(o.status, Some(StatusArg::Enabled));
+        assert!(parse("paused").is_ok());
+        assert!(parse("live").is_err());
+    }
+
+    #[test]
     fn optimize_needs_a_run_and_a_reports_folder() {
         assert!(Cli::try_parse_from(["mads", "optimize", "out/x"]).is_err());
         assert!(Cli::try_parse_from(["mads", "optimize", "--reports", "perf"]).is_err());
@@ -359,6 +429,7 @@ mod tests {
         assert_eq!((o.run.parallel, o.run.max_ad_groups), (4, 50));
         assert_eq!(o.daily_budget, None);
         assert!(o.apps.is_empty());
+        assert_eq!((o.status, o.target_cpa, o.target_cpi), (None, None, None));
         let cli = Cli::try_parse_from([
             "mads",
             "optimize",

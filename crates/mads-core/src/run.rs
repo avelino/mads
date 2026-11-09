@@ -302,7 +302,7 @@ impl Runner {
             let ws = self.ws.lock().await;
             (
                 !is_finished(&ws, PLAN_ID) || ws.account.campaigns.is_empty(),
-                plan_mission(&ws.input),
+                plan_mission(&ws.input, ws.live.is_some()),
             )
         };
         if needs_plan

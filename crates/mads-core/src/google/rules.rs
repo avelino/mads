@@ -868,6 +868,8 @@ mod tests {
                 daily: Cents(5000),
                 currency: s("BRL"),
                 max_cpc: Some(Cents(300)),
+                target_cpa: None,
+                target_cpi: None,
             },
             export: ExportConfig {
                 status: ExportStatus::Paused,

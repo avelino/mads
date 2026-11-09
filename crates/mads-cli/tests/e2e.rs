@@ -989,8 +989,12 @@ fn optimize_writes_a_new_run_that_pauses_what_it_dropped() {
             .map(|r| get(r, "Campaign Status"))
             .unwrap()
     };
-    assert_eq!(status("Vinellu - Catalogo"), "Enabled", "live status wins");
-    assert_eq!(status("Vinellu - Marca"), "Paused");
+    assert_eq!(status("Vinellu - Catalogo"), "Enabled");
+    assert_eq!(
+        status("Vinellu - Marca"),
+        "Enabled",
+        "the plan keeps it, so it comes enabled even though it is paused in the account"
+    );
 
     let report = fs::read_to_string(new.join("report.md")).unwrap();
     for needle in [

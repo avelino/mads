@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Projeto") }}</p>
+    <h1>{{ chrome.t("Importar projeto") }}</h1>
+    <p class="lede">{{ chrome.t("Copie para o estúdio uma pasta que já contém um") }} <span class="mono">business.toml</span>.</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/">{{ chrome.t("Voltar") }}</a>
+  </div>
+</section>
+
+<form class="panel form" data-project-import-form data-action="/api/projects/import">
+  <div class="form-grid">
+    <label class="full">{{ chrome.t("Caminho da pasta no servidor") }}
+      <input name="path" required autocomplete="off" spellcheck="false" placeholder="/home/voce/mads/meu-projeto">
+    </label>
+  </div>
+
+  <div class="notice">
+    <strong>{{ chrome.t("O navegador não lê o seu disco; o servidor lê o caminho.") }}</strong>
+    <p>{{ chrome.t("A pasta precisa existir na mesma máquina que roda o mads studio e conter um business.toml válido. O conteúdo é copiado para a raiz do estúdio com um id novo; a pasta original não é alterada.") }}</p>
+  </div>
+
+  <div class="notice warn">
+    <strong>{{ chrome.t("O que fica de fora") }}</strong>
+    <p>{{ chrome.t("Links simbólicos, a pasta .git e a pasta .mads não são copiados. O restante, incluindo out/, é copiado.") }}</p>
+  </div>
+
+  <div class="form-actions">
+    <button class="button primary" type="submit">{{ chrome.t("Importar pasta") }}</button>
+    <a class="button" href="/">{{ chrome.t("Cancelar") }}</a>
+    <span class="form-error error" data-form-error role="alert"></span>
+  </div>
+</form>
+{% endblock %}

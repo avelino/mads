@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Otimizar") }} · digest</p>
+    <h1>{{ chrome.t("Diagnóstico") }}</h1>
+    <p class="lede">{{ chrome.t("Leia os números antes de iniciar. O agente usa este digest para decidir orçamento e estrutura.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/runs/{{ run.summary.id }}">{{ chrome.t("Execução") }}</a>
+  </div>
+</section>
+
+<div class="split">
+  <div>
+    <div class="panel">
+      <h3>{{ chrome.t("Dados lidos") }}</h3>
+      <pre class="code perf-json">{{ performance_json }}</pre>
+    </div>
+
+    <div class="panel">
+      <h3>{{ chrome.t("Iniciar") }}</h3>
+      <form data-run-form data-action="/api/runs/{{ run.summary.id }}/resume">
+        <div class="form-grid">
+          <label>{{ chrome.t("Provedor") }}
+            <input name="provider" value="{{ default_provider }}" required>
+          </label>
+          <label>{{ chrome.t("Modelo") }}
+            <input name="model" value="{{ default_model }}">
+          </label>
+          <label>{{ chrome.t("Modelo do plano") }}
+            <input name="plan_model">
+          </label>
+          <label>{{ chrome.t("Teto de tokens") }}
+            <input name="max_tokens" type="number" min="0" value="4000000">
+          </label>
+          <label>{{ chrome.t("Turnos por missão") }}
+            <input name="max_turns" type="number" min="1" value="40">
+          </label>
+          <label>{{ chrome.t("Tempo por missão") }}
+            <input name="timeout" value="15m">
+          </label>
+        </div>
+        <div class="notice warn">
+          <strong>{{ chrome.t("Isto gasta tokens.") }}</strong> {{ chrome.t("A importação é só pelo Google Ads Editor, nunca pelos arquivos 1–5.") }}
+        </div>
+        <div class="form-actions">
+          <button class="button primary" type="submit">{{ chrome.t("Iniciar otimização") }}</button>
+          <span class="form-error error" data-form-error role="alert"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="panel">
+      <h3>{{ chrome.t("Como ler") }}</h3>
+      <ul class="small muted">
+        <li><strong>thin</strong>: {{ chrome.t("dados de menos. Só estrutura.") }}</li>
+        <li><strong>stalled</strong>: {{ chrome.t("quebrada, sem anúncios ou impressões.") }}</li>
+        <li><strong>untracked</strong>: {{ chrome.t("cliques sem conversão visível.") }}</li>
+        <li><strong>idle_budget</strong>: {{ chrome.t("orçamento que sobra todo dia.") }}</li>
+        <li><strong>missing_reports</strong>: {{ chrome.t("o que faltou para decidir keyword.") }}</li>
+      </ul>
+    </div>
+  </aside>
+</div>
+{% endblock %}

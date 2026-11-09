@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Estúdio") }}</p>
+    <h1>{{ chrome.t("Projetos") }}</h1>
+    <p class="lede">{{ chrome.t("Um diretório por negócio. O rascunho fica no projeto, as execuções ficam em ") }}<span class="mono">out/</span>.</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/projects/import">{{ chrome.t("Importar") }}</a>
+    <a class="button" href="/projects/manual">{{ chrome.t("Criar manualmente") }}</a>
+    <a class="button primary" href="/projects/new">{{ chrome.t("Novo projeto") }}</a>
+    <span class="muted">{{ projects.len() }} {{ chrome.t("projeto(s)") }}</span>
+  </div>
+</section>
+
+{% if projects.is_empty() %}
+<section class="empty">
+  <h2>{{ chrome.t("Nenhum projeto ainda") }}</h2>
+  <p>{{ chrome.t("Crie uma pasta em") }} <span class="mono">~/mads</span> {{ chrome.t("com um") }} <span class="mono">business.toml</span>, {{ chrome.t("ou rode") }} <span class="mono">mads init</span> {{ chrome.t("nela. O estúdio encontra o projeto ao atualizar esta página.") }}</p>
+  <p><a class="button primary" href="/projects/new">{{ chrome.t("Criar pelo navegador") }}</a></p>
+  <p class="muted small">{{ chrome.t("Ou, no terminal, crie a pasta com um") }} <span class="mono">business.toml</span>.</p>
+</section>
+{% else %}
+<section class="grid projects">
+  {% for project in projects %}
+  <a class="card project-card" href="/projects/{{ project.id }}">
+    <div class="card-head">
+      <h2>{{ project.name }}</h2>
+      {% if project.has_runs %}
+      {% for run in project.runs %}{% if loop.first %}
+      <span class="status status-{{ run.class }}">{{ chrome.t(run.label) }}</span>
+      {% endif %}{% endfor %}
+      {% else %}
+      <span class="status status-muted">{{ chrome.t("Rascunho") }}</span>
+      {% endif %}
+    </div>
+    {% if project.url != "" %}
+    <p class="mono muted small">{{ project.url }}</p>
+    {% endif %}
+    {% if project.has_error %}
+    <p class="error small">{{ project.error_text }}</p>
+    {% endif %}
+    <div class="meta-row">
+      {% if project.daily != "" %}<span>{{ project.daily }} {{ project.currency }}{{ chrome.t("/dia") }}</span>{% endif %}
+      <span>{{ project.runs.len() }} {{ chrome.t("execução(ões)") }}</span>
+      {% if project.updated != "" %}<span>{{ chrome.t("atualizado em") }} {{ project.updated }}</span>{% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

@@ -10,6 +10,7 @@ use tokio::{sync::Semaphore, task::JoinSet};
 
 use super::{ImageModel, ImageRequest, check_image, extension, fit_to_ratio};
 use crate::{
+    agent::RunControl,
     events::{Event, EventSink},
     google::{AspectRatio, Campaign},
     input::{Input, slugify},
@@ -55,6 +56,8 @@ pub struct ImageStepConfig {
     /// New images allowed in this run.
     pub max_new: usize,
     pub parallel: usize,
+    /// Checked between image batches so a stop click stops the spend.
+    pub control: RunControl,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -187,7 +190,10 @@ fn write_file(dir: &Path, rel: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    // temp + rename, never truncate in place: revisions hard-link these files,
+    // and an in-place write would go through the shared inode and rewrite the
+    // base run's picture too.
+    crate::run::write_atomic(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
 }
 
@@ -391,6 +397,10 @@ async fn generate_all(
     let gate = Arc::new(Semaphore::new(cfg.parallel.max(1)));
     let mut set = JoinSet::new();
     for job in jobs {
+        // Already-running tasks finish, but no new batch starts after a cancel.
+        if cfg.control.is_cancelled() {
+            break;
+        }
         let reference = job
             .reference_url
             .as_ref()
@@ -510,6 +520,7 @@ mod tests {
             model: Some(model),
             max_new: 10,
             parallel: 2,
+            control: RunControl::default(),
         }
     }
 
@@ -665,6 +676,7 @@ mod design_tests {
             model: Some(model.clone()),
             max_new: 5,
             parallel: 1,
+            control: RunControl::default(),
         };
         let (events, _rx) = EventSink::channel();
         run_image_step(&ws, &NoWeb, &cfg, &events).await;
@@ -793,6 +805,7 @@ mod cap_tests {
             model: Some(Arc::new(SolidImageModel)),
             max_new: 3,
             parallel: 2,
+            control: RunControl::default(),
         };
         let (events, _rx) = EventSink::channel();
         let r = run_image_step(&ws, &NoWeb, &cfg, &events).await;

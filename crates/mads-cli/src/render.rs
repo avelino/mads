@@ -136,6 +136,10 @@ pub fn plain_lines(env: &EventEnvelope) -> Vec<String> {
             vec![format!("{t} [url] {status} {url}")]
         }
         Event::ArtifactWritten { path } => vec![format!("{t} [out] {path}")],
+        Event::RunPaused { totals } => vec![format!(
+            "{t} [run] paused at the plan checkpoint: {} in, {} out tokens",
+            totals.input_tokens, totals.output_tokens
+        )],
         Event::RunFinished {
             ok,
             exit_code,

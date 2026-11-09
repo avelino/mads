@@ -1,12 +1,13 @@
 # mads
 
-Rust CLI that turns a business description into Google Ads bulk-upload CSVs, with LLM agents deciding and deterministic code enforcing Google's limits. Crates: `mads-core` (library, no network), `mads-providers` (LLM and HTTP adapters), `mads-cli` (the `mads` binary). Design spec: `docs/superpowers/specs/2026-10-01-mads-v1-design.md`. Section 16 lists where the code differs from it: the code wins.
+Rust CLI that turns a business description into Google Ads bulk-upload CSVs, with LLM agents deciding and deterministic code enforcing Google's limits. Crates: `mads-core` (library, no network), `mads-providers` (LLM and HTTP adapters), `mads-cli` (the `mads` binary, including the optional `serve` module for mads studio). Design spec: `docs/superpowers/specs/2026-10-01-mads-v1-design.md`. Studio spec: `docs/superpowers/specs/2026-10-24-mads-studio-design.md`. Section 16 lists where the code differs from the v1 spec: the code wins.
 
 ## Commands
 
 ```bash
 cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace   # the gate
 cargo build -p mads-cli && target/debug/mads --help
+target/debug/mads serve --root /tmp/mads-studio --port 4780   # browser UI, Ctrl-C to stop
 MADS_IT=1 cargo test -p mads-providers --test it_claude -- --ignored --nocapture   # real claude, spends tokens
 ```
 
@@ -15,6 +16,7 @@ Run the whole flow offline with the hidden `replay` provider: see `crates/mads-c
 ## Architecture
 
 - `mads-core` never touches the network. It defines the traits (`ChatModel`, `Driver`, `Web`, `SiteFetch`, `ToolHost`) and `mads-providers` implements them. `mads-cli` depends on both.
+- `mads serve` lives in `mads-cli/src/serve/` behind the default `serve` feature. It calls core in process, runs jobs on their own runtime, and keeps one project directory per business under `--root`. It never uploads to Google Ads.
 - A run is missions: `plan`, then one `campaign:<slug>` per campaign in parallel, then deterministic post-processing (cross negatives, validate, URL check, export). `mads init` is a separate single mission. `mads optimize` prepares a new run from a finished one plus Google Ads report CSVs (`src/perf`, `workspace.live`) and runs the same missions.
 - Agents work only through typed tools (`crates/mads-core/src/tools`, `src/init/tools.rs`). API providers loop over `ChatModel`. Agent CLIs reach the same tools through a per-mission MCP server (`mads-providers/src/mcp.rs`).
 - Output per ad platform: `out/<run>/google-ads/` (five CSVs), plus `report.md`, `workspace.json`, `events.ndjson`, `transcripts/`.

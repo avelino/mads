@@ -9,6 +9,7 @@ You write `business.toml` and, optionally, `catalog.csv`. LLM agents plan the ac
 * **[Why mads](why-mads.md)** covers the problem and what mads does and does not do.
 * **[Getting started](getting-started.md)** installs mads and runs it end to end.
 * **[Tutorial](tutorial.md)** goes from an empty folder to uploaded campaigns, using a wine app as the example.
+* **[mads studio](guides/mads-studio.md)** runs the same flow in the browser with `mads serve`.
 
 ## Guides
 
@@ -24,6 +25,7 @@ You write `business.toml` and, optionally, `catalog.csv`. LLM agents plan the ac
 * **[Resume and export](guides/resume-and-export.md)** explains how to recover a failed run and re-export without a model.
 * **[Optimize a live account](guides/optimize.md)** explains how to feed Google Ads reports back to mads and import the new version over the live account.
 * **[Cost and limits](guides/cost-and-limits.md)** covers turns, timeouts, token budgets and retries.
+* **[mads studio security](guides/mads-studio-security.md)** covers the local server, keys and containers.
 * **[GitHub Actions](guides/github-actions.md)** has a complete workflow.
 
 ## How-to

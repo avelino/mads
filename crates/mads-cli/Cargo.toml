@@ -18,7 +18,7 @@ mads-core = { path = "../mads-core" }
 mads-providers = { path = "../mads-providers" }
 serde_json = "1.0.151"
 thiserror = "2.0.21"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "time"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "time"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
@@ -27,7 +27,7 @@ workspace = true
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
-calamine = "0.37.0"
+calamine = "0.38.0"
 predicates = "3.1.4"
 serde_json = "1.0.151"
 tempfile = "3.27.0"

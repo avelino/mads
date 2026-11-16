@@ -1608,6 +1608,86 @@ async fn a_stalled_or_untracked_campaign_gets_no_more_budget_e27() {
     }
 }
 
+async fn spent_on_first_campaign(ws: &SharedWorkspace, cost: f64, conversions: f64) {
+    let mut guard = ws.lock().await;
+    let c = &mut guard.live.as_mut().unwrap().performance.campaigns[0];
+    (c.metrics.cost, c.metrics.conversions) = (cost, conversions);
+}
+
+#[tokio::test]
+async fn a_campaign_over_its_target_gets_no_more_budget_e27() {
+    let ws = live_planned().await;
+    spent_on_first_campaign(&ws, 100.0, 2.0).await;
+    let mut more = plan_args();
+    more["campaigns"][0]["daily_budget"] = json!(40.0);
+    more["campaigns"][1]["daily_budget"] = json!(10.0);
+
+    let t = plan_tools(&ws).await;
+    let out = t.call("set_account_plan", more.clone()).await;
+    assert!(!out.is_error, "no target, no verdict: {}", out.content);
+
+    ws.lock().await.input.budget.target_cpa = Some(crate::google::Cents(1000));
+    let t = plan_tools(&ws).await;
+    let out = t.call("set_account_plan", more).await;
+    assert_eq!(error_codes(&out), ["E27"], "{}", out.content);
+    assert!(
+        out.content.to_string().contains("target"),
+        "{}",
+        out.content
+    );
+
+    spent_on_first_campaign(&ws, 10.0, 2.0).await;
+    let mut more = plan_args();
+    more["campaigns"][0]["daily_budget"] = json!(40.0);
+    more["campaigns"][1]["daily_budget"] = json!(10.0);
+    let out = plan_tools(&ws).await.call("set_account_plan", more).await;
+    assert!(!out.is_error, "within the target may grow: {}", out.content);
+}
+
+#[tokio::test]
+async fn get_business_gives_the_budget_cap_e27_enforces() {
+    let ws = live_planned().await;
+    let cap = |out: &ToolOutput| {
+        out.content["result"]["performance"]["campaigns"][0]["budget_cap"].clone()
+    };
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    assert!(cap(&out).is_null(), "nothing limits a healthy campaign");
+
+    {
+        let mut guard = ws.lock().await;
+        let c = &mut guard.live.as_mut().unwrap().performance.campaigns[0];
+        (c.untracked, c.avg_daily_cost) = (true, Some(12.4));
+    }
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    assert_eq!(
+        cap(&out),
+        13.0,
+        "the same 13 that E27 asks in the untracked test"
+    );
+    let rules = out.content["result"]["performance"]["live_rules"]
+        .as_str()
+        .unwrap();
+    assert!(rules.contains("budget_cap"), "{rules}");
+}
+
+#[tokio::test]
+async fn get_business_shows_targets_and_the_verdict_of_each_campaign() {
+    let ws = live_planned().await;
+    spent_on_first_campaign(&ws, 100.0, 0.0).await;
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    let r = &out.content["result"];
+    assert!(r["budget"]["target_cpa"].is_null() && r["budget"].get("target_cpa").is_some());
+    assert!(r["performance"]["campaigns"][0].get("vs_target").is_none());
+
+    ws.lock().await.input.budget.target_cpa = Some(crate::google::Cents(1000));
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    let r = &out.content["result"];
+    assert_eq!(r["budget"]["target_cpa"], 10.0);
+    assert_eq!(r["performance"]["campaigns"][0]["vs_target"], "no_result");
+    let rules = r["performance"]["live_rules"].as_str().unwrap();
+    assert!(rules.contains("vs_target"), "{rules}");
+}
+
 #[tokio::test]
 async fn a_brief_that_ran_unchanged_keeps_its_picture() {
     let ws = image_planned().await;

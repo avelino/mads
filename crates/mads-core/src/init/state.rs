@@ -109,12 +109,18 @@ struct OutBudget<'a> {
     currency: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_cpc: Option<&'a toml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_cpa: Option<&'a toml::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_cpi: Option<&'a toml::Value>,
 }
 
 /// What a person wrote in an earlier business.toml that init does not draft. `--force` keeps it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct KeptByHand {
     max_cpc: Option<toml::Value>,
+    target_cpa: Option<toml::Value>,
+    target_cpi: Option<toml::Value>,
     export: Option<toml::Value>,
     campaigns: Option<toml::Value>,
     apps: Vec<crate::input::App>,
@@ -122,13 +128,15 @@ pub struct KeptByHand {
 }
 
 impl KeptByHand {
-    /// Reads `[export]`, `[campaigns]`, `[google_ads]` and `budget.max_cpc` from an earlier file. Unparsable text keeps nothing.
+    /// Reads `[export]`, `[campaigns]`, `[google_ads]` and `budget.max_cpc`, `target_cpa`, `target_cpi` from an earlier file. Unparsable text keeps nothing.
     pub fn from_toml(text: &str) -> Self {
         let Ok(old) = text.parse::<toml::Table>() else {
             return Self::default();
         };
         Self {
             max_cpc: old.get("budget").and_then(|b| b.get("max_cpc")).cloned(),
+            target_cpa: old.get("budget").and_then(|b| b.get("target_cpa")).cloned(),
+            target_cpi: old.get("budget").and_then(|b| b.get("target_cpi")).cloned(),
             export: old.get("export").cloned(),
             campaigns: old.get("campaigns").cloned(),
             apps: old.get("app").map(kept_apps).unwrap_or_default(),
@@ -140,6 +148,8 @@ impl KeptByHand {
     pub fn names(&self) -> Vec<&'static str> {
         [
             ("budget.max_cpc", self.max_cpc.is_some()),
+            ("budget.target_cpa", self.target_cpa.is_some()),
+            ("budget.target_cpi", self.target_cpi.is_some()),
             ("[export]", self.export.is_some()),
             ("[campaigns]", self.campaigns.is_some()),
             ("[app]", !self.apps.is_empty()),
@@ -508,6 +518,8 @@ impl InitState {
                 daily: self.daily.0 as f64 / 100.0,
                 currency: &self.currency,
                 max_cpc: kept.max_cpc.as_ref().filter(|_| complete),
+                target_cpa: kept.target_cpa.as_ref().filter(|_| complete),
+                target_cpi: kept.target_cpi.as_ref().filter(|_| complete),
             },
             catalog: (complete && !self.catalog.is_empty())
                 .then_some(OutFileRef { file: CATALOG_FILE }),

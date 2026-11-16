@@ -18,7 +18,7 @@ fn reference_input() -> Input {
             avoid: vec![],
             pages: Vec::<Page>::new(),
         },
-        budget: Budget { daily: Cents(5000), currency: "BRL".into(), max_cpc: None },
+        budget: Budget { daily: Cents(5000), currency: "BRL".into(), max_cpc: None, target_cpa: None, target_cpi: None },
         export: ExportConfig {
             status: ExportStatus::Paused,
             url_suffix: "utm_source=google&utm_medium=cpc&utm_campaign=rotulos&utm_content={adgroupid}&utm_term={keyword}".into(),

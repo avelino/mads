@@ -2,7 +2,13 @@ use crate::{agent::MissionSpec, google::Campaign, input::Input};
 
 pub const PLAN_ID: &str = "plan";
 
-const PLAN_PROMPT: &str = include_str!("../prompts/plan.md");
+const PLAN_CORE: &str = include_str!("../prompts/plan/core.md");
+const PLAN_FOCUS: &str = include_str!("../prompts/plan/focus.md");
+const PLAN_RESTRICTED: &str = include_str!("../prompts/plan/restricted.md");
+const PLAN_APPS: &str = include_str!("../prompts/plan/apps.md");
+const PLAN_LIVE: &str = include_str!("../prompts/plan/live.md");
+const PLAN_TARGETS: &str = include_str!("../prompts/plan/targets.md");
+const PLAN_FINISH: &str = include_str!("../prompts/plan/finish.md");
 const CAMPAIGN_PROMPT: &str = include_str!("../prompts/campaign.md");
 const IMAGE_CAMPAIGN_PROMPT: &str = include_str!("../prompts/image-campaign.md");
 
@@ -10,10 +16,35 @@ pub fn campaign_id(slug: &str) -> String {
     format!("campaign:{slug}")
 }
 
-pub fn plan_mission(input: &Input) -> MissionSpec {
+/// The plan prompt for this run. A section that talks about something the run does not have
+/// (a focus, restricted categories, an app, a live account, targets) is left out: every token of
+/// it would be read at each step of the mission and bring nothing.
+pub fn plan_prompt(input: &Input, live: bool) -> String {
+    let b = &input.budget;
+    let targets = live && (b.target_cpa.is_some() || b.target_cpi.is_some());
+    let sections = [
+        (true, PLAN_CORE),
+        (input.focus.is_some(), PLAN_FOCUS),
+        (!input.business.restricted.is_empty(), PLAN_RESTRICTED),
+        (!input.apps.is_empty(), PLAN_APPS),
+        (live, PLAN_LIVE),
+        (targets, PLAN_TARGETS),
+        (true, PLAN_FINISH),
+    ];
+    sections
+        .iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, text)| text.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+        + "\n"
+}
+
+/// `live` is true when the run starts from an account that already runs (`mads optimize`).
+pub fn plan_mission(input: &Input, live: bool) -> MissionSpec {
     MissionSpec {
         id: PLAN_ID.into(),
-        system: PLAN_PROMPT.into(),
+        system: plan_prompt(input, live),
         user: format!(
             "Plan the Google Ads account for {}. Write every ad text in {}. Call get_business first.",
             input.business.name, input.business.language
@@ -64,9 +95,26 @@ mod tests {
         }
     }
 
+    /// An input with everything a section of the plan prompt is about.
+    fn full_input() -> crate::input::Input {
+        let mut input = testutil::input();
+        input.focus = Some(crate::input::Focus {
+            name: "Rota".into(),
+            urls: vec!["https://example.com/rota".into()],
+            terms: vec![],
+        });
+        input.business.restricted = vec![crate::input::RestrictedCategory::Alcohol];
+        input.apps = vec![crate::input::App {
+            store: crate::input::AppStore::GooglePlay,
+            id: "com.example.app".into(),
+        }];
+        input.budget.target_cpa = Some(Cents(4000));
+        input
+    }
+
     #[test]
     fn plan_mission_has_id_language_and_tool_names() {
-        let m = plan_mission(&testutil::input());
+        let m = plan_mission(&testutil::input(), false);
         assert_eq!(m.id, "plan");
         assert!(m.user.contains("get_business"));
         assert!(m.user.contains("pt-BR"));
@@ -134,7 +182,7 @@ mod tests {
                 "campaign prompt misses rule: {rule}"
             );
         }
-        let p = plan_mission(&testutil::input());
+        let p = plan_mission(&full_input(), true);
         assert!(p.system.contains("sum exactly") && p.system.contains("10 to 20 percent"));
         for rule in [
             "`research`",
@@ -152,6 +200,10 @@ mod tests {
             "live_rules",
             "E27",
             "idle_budget",
+            "budget_cap",
+            "vs_target",
+            "target_cpa",
+            "target_cpi",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }
@@ -183,7 +235,7 @@ mod tests {
         ] {
             assert!(m.system.contains(needle), "image prompt misses {needle}");
         }
-        let p = plan_mission(&testutil::input());
+        let p = plan_mission(&full_input(), true);
         for rule in [
             "`kind`",
             "performance_max",
@@ -215,6 +267,39 @@ mod tests {
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }
+    }
+
+    #[test]
+    fn the_plan_prompt_leaves_out_what_the_run_does_not_have() {
+        let lean = plan_prompt(&testutil::input(), false);
+        for gone in [
+            "`focus`",
+            "business.restricted",
+            "app_installs` shows ads",
+            "E30",
+            "E31",
+            "live_account",
+            "vs_target",
+        ] {
+            assert!(!lean.contains(gone), "a plain run does not need: {gone}");
+        }
+        for kept in [
+            "set_account_plan",
+            "Brand kit",
+            "sum exactly",
+            "NO_IMAGE_REASON",
+        ] {
+            assert!(lean.contains(kept), "every run needs: {kept}");
+        }
+        let full = plan_prompt(&full_input(), true);
+        assert!(full.len() > lean.len() + 5000, "the sections add up");
+        let no_targets = plan_prompt(&testutil::input(), true);
+        assert!(no_targets.contains("live_account") && !no_targets.contains("vs_target"));
+        let first_run = plan_prompt(&full_input(), false);
+        assert!(
+            !first_run.contains("vs_target"),
+            "targets judge a live account only"
+        );
     }
 
     #[test]

@@ -40,6 +40,8 @@ At most 20 pages (`business.pages: at most 20 pages`).
 | `daily` | number | yes | | Greater than 0, at most 2 decimals |
 | `currency` | string | yes | | 3 uppercase ASCII letters. Informational, not exported. |
 | `max_cpc` | number | no | none | Greater than 0, at most 2 decimals |
+| `target_cpa` | number | no | none | The most you pay for one conversion. Greater than 0, at most 2 decimals. `mads optimize` compares each campaign with it. See [Optimize a live account](../guides/optimize.md#set-a-target). |
+| `target_cpi` | number | no | none | The same for one app install, used for App campaigns. Same validation. An App campaign is not judged by `target_cpa`. |
 
 ## [export]
 
@@ -47,7 +49,7 @@ The whole table is optional.
 
 | Key | Type | Default | Validation and effect |
 |---|---|---|---|
-| `status` | `"Paused"` or `"Enabled"` | `"Paused"` | Exact case. Written to the `Campaign status` column. |
+| `status` | `"Paused"` or `"Enabled"` | `"Paused"` | Exact case. Written to the `Campaign status` column of the campaigns that are not in the account yet. In `mads optimize` a campaign already in the account comes enabled when the plan keeps it. |
 | `url_suffix` | string | `utm_source=google&utm_medium=cpc&utm_campaign={mads_campaign}&utm_content={adgroupid}&utm_term={keyword}` | `{mads_campaign}` becomes the campaign slug. Any other `{...}` is a Google ValueTrack parameter and stays as written. |
 | `eu_political_ads` | bool | `false` | Written as `Yes` or `No`. |
 | `decimal_comma` | bool | `true` when the primary language subtag is `pt`, `es`, `fr`, `de` or `it`, else `false` | Prints CPCs and budgets with a comma. The drive-folder files always use a dot, because that is how Editor writes money. |

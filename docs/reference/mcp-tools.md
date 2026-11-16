@@ -37,7 +37,7 @@ Tools: `get_business`, `query_catalog`, `set_brand_kit`, `set_account_plan`, `fi
 No arguments. Returns the business profile, the budget and the rules every tool enforces.
 
 ```json
-{"business": {}, "budget": {"daily": 50.0, "currency": "BRL", "max_cpc": 3.0}, "catalog_size": 4, "catalog_photos": 1, "image_campaigns": {"available": false, "reason": "no image model in this run (set --image-provider and its API key)"}, "rules": {}}
+{"business": {}, "budget": {"daily": 50.0, "currency": "BRL", "max_cpc": 3.0, "target_cpa": null, "target_cpi": null}, "catalog_size": 4, "catalog_photos": 1, "image_campaigns": {"available": false, "reason": "no image model in this run (set --image-provider and its API key)"}, "rules": {}}
 ```
 
 `rules` has the text limits, the count ranges, the intents (`brand`, `catalog`, `generic`, `competitor`), the match types (`phrase`, `exact`), `campaign_kinds` with the bid strategies of each kind, the snippet headers and `max_ad_groups`.
@@ -52,7 +52,7 @@ When `business.toml` has `[campaigns] formats`, the result also has `required_fo
 
 When `business.toml` has a `[research]` table, the result also has `research`, the Markdown text of that file. Without notes the key is absent.
 
-In a `mads optimize` run the result also has `live_account` and `performance`. `live_account.campaigns` lists every campaign as it ran: name, kind, intent, daily budget, bid strategy and ad group names. `performance` has the report `window`, a `thin_rule` sentence, a `live_rules` sentence, `idle_budget`, `missing_reports`, `ignored_campaigns` and one entry per campaign with its totals, live status, status reasons, impression share lost to budget and rank, `days_running`, `avg_daily_cost`, `budget_use_pct`, `thin`, `stalled`, `untracked` and `hidden_terms_cost`, without ad group detail. In that run `set_account_plan` refuses, with `E25`, a plan that leaves out a group that had impressions, unless the campaign `rationale` has a line `Drop <group>: <reason>`, and, with `E27`, more daily budget for a stalled or untracked campaign. See [Optimize a live account](../guides/optimize.md).
+In a `mads optimize` run the result also has `live_account` and `performance`. `live_account.campaigns` lists every campaign as it ran: name, kind, intent, daily budget, bid strategy and ad group names. `performance` has the report `window`, a `thin_rule` sentence, a `live_rules` sentence, `idle_budget`, `missing_reports`, `ignored_campaigns` and one entry per campaign with its totals, live status, status reasons, impression share lost to budget and rank, `days_running`, `avg_daily_cost`, `budget_use_pct`, `thin`, `stalled`, `untracked` and `hidden_terms_cost`, without ad group detail. A campaign that `E27` limits also has `budget_cap`, the most daily budget it may get, so the plan splits the budget with it instead of finding it in a refused call. When `budget.target_cpa` or `target_cpi` is set, a campaign whose numbers say also has `vs_target`: `within`, `over` or `no_result`. In that run `set_account_plan` refuses, with `E25`, a plan that leaves out a group that had impressions, unless the campaign `rationale` has a line `Drop <group>: <reason>`, and, with `E27`, more daily budget for a stalled, untracked or over-target campaign. See [Optimize a live account](../guides/optimize.md).
 
 ### query_catalog
 

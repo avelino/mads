@@ -103,6 +103,8 @@ mod tests {
                 daily: Cents(5000),
                 currency: "USD".into(),
                 max_cpc: None,
+                target_cpa: None,
+                target_cpi: None,
             },
             export: ExportConfig {
                 status: ExportStatus::Paused,

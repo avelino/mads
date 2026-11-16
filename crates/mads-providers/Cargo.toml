@@ -14,13 +14,13 @@ genai = "0.7.2"
 mads-core = { path = "../mads-core" }
 quick-xml = "0.42.0"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json", "multipart"] }
-rmcp = { version = "3.5", features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "3.9", features = ["server", "transport-streamable-http-server"] }
 scraper = "0.29.0"
 serde_json = "1.0.151"
 tempfile = "3.27.0"
 texting_robots = "0.2.2"
 thiserror = "2.0.21"
-tokio = { version = "1.53.1", features = ["rt", "macros", "time", "process", "io-util"] }
+tokio = { version = "1.54.1", features = ["rt", "macros", "time", "process", "io-util"] }
 tokio-util = "0.7.19"
 tower-service = "0.3.3"
 url = "2.5.8"
@@ -30,8 +30,8 @@ uuid = { version = "1.26.1", features = ["v4"] }
 workspace = true
 
 [dev-dependencies]
-rmcp = { version = "3.5", features = ["client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.9", features = ["client", "transport-streamable-http-client-reqwest"] }
 serde_json = "1.0.151"
 tempfile = "3.27.0"
-tokio = { version = "1.53.1", features = ["rt", "macros", "time"] }
+tokio = { version = "1.54.1", features = ["rt", "macros", "time"] }
 wiremock = "0.6.5"

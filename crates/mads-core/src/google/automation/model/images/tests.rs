@@ -85,7 +85,7 @@ fn performance_max_row_carries_the_campaign_values() {
     assert_eq!(r.bid_strategy, "maximize_conversions");
     assert_eq!(r.max_cpc, "");
     assert_eq!(r.language, "pt");
-    assert_eq!(r.location, "Brazil");
+    assert_eq!(r.location, "Brazil;Portugal");
     assert_eq!(r.final_url, "https://vinellu.com/pmax");
     assert_eq!(r.business_name, "Vinellu App");
     assert_eq!(r.app_id, "");

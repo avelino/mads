@@ -76,6 +76,7 @@ pub fn prepare(
 
     let mut account = old.account.clone();
     name_app_stores(&mut account, &old.input);
+    follow_live_budgets(&mut account, &performance);
     let mut ws = Workspace::new(old.input.clone());
     if let Some(daily) = overrides.daily_budget {
         ws.input.budget.daily = daily;
@@ -113,6 +114,17 @@ fn name_app_stores(account: &mut Account, input: &Input) {
     for c in &mut account.campaigns {
         if c.kind == CampaignKind::AppInstalls && c.app_store.is_none() {
             c.app_store = only;
+        }
+    }
+}
+
+/// A budget changed in Google Ads after the import is the one the campaign ran with: caps and
+/// the changes of the report start from it, not from what the base run exported.
+fn follow_live_budgets(account: &mut Account, p: &Performance) {
+    for c in &mut account.campaigns {
+        let live = p.campaign(&c.name).and_then(|l| l.budget);
+        if let Some(budget) = live.and_then(Cents::from_f64) {
+            c.daily_budget = budget;
         }
     }
 }
@@ -299,6 +311,19 @@ mod tests {
             old.input.budget.daily, old_daily,
             "the base run is not touched"
         );
+    }
+
+    #[test]
+    fn a_budget_changed_in_google_ads_is_the_budget_the_campaign_ran_with() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run(tmp.path(), MissionStatus::Finished);
+        let report = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus da campanha,Campanha,Orçamento,Custo,Cliques,Impr.\nAtivada,Vinellu - Marca,\"25,50\",\"10,00\",8,90\n";
+        let perf = reports(tmp.path(), &[("c.csv", report)]);
+        let p = prepare(&base, &perf, &tmp.path().join("b"), &Overrides::default()).unwrap();
+        let ws = Workspace::load(&p.run_dir.join("workspace.json")).unwrap();
+        let live = ws.live.unwrap();
+        assert_eq!(live.baseline.campaigns[0].daily_budget, Cents(2550));
+        assert_eq!(ws.account.campaigns[0].daily_budget, Cents(2550));
     }
 
     #[test]

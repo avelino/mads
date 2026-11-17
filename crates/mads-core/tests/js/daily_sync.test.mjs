@@ -355,3 +355,30 @@ test('linkSheets fails loudly when two folders share the name', () => {
   context.FOLDER_NAME = 'Twin';
   assert.throws(() => context.linkSheets(), /2 folders/);
 });
+
+test('targetCriteria resolves every location of a semicolon list', () => {
+  const { context, logs } = load();
+  const asked = [];
+  context.AdsApp.search = (query) => {
+    asked.push(query);
+    const found = /'Belo Horizonte,State of Minas Gerais,Brazil'/.test(query)
+      ? [{ geoTargetConstant: { resourceName: 'geoTargetConstants/1', targetType: 'City' } }]
+      : /'Sao Paulo,State of Sao Paulo,Brazil'/.test(query)
+        ? [{ geoTargetConstant: { resourceName: 'geoTargetConstants/2', targetType: 'City' } }]
+        : [];
+    return context.iteratorOf ? context.iteratorOf(found) : {
+      i: 0, hasNext() { return this.i < found.length; }, next() { return found[this.i++]; },
+    };
+  };
+  const b = { env: { targets: {} }, row: { name: 'Rota' } };
+  const out = context.targetCriteria(b, {
+    location: 'Belo Horizonte, State of Minas Gerais, Brazil; Sao Paulo,State of Sao Paulo,Brazil;Nowhere',
+  });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(out)),
+    [{ location: { geoTargetConstant: 'geoTargetConstants/1' } },
+     { location: { geoTargetConstant: 'geoTargetConstants/2' } }],
+  );
+  assert.equal(asked.length, 3);
+  assert.equal(logs.filter((l) => l.includes('"Nowhere"')).length, 1);
+});

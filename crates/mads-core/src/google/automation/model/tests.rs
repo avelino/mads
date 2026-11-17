@@ -238,7 +238,7 @@ fn campaign_rows_carry_the_editor_values() {
             budget_type: "Daily".into(),
             bid_strategy: "Manual CPC".into(),
             language: "pt".into(),
-            location: "Brazil".into(),
+            location: "Brazil;Portugal".into(),
             devices: "Mobile;Desktop".into(),
             tracking_template: "{lpurl}?utm_campaign=brand".into(),
             label: "mads;search".into(),

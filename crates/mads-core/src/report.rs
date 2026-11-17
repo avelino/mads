@@ -400,6 +400,19 @@ fn import_steps(md: &mut String, d: &ReportData) {
     }
 }
 
+/// The reports show a conversion in a Search campaign: something is being measured.
+fn search_converts(d: &ReportData) -> bool {
+    let Some(live) = &d.live else {
+        return false;
+    };
+    d.account
+        .campaigns
+        .iter()
+        .filter(|c| c.kind == CampaignKind::Search)
+        .filter_map(|c| live.performance.campaign(&c.name))
+        .any(|p| p.metrics.conversions > 0.0)
+}
+
 /// What to check once the account serves, and the reports that let the next run learn from it.
 fn after_launch(md: &mut String, d: &ReportData) {
     md.push_str(
@@ -412,7 +425,7 @@ fn after_launch(md: &mut String, d: &ReportData) {
         .campaigns
         .iter()
         .any(|c| c.kind == CampaignKind::Search);
-    if search && !d.input.business.conversion_tracking {
+    if search && !d.input.business.conversion_tracking && !search_converts(d) {
         md.push_str(
             "\nSearch campaigns run with no conversion tracking: Google Ads shows clicks and cost, not which searches bring customers. \
              Set a conversion action (a sign-up, a store click, a sale) before judging them.\n",
@@ -553,6 +566,29 @@ mod tests {
         for cell in ["catalog", "30,00 BRL", "Manual CPC", "| 1 |", "| 14 |"] {
             assert!(row.contains(cell), "{cell} missing in {row}");
         }
+    }
+
+    #[test]
+    fn after_launch_does_not_deny_conversions_the_reports_show() {
+        let input = testutil::input();
+        let mut d = data(&input, &account());
+        let mut performance = crate::perf::Performance::default();
+        performance.campaigns.push(crate::perf::CampaignPerf {
+            name: account().campaigns[0].name.clone(),
+            ..Default::default()
+        });
+        d.live = Some(Live {
+            baseline: account(),
+            performance,
+        });
+        assert!(
+            render_report(&d).contains("no conversion tracking"),
+            "no conversion in the reports: the advice stands"
+        );
+        if let Some(live) = &mut d.live {
+            live.performance.campaigns[0].metrics.conversions = 3.0;
+        }
+        assert!(!render_report(&d).contains("no conversion tracking"));
     }
 
     #[test]

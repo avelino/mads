@@ -168,10 +168,47 @@ pub(crate) fn dropped_items<'a>(live: &'a Live, new: &'a Account) -> Vec<Dropped
     {
         match new.campaigns.iter().find(|c| same_name(&c.name, &old.name)) {
             None => out.push(Dropped::Campaign { name: &old.name }),
-            Some(c) => dropped_in(old, c, &mut out),
+            Some(c) => {
+                dropped_in(old, c, &mut out);
+                out.extend(stray_in(live, old, c));
+            }
         }
     }
     out
+}
+
+/// Ad groups the reports show enabled in a campaign that the run being optimized does not have:
+/// an older import left them serving next to this run's groups, competing for the same searches.
+pub(crate) fn stray_groups<'a>(live: &'a Live, old: &Campaign) -> Vec<&'a str> {
+    let known = |name: &str| {
+        let ads = old.ad_groups.iter().map(|g| &g.name);
+        let assets = old.asset_groups.iter().map(|g| &g.name);
+        ads.chain(assets).any(|n| same_name(n, name))
+    };
+    let groups = live.performance.campaign(&old.name).map(|p| &p.ad_groups);
+    groups
+        .into_iter()
+        .flatten()
+        .filter(|g| g.live_status == Some(LiveStatus::Enabled) && !known(&g.name))
+        .map(|g| g.name.as_str())
+        .collect()
+}
+
+/// The stray groups the new plan does not take back by name: paused like the ones it dropped.
+pub(crate) fn stray_in<'a>(live: &'a Live, old: &Campaign, c: &'a Campaign) -> Vec<Dropped<'a>> {
+    let kept = |name: &str| {
+        let ads = c.ad_groups.iter().map(|g| &g.name);
+        let assets = c.asset_groups.iter().map(|g| &g.name);
+        ads.chain(assets).any(|n| same_name(n, name))
+    };
+    stray_groups(live, old)
+        .into_iter()
+        .filter(|name| !kept(name))
+        .map(|name| match c.kind {
+            CampaignKind::Search => Dropped::AdGroup { campaign: c, name },
+            _ => Dropped::AssetGroup { campaign: c, name },
+        })
+        .collect()
 }
 
 fn dropped_in<'a>(old: &'a Campaign, c: &'a Campaign, out: &mut Vec<Dropped<'a>>) {
@@ -281,8 +318,17 @@ impl Ctx<'_> {
             .set("Campaign Type", c.kind.label())
             .set("Budget", money(c.daily_budget))
             .set("Budget type", "Daily")
-            .set("EU political ads", eu)
-            .set("Bid Strategy Type", c.bid_strategy.label());
+            .set("EU political ads", eu);
+        // A strategy the advertiser changed in Google Ads stays: an empty cell changes nothing.
+        let by_hand = self
+            .live
+            .and_then(|l| l.performance.campaign(&c.name))
+            .is_some_and(|p| p.bids_unlike(c.bid_strategy.label()));
+        let row = if by_hand {
+            row
+        } else {
+            row.set("Bid Strategy Type", c.bid_strategy.label())
+        };
         // Demand Gen targets language on its ad groups: Editor refuses it on the campaign.
         let row = if c.kind == CampaignKind::DemandGen {
             row
@@ -313,20 +359,23 @@ impl Ctx<'_> {
             .set("Ad Group Type", "Standard")
     }
 
-    /// Location rows. Demand Gen targets location on its ad groups: Editor refuses it on the campaign.
+    /// One Location row per place. Demand Gen targets location on its ad groups: Editor refuses it
+    /// on the campaign.
     fn locations(&self, c: &Campaign) -> Vec<Row> {
-        let Some(place) = self.input.business.locations.first() else {
-            return Vec::new();
-        };
-        let row = |r: Row| r.set("Location", place).set("Status", ACTIVE);
-        if c.kind == CampaignKind::DemandGen {
-            c.asset_groups
-                .iter()
-                .map(|g| row(self.in_group(c, &g.name)))
-                .collect()
-        } else {
-            vec![row(self.under(c))]
+        let mut out = Vec::new();
+        for place in &self.input.business.locations {
+            let row = |r: Row| r.set("Location", place).set("Status", ACTIVE);
+            if c.kind == CampaignKind::DemandGen {
+                out.extend(
+                    c.asset_groups
+                        .iter()
+                        .map(|g| row(self.in_group(c, &g.name))),
+                );
+            } else {
+                out.push(row(self.under(c)));
+            }
         }
+        out
     }
 
     fn keyword(&self, c: &Campaign, ag: &AdGroup, text: &str, kind: &str) -> Row {
@@ -585,6 +634,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn every_location_gets_its_own_row() {
+        let mut input = crate::testutil::input();
+        input.business.locations = vec![
+            "Belo Horizonte,State of Minas Gerais,Brazil".into(),
+            "Sao Paulo,State of Sao Paulo,Brazil".into(),
+        ];
+        let account = Account {
+            brand_kit: None,
+            campaigns: vec![
+                demand_gen(),
+                search("Rota", &[("bh-sp", &["onibus bh sp"])]),
+            ],
+        };
+        let file = export_editor(&input, &account).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        let places = |campaign: &str| -> Vec<String> {
+            rows.iter()
+                .filter(|r| r.get("Campaign").map(String::as_str) == Some(campaign))
+                .filter_map(|r| r.get("Location").cloned())
+                .collect()
+        };
+        assert_eq!(places("Feed"), input.business.locations);
+        assert_eq!(places("Rota"), input.business.locations);
+    }
+
     fn search(name: &str, groups: &[(&str, &[&str])]) -> Campaign {
         Campaign {
             app_store: None,
@@ -643,6 +718,83 @@ mod tests {
         pick: impl Fn(&BTreeMap<String, String>) -> bool,
     ) -> Option<&BTreeMap<String, String>> {
         rows.iter().find(|r| pick(r))
+    }
+
+    #[test]
+    fn a_bid_strategy_changed_by_hand_is_left_as_it_is() {
+        let old = vec![
+            search("Catalogo", &[("tintos", &["malbec"])]),
+            search("Marca", &[("marca", &["vinellu"])]),
+        ];
+        let new = Account {
+            brand_kit: None,
+            campaigns: old.clone(),
+        };
+        let mut base = live(
+            old,
+            &[
+                ("Catalogo", LiveStatus::Enabled),
+                ("Marca", LiveStatus::Enabled),
+            ],
+        );
+        base.performance.campaigns[0].bid_strategy = "Maximizar as conversões".into();
+        base.performance.campaigns[1].bid_strategy = "CPC manual".into();
+        let file = export_editor_live(&crate::testutil::input(), &new, Some(&base)).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        let get = |r: &BTreeMap<String, String>, k: &str| r.get(k).cloned().unwrap_or_default();
+        let strategy = |name: &str| {
+            let r = row(&rows, |r| {
+                get(r, "Campaign") == name && !get(r, "Budget").is_empty()
+            })
+            .expect("campaign row");
+            get(r, "Bid Strategy Type")
+        };
+        assert_eq!(
+            strategy("Catalogo"),
+            "",
+            "Editor keeps what the account has"
+        );
+        assert_eq!(strategy("Marca"), "Manual CPC");
+    }
+
+    #[test]
+    fn a_group_of_an_older_import_still_serving_is_paused() {
+        let old = vec![search("Catalogo", &[("tintos", &["malbec"])])];
+        let new = Account {
+            brand_kit: None,
+            campaigns: vec![search(
+                "Catalogo",
+                &[("tintos", &["malbec"]), ("volta", &["merlot"])],
+            )],
+        };
+        let mut base = live(old, &[("Catalogo", LiveStatus::Enabled)]);
+        let group = |name: &str, s: LiveStatus| crate::perf::AdGroupPerf {
+            name: name.into(),
+            live_status: Some(s),
+            ..Default::default()
+        };
+        base.performance.campaigns[0].ad_groups = vec![
+            group("tintos", LiveStatus::Enabled),
+            group("Antigo", LiveStatus::Enabled),
+            group("Volta", LiveStatus::Enabled),
+            group("parado", LiveStatus::Paused),
+            group("morto", LiveStatus::Removed),
+        ];
+        let file = export_editor_live(&crate::testutil::input(), &new, Some(&base)).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        let get = |r: &BTreeMap<String, String>, k: &str| r.get(k).cloned().unwrap_or_default();
+        let status = |name: &str| -> Vec<String> {
+            rows.iter()
+                .filter(|r| get(r, "Ad Group") == name && get(r, "Keyword").is_empty())
+                .map(|r| get(r, "Ad Group Status"))
+                .collect()
+        };
+        assert_eq!(status("Antigo"), ["Paused"]);
+        assert!(status("parado").is_empty() && status("morto").is_empty());
+        assert!(
+            !status("Volta").contains(&"Paused".to_string()) && status("Volta").is_empty(),
+            "the new plan took the name back: only its own rows, as `volta`"
+        );
     }
 
     #[test]

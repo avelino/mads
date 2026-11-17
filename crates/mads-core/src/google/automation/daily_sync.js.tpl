@@ -615,6 +615,7 @@ function languageConstant(env, code) {
  * or null when nothing or more than one place matches.
  */
 function geoTargetConstant(env, place) {
+  place = place.split(',').map(function (s) { return s.trim(); }).join(',');
   var key = 'geo|' + place;
   if (!(key in env.targets)) {
     var field = place.indexOf(',') >= 0 ? 'canonical_name' : 'name';
@@ -650,13 +651,20 @@ function targetCriteria(b, row) {
     if (lang) out.push({ language: { languageConstant: lang } });
     else warn(b, 'language "' + row.language + '" not found, campaign targets all languages');
   }
-  if (row.location) {
-    var geo = geoTargetConstant(b.env, row.location);
+  places(row.location).forEach(function (place) {
+    var geo = geoTargetConstant(b.env, place);
     if (geo) out.push({ location: { geoTargetConstant: geo } });
-    else warn(b, 'location "' + row.location + '" not found or ambiguous, campaign targets ' +
-                 'every location. Set it in Google Ads before enabling the campaign.');
-  }
+    else warn(b, 'location "' + place + '" not found or ambiguous and is not targeted. ' +
+                 'Set it in Google Ads before enabling the campaign.');
+  });
   return out;
+}
+
+/** The places of a `;` separated Location cell. */
+function places(cell) {
+  return String(cell || '').split(';')
+    .map(function (s) { return s.trim(); })
+    .filter(function (s) { return s; });
 }
 
 function warn(b, message) {

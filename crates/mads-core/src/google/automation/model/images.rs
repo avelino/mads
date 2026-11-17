@@ -143,7 +143,7 @@ fn row(input: &Input, live: Option<&Live>, c: &Campaign, kind: &str) -> ImageCam
         bid_strategy: bid_strategy.into(),
         max_cpc,
         language: business.language_primary().into(),
-        location: business.locations.first().cloned().unwrap_or_default(),
+        location: business.locations_cell(),
         final_url: or(first.map(|g| &g.final_url), &business.url),
         business_name: or(first.map(|g| &g.business_name), &business.name),
         app_id,

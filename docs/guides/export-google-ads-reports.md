@@ -28,9 +28,9 @@ A report with the right header but without the metric columns is read, and its n
 |---|---|---|---|
 | [Search terms](#search-terms) | Insights and reports, Search terms | Search term, Campaign, Ad group, Impr., Clicks, Cost, Conversions | Match type, Added/Excluded |
 | [Search keywords](#search-keywords) | Audiences, keywords and content, Keywords | Keyword, Match type, Campaign, Ad group, Impr., Clicks, Cost, Conversions | Max. CPC, Quality Score, Status reasons, First page bid, Top of page bid |
-| [Campaigns](#campaigns) | Campaigns | Campaign, Impr., Clicks, Cost, Conversions | Campaign status, Budget, Status reasons, Search lost IS (budget), Search lost IS (rank), Conv. value |
+| [Campaigns](#campaigns) | Campaigns | Campaign, Impr., Clicks, Cost, Conversions | Campaign status, Budget, Bid strategy type, Status reasons, Search lost IS (budget), Search lost IS (rank), Conv. value |
 | [Campaigns by day](#campaigns-by-day) | Campaigns, segmented by Day | Day, Campaign, Impr., Clicks, Cost, Conversions | The same as Campaigns |
-| [Ad groups](#ad-groups) | Campaigns, Ad groups | Ad group, Campaign, Impr., Clicks, Cost, Conversions | Conv. value |
+| [Ad groups](#ad-groups) | Campaigns, Ad groups | Ad group, Campaign, Impr., Clicks, Cost, Conversions | Ad group status, Conv. value |
 | [Assets](#assets) | Assets | Asset, Campaign, Ad group | Asset type, Performance label, Impr. |
 
 At least one report must be there. All six give the best result.
@@ -57,6 +57,7 @@ One row per campaign.
 
 - **Campaign status** and **Status reasons** are how mads finds a stalled campaign, such as one with no ads.
 - **Budget** with **Cost** gives the real daily spend and the budget left unspent.
+- **Bid strategy type** shows a strategy you changed in Google Ads. mads keeps it at import. Without the column, the import writes the strategy of the run over yours.
 - **Search lost IS (budget)** and **Search lost IS (rank)** say whether a campaign loses impressions to budget or to Ad Rank. Add both.
 
 ## Campaigns by day
@@ -73,6 +74,8 @@ One row per ad group, with its own totals.
 - It must have **Campaign** and **Ad group**.
 - It must not have **Keyword**, **Day** or ad columns. With any of them it is read as another report, or skipped.
 - It tells mads which groups ran, but nothing about their keywords. Export the keywords and search terms reports too.
+- **Ad group status** shows the enabled groups an older import left in a campaign. mads pauses the ones the run does not have.
+- An asset groups report, with **Asset group** in place of **Ad group**, is read the same way.
 
 ## Assets
 

@@ -55,7 +55,13 @@ pub(super) const SEARCH_TERM: &[&str] = &["termo de pesquisa", "search term"];
 pub(super) const KEYWORD: &[&str] = &["palavra chave", "keyword", "search keyword"];
 pub(super) const MATCH: &[&str] = &["tipo de corresp", "match type"];
 pub(super) const CAMPAIGN: &[&str] = &["campanha", "campaign"];
-pub(super) const AD_GROUP: &[&str] = &["grupo de anuncios", "ad group"];
+/// An asset group is the ad group of an image campaign: its report reads the same way.
+pub(super) const AD_GROUP: &[&str] = &[
+    "grupo de anuncios",
+    "ad group",
+    "grupo de recursos",
+    "asset group",
+];
 pub(super) const ASSET: &[&str] = &["recurso", "asset"];
 pub(super) const DAY: &[&str] = &["dia", "day"];
 /// Columns only the ads report has: one row per ad, not per ad group.

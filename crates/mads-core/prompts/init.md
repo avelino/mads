@@ -29,7 +29,7 @@ The tools enforce the rules. A call that breaks them returns errors and changes 
 
 - `description`: what the business is, who it is for and what makes it different, in 2 to 5 sentences. Use facts from the site. Never invent numbers, prices or claims.
 - `language`: the main language of the site as a BCP 47 tag (pt-BR, en-US).
-- `locations`: exactly one Google location name where the ads should run, for example Brazil. Pick the country the site serves.
+- `locations`: 1 to 10 Google location names where the buyers are. Without Focus that is the country the site serves, for example Brazil. A city or a state is written as Google's canonical name, without accents: `Belo Horizonte,State of Minas Gerais,Brazil`.
 - `goal`: what the ads should achieve in a few words, for example "app installs" or "online sales".
 - `competitors`: direct competitors the site names or that your research found. Leave it empty when unsure.
 - `pages`: up to 8 key pages that make good sitelinks (app, about, pricing, help, blog). Use only URLs you fetched, saw in the sitemap or got from `search_site`.
@@ -73,6 +73,7 @@ When the task says Focus, the account advertises one offer of the business, such
 - Study the business for context: the profile in `write_business` still describes the business, and the description says what makes this offer worth buying.
 - Set `focus` in `write_business`: `name` as people say the offer, and `urls` with the start page plus its close variants that the site has, such as the other direction of a route or the same offer in another format. Every URL must come from a fetched page or the sitemap.
 - Set `focus.terms`: the words that make a search about this offer and not another, one group per part of the offer, each group with every way people write that part (abbreviation, full name, with and without accents). Every keyword of the account must contain one word of each group, so a search for another offer is never bought. For a route that is two groups, the origin and the destination.
+- Set `locations` to where the buyers of this offer are, not the whole country, when the offer is tied to places: for a route, the origin city and the destination city, and for a store or a local service, its city. An offer sold everywhere keeps the country.
 - The catalog holds only focus pages. Other offers of the business are not catalog items, even popular ones.
 - The opportunities in `write_research` are ways people search for this offer: with and without the brand, with price, date or comparison words, with a competitor name.
 - Pages for sitelinks can still be general pages of the business, such as help, promotions or locations.

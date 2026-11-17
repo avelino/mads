@@ -76,7 +76,7 @@ pub(super) async fn call(t: &MissionTools, slug: &str, args: Value) -> ToolOutpu
 
 fn thin_rule() -> String {
     format!(
-        "A campaign marked thin has under {THIN_DAYS} days running or under {THIN_CLICKS} clicks, and under {JUDGE_CONVERSIONS} conversions: its numbers are noise. Fix structure only (bids under the first page, low quality, no ads, wrong grouping). Do not cut, pause or grow anything because of its results. stalled and untracked win over thin for the budget: cut those even when thin."
+        "A campaign marked thin has under {THIN_DAYS} days running or under {THIN_CLICKS} clicks, and under {JUDGE_CONVERSIONS} conversions: its numbers are noise. Fix structure only (bids under the first page, low quality, no ads, wrong grouping). Do not cut, pause or grow anything because of its results. Its budget still follows budget_use_pct: money it does not spend is not a result. stalled and untracked win over thin for the budget: cut those even when thin."
     )
 }
 
@@ -87,7 +87,11 @@ fn live_rules(p: &Performance) -> String {
             "stalled: enabled with no ads, or {STALLED_DAYS} days without one impression. It is broken, not short of data: fix what Google says (no ads, policy) or cut its budget. It never gets more budget (E27)."
         ),
         "untracked: clicks enough to judge and no conversion while other campaigns convert. Its result is not measured, or there is none. Do not grow it: no budget increase (E27), no new keywords or groups.".into(),
-        "budget_use_pct is the average daily cost over the daily budget. Under 100 the budget is not what limits the campaign, so cutting it down to its real spend frees money without changing what it gets. At 100 or more a converting campaign is limited by its budget: give it what the others leave unspent, in steps of about 20 percent per run.".into(),
+        format!(
+            "budget_use_pct is the average daily cost over the daily budget. Under 100 the budget is not what limits the campaign, thin or not: cut it down to its real spend plus a tenth, which frees money without changing what it gets. Leave it higher only when this run fixes what kept it from spending (bids under the first page, no ads), and say so in the rationale. At 90 or more a converting campaign is limited by its budget: give it what the others leave unspent, in steps of about 20 percent per run, or up to 40 percent when it has {JUDGE_CONVERSIONS} conversions or more in the window, because its cost per conversion is proven."
+        ),
+        "bid_strategy is how the campaign bids in Google Ads today. When it is not the strategy of live_account, the advertiser changed it by hand and the import keeps it: under an automatic strategy the ad group CPCs are not in use, so an avg_cpc under default_cpc says nothing about the bid.".into(),
+        "An ad group with not_in_run serves in Google Ads from an older import, next to the groups of this run, and the import pauses it. Its numbers are searches of this campaign: read them with the group of this run that covers the same theme, and reuse its exact name only if it should keep serving.".into(),
         "A policy limit (status reasons with 'política' or 'policy') is not lifted by a higher bid.".into(),
     ];
     if let Some(idle) = p.idle_budget {
@@ -333,7 +337,17 @@ pub fn brief_view(live: &Live, campaign: &str) -> (Value, Value) {
             head.ad_groups.clear();
             let mut v = serde_json::to_value(&head).unwrap_or(Value::Null);
             v["metrics"] = metrics(&c.metrics);
-            v["ad_groups"] = c.ad_groups.iter().map(summary).collect::<Vec<_>>().into();
+            let stray = ran_campaign(live, campaign)
+                .map(|ran| crate::google::stray_groups(live, ran))
+                .unwrap_or_default();
+            let groups = c.ad_groups.iter().map(|g| {
+                let mut s = summary(g);
+                if stray.contains(&g.name.as_str()) {
+                    s["not_in_run"] = json!(true);
+                }
+                s
+            });
+            v["ad_groups"] = groups.collect::<Vec<_>>().into();
             v["window"] = json!(live.performance.window);
             v["thin_rule"] = json!(thin_rule());
             v["live_rules"] = json!(live_rules(&live.performance));
@@ -587,6 +601,42 @@ mod tests {
                 campaigns: vec![campaign],
             },
         }
+    }
+
+    #[test]
+    fn the_rules_cover_idle_budget_of_thin_campaigns_and_bidding_changed_by_hand() {
+        let thin = thin_rule();
+        assert!(
+            thin.contains("budget still follows budget_use_pct"),
+            "{thin}"
+        );
+        let rules = live_rules(&Performance::default());
+        for needle in [
+            "thin or not",
+            "At 90 or more",
+            "up to 40 percent",
+            "bid_strategy is how the campaign bids in Google Ads today",
+            "not_in_run",
+        ] {
+            assert!(rules.contains(needle), "missing {needle} in {rules}");
+        }
+    }
+
+    #[test]
+    fn a_group_of_an_older_import_is_marked_in_the_brief() {
+        let mut live = big();
+        live.performance.campaigns[0].ad_groups[0].live_status =
+            Some(crate::perf::LiveStatus::Enabled);
+        live.performance.campaigns[0].ad_groups.push(AdGroupPerf {
+            name: "Uvas antigas".into(),
+            live_status: Some(crate::perf::LiveStatus::Enabled),
+            ..Default::default()
+        });
+        let (_, perf) = brief_view(&live, "Catalogo");
+        let groups = perf["ad_groups"].as_array().unwrap();
+        assert!(groups[0].get("not_in_run").is_none(), "{}", groups[0]);
+        assert_eq!(groups[7]["name"], "Uvas antigas");
+        assert_eq!(groups[7]["not_in_run"], true);
     }
 
     #[test]

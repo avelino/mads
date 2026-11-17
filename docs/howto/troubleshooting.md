@@ -111,7 +111,7 @@ missing field `daily`
 A bad value names the key.
 
 ```text
-error: business.locations: exactly 1 location is supported in v1
+error: business.locations: must have 1 to 10 locations
 error: budget.currency: must be 3 uppercase letters
 error: business.url: must be an absolute http(s) URL
 error: business.description: must be 20 to 4000 chars, got 5
@@ -305,7 +305,7 @@ Next time attach the pictures before posting. See [Image campaigns](../guides/im
 
 - Compare headers with a template from your account. See [the bulk upload format](google-ads-bulk-upload-format.md).
 - Check the decimal format. If Google reads `1,50` as text, set `export.decimal_comma = false` in `business.toml` and generate again. Or set it in `workspace.json` under `input.export` and run `mads export`.
-- Check the location name. mads does not verify `business.locations` against Google's list.
+- Check the location names. mads does not verify `business.locations` against Google's list. A city or a state needs the canonical name, such as `Sao Paulo,State of Sao Paulo,Brazil`.
 - Upload in numeric order.
 
 ## Still stuck

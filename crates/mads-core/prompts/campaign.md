@@ -52,6 +52,7 @@ Each ad group has specific texts. The brand kit completes the ad to 15 headlines
 - 3 to 7 specific headlines, at most 30 characters. No `!` in headlines. Use the entity name in 2 or 3 variants with different angles: a question, a benefit, proof. Do not repeat a brand kit headline.
 - 1 to 2 specific descriptions, at most 90 characters, ending with a call to action.
 - `path1` and `path2` (at most 15 characters each) reflect the category and the entity. Leave them empty when unsure.
+- An ad group with several entities lands on a list page. Write about the theme, and never promise one item ("this label", "this model") that the page does not open on.
 - Write all text in the business language. Respect the `avoid` list.
 - Do not put a third-party trademark in ad text unless the entity is the thing being reviewed or sold. The tools warn about it.
 
@@ -74,6 +75,7 @@ When `get_brief` has `live` and `performance`, this campaign already runs in Goo
 - A search term with state `new` and conversions is a keyword to add. Terms with cost, no conversions and a meaning the offer does not serve are negatives to add. Turn a word that keeps coming back into one negative, not one negative per term.
 - `hidden_terms_cost` is spend Google does not show by term. Exact match and negatives shrink it.
 - Keep the ad group names: Google Ads Editor matches by name, and a new name creates a new group next to the old one.
+- A group marked `not_in_run` in `performance` is such a leftover of an older import: the import pauses it. Read its numbers with the group of this run that covers the same theme.
 - Say in `cpc_rationale` which numbers moved the bid.
 
 ## Assets

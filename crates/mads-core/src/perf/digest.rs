@@ -18,6 +18,13 @@ const LIVE: &[&str] = &["status da campanha", "campaign status"];
 const BUDGET: &[&str] = &["orcamento", "budget"];
 const MAX_CPC: &[&str] = &["cpc max", "max cpc"];
 const QUALITY: &[&str] = &["indice de qualidade", "quality score", "qual score"];
+const STRATEGY: &[&str] = &["tipo de estrategia de lances", "bid strategy type"];
+const GROUP_STATUS: &[&str] = &[
+    "status do grupo de anuncios",
+    "ad group status",
+    "status do grupo de recursos",
+    "asset group status",
+];
 const ASSET_KIND: &[&str] = &["tipo de recurso", "asset type"];
 
 /// One file of the reports folder: its name and the table, or why it is not a report.
@@ -195,7 +202,11 @@ fn read(p: &mut Performance, pass: &mut Pass, t: &Table, account: &Account) {
                 group(c, &g).search_terms.push(term);
             }
             Assets => group(c, &row.text(AD_GROUP)).assets.push(asset(&row)),
-            AdGroups => group(c, &row.text(AD_GROUP)).metrics = Some(metrics(&row)),
+            AdGroups => {
+                let g = group(c, &row.text(AD_GROUP));
+                g.metrics = Some(metrics(&row));
+                g.live_status = live_status(&row.text(GROUP_STATUS));
+            }
         }
     }
 }
@@ -240,6 +251,7 @@ fn status(c: &mut CampaignPerf, row: &Row) {
     c.live_status = live_status(&row.text(LIVE));
     c.status_reasons = row.text(REASONS);
     c.budget = row.number(BUDGET);
+    c.bid_strategy = row.text(STRATEGY);
 }
 
 /// A day row adds to the totals only when no campaign report gave them. Its lost share is kept

@@ -9,6 +9,7 @@ Continuity:
 - `ignored_campaigns` are campaigns of the account that this run does not manage. Do not plan them.
 - Split an ad group that mixes themes, merge ones that share the same searches.
 - Start each `rationale` with the numbers behind it: days, cost, clicks, conversions.
+- `bid_strategy` in `performance` is how a campaign bids in Google Ads today. When it differs from `live_account`, the advertiser changed it by hand and the import keeps it: say so in the `rationale`.
 
 The shares above (10 to 20 percent for `brand`, at least 20 percent for an image campaign) are where a new account starts. On a live account the numbers beat them, and a `budget_cap` beats everything: a campaign with one never gets more, even if its intent suggests a bigger share. Split the budget starting from the caps.
 
@@ -16,9 +17,9 @@ Decide the budget of each campaign with the first line that fits. `live_rules` e
 
 1. `stalled`: broken, not short of data. Fix what Google says (no ads, policy) or cut its budget. It never gets more than it ran with (`E27`).
 2. `untracked`: clicks and no conversion while others convert. At most its `avg_daily_cost`, rounded up (`E27`), and no new keywords or groups.
-3. `thin` (see `thin_rule`): its numbers are noise. It keeps its budget, and you fix structure only, unless it is broken: no impressions because of bids under the first page, no ads, or a policy limit.
-4. `budget_use_pct` under 100: the budget is not what limits it. Cut it to the real spend, which changes nothing it gets.
-5. `lost_to_budget_pct` high and it converts: give it more, in steps of about 20 percent per run, taken from cuts and from `idle_budget`, the money the account leaves unspent every day.
+3. `thin` (see `thin_rule`): its numbers are noise, so its results move no money and you fix structure only. Its budget still follows line 4: what a campaign does not spend is not a result.
+4. `budget_use_pct` under 100: the budget is not what limits it, thin or not. Cut it to the real spend plus a tenth, which changes nothing it gets. Leave it higher only when this run fixes what kept it from spending (bids under the first page, no ads), and say so in the `rationale`.
+5. `lost_to_budget_pct` high, or `budget_use_pct` at 90 or more, and it converts: give it more, taken from cuts and from `idle_budget`, the money the account leaves unspent every day. Steps of about 20 percent per run, or up to 40 percent when it has 30 conversions or more in the window: its cost per conversion is proven.
 6. `lost_to_rank_pct` high: it needs better bids or quality, not more budget.
 
 Move budget toward campaigns that bring customers at a lower cost and away from campaigns that spend without results.

@@ -422,3 +422,73 @@ fn findings_name_what_needs_attention() {
             .all(|l| !l.starts_with("missing"))
     );
 }
+
+const STRATEGY: &str = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus da campanha,Campanha,Orçamento,Tipo de estratégia de lances,Custo,Conversões,Impr.,Cliques\nAtivada,\"Catálogo: uvas\",\"70,00\",Maximizar as conversões,\"10,00\",\"0,00\",100,10\nAtivada,Marca Vinellu,\"25,00\",CPC manual,\"0,00\",\"0,00\",0,0\n";
+
+#[test]
+fn the_campaign_report_says_how_each_campaign_bids_today() {
+    let files: Vec<ReportInput> = vec![("c.csv".into(), read_table(STRATEGY.as_bytes()))];
+    let p = digest(&files, &account());
+    let (catalog, brand) = (&p.campaigns[0], &p.campaigns[1]);
+    assert_eq!(catalog.bid_strategy, "Maximizar as conversões");
+    assert!(catalog.bids_unlike("Manual CPC"), "changed by hand");
+    assert!(!catalog.bids_unlike("Maximize conversions"));
+    assert!(!brand.bids_unlike("Manual CPC"));
+    assert!(brand.bids_unlike("Maximize clicks"));
+}
+
+#[test]
+fn a_report_without_the_strategy_column_says_nothing_about_bidding() {
+    let files: Vec<ReportInput> = vec![("c.csv".into(), read_table(CAMPAIGNS.as_bytes()))];
+    let p = digest(&files, &account());
+    assert_eq!(p.campaigns[0].bid_strategy, "");
+    assert!(!p.campaigns[0].bids_unlike("Manual CPC"));
+}
+
+#[test]
+fn value_bidding_is_not_conversion_bidding() {
+    let c = CampaignPerf {
+        bid_strategy: "Maximizar o valor da conversão".into(),
+        ..Default::default()
+    };
+    assert!(c.bids_unlike("Maximize conversions"));
+}
+
+const GROUP_STATUS: &str = "Relatório do grupo de anúncios\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus do grupo de anúncios,Grupo de anúncios,Campanha,Impr.,Custo,Cliques,Conversões\nAtivado,Uvas tintas,\"Catálogo: uvas\",10,\"1,00\",1,\"0,00\"\nPausado,Uvas paradas,\"Catálogo: uvas\",0,\"0,00\",0,\"0,00\"\nRemovido,Uvas mortas,\"Catálogo: uvas\",0,\"0,00\",0,\"0,00\"\n";
+
+#[test]
+fn the_ad_group_report_gives_the_status_of_each_group() {
+    let files: Vec<ReportInput> = vec![("g.csv".into(), read_table(GROUP_STATUS.as_bytes()))];
+    let p = digest(&files, &account());
+    let status: Vec<Option<LiveStatus>> = p.campaigns[0]
+        .ad_groups
+        .iter()
+        .map(|g| g.live_status)
+        .collect();
+    assert_eq!(
+        status,
+        [
+            Some(LiveStatus::Enabled),
+            Some(LiveStatus::Paused),
+            Some(LiveStatus::Removed)
+        ]
+    );
+}
+
+const ASSET_GROUPS: &str = "Relatório de grupos de recursos\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus do grupo de recursos,Grupo de recursos,Campanha,Impr.,Custo,Conversões\nENABLED,Tintos,\"Catálogo: uvas\",100,\"5,00\",\"1,00\"\nENABLED,Brancos,\"Catálogo: uvas\",50,\"2,00\",\"0,00\"\n";
+
+#[test]
+fn an_asset_group_report_gives_group_totals_not_campaign_totals() {
+    let files: Vec<ReportInput> = vec![("a.csv".into(), read_table(ASSET_GROUPS.as_bytes()))];
+    let p = digest(&files, &account());
+    assert_eq!(p.reports[0].kind, ReportKind::AdGroups);
+    let c = &p.campaigns[0];
+    let names: Vec<&str> = c.ad_groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(names, ["Tintos", "Brancos"]);
+    assert_eq!(c.ad_groups[0].live_status, Some(LiveStatus::Enabled));
+    assert_eq!(
+        c.metrics.cost, 7.0,
+        "the sum of the groups, not the last row"
+    );
+    assert_eq!(p.missing_reports[0], ReportKind::Campaigns);
+}

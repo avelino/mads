@@ -473,6 +473,12 @@ impl Business {
     pub fn language_primary(&self) -> &str {
         self.language.split('-').next().unwrap_or(&self.language)
     }
+
+    /// Every location in one cell. `;` separates them because a Google canonical name carries
+    /// commas (`Sao Paulo,State of Sao Paulo,Brazil`).
+    pub fn locations_cell(&self) -> String {
+        self.locations.join(";")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -582,6 +588,32 @@ fn check_list(key: &str, items: &[String]) -> Result<(), InputError> {
     Ok(())
 }
 
+/// The most places one account targets. Past this the offer is a region: name the region.
+pub const MAX_LOCATIONS: usize = 10;
+
+fn check_locations(places: &[String]) -> Result<(), InputError> {
+    if places.is_empty() || places.len() > MAX_LOCATIONS {
+        return Err(invalid(
+            "business.locations",
+            format!("must have 1 to {MAX_LOCATIONS} locations"),
+        ));
+    }
+    let mut seen: Vec<String> = Vec::new();
+    for (i, place) in places.iter().enumerate() {
+        let key = format!("business.locations[{i}]");
+        check_len(&key, place, 1, 80)?;
+        if place.contains(';') {
+            return Err(invalid(&key, "must not contain `;`"));
+        }
+        let folded = place.trim().to_lowercase();
+        if seen.contains(&folded) {
+            return Err(invalid(&key, "repeats another location"));
+        }
+        seen.push(folded);
+    }
+    Ok(())
+}
+
 fn valid_language_tag(tag: &str) -> bool {
     let mut parts = tag.split('-');
     let primary_ok = parts
@@ -605,13 +637,7 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
             "must be a BCP 47 tag such as pt-BR",
         ));
     }
-    if b.locations.len() != 1 {
-        return Err(invalid(
-            "business.locations",
-            "exactly 1 location is supported in v1",
-        ));
-    }
-    check_len("business.locations[0]", &b.locations[0], 1, 80)?;
+    check_locations(&b.locations)?;
     check_len("business.goal", &b.goal, 1, 200)?;
     check_len("business.description", &b.description, 20, 4000)?;
     check_list("business.competitors", &b.competitors)?;
@@ -949,11 +975,35 @@ currency = "BRL"
     }
 
     #[test]
-    fn two_locations_rejected() {
-        assert_eq!(
-            err_key(&with("[\"Brazil\"]", "[\"Brazil\", \"Chile\"]")),
-            "business.locations"
+    fn several_locations_are_kept_in_order() {
+        let toml = with(
+            "[\"Brazil\"]",
+            "[\"Belo Horizonte,State of Minas Gerais,Brazil\", \"Sao Paulo,State of Sao Paulo,Brazil\"]",
         );
+        let b = parse_input_toml(&toml).unwrap().business;
+        assert_eq!(b.locations.len(), 2);
+        assert_eq!(
+            b.locations_cell(),
+            "Belo Horizonte,State of Minas Gerais,Brazil;Sao Paulo,State of Sao Paulo,Brazil"
+        );
+    }
+
+    #[test]
+    fn bad_location_lists_are_rejected() {
+        let eleven: Vec<String> = (0..11).map(|i| format!("\"City {i}\"")).collect();
+        let cases = [
+            ("[]", "business.locations"),
+            (
+                &format!("[{}]", eleven.join(", "))[..],
+                "business.locations",
+            ),
+            ("[\"Brazil\", \" brazil \"]", "business.locations[1]"),
+            ("[\"Brazil\", \"\"]", "business.locations[1]"),
+            ("[\"Brazil;Chile\"]", "business.locations[0]"),
+        ];
+        for (list, key) in cases {
+            assert_eq!(err_key(&with("[\"Brazil\"]", list)), key, "{list}");
+        }
     }
 
     #[test]

@@ -94,7 +94,7 @@ Each key in this file means something to the agents.
 
 - `url` is the landing page for brand ads and the base of the allowed URL set.
 - `language` is the language of every ad text. The CSV `Language` column gets the primary subtag (`pt`).
-- `locations` takes exactly one entry. Use the name Google Ads uses.
+- `locations` takes 1 to 10 entries. Use the names Google Ads uses, see [the business file](guides/business-file.md#locations).
 - `goal` tells the agents what a conversion is.
 - `description` is everything the agents are allowed to claim. They do not invent numbers or prices.
 - `budget.daily` is split across campaigns and must add up to the cent.

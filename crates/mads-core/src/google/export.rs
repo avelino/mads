@@ -146,7 +146,7 @@ pub fn export_csvs(input: &Input, account: &Account) -> Result<Vec<CsvFile>, Exp
         input.export.status.as_str(),
         input.business.language_primary(),
     );
-    let location = input.business.locations.first().map_or("", String::as_str);
+    let location = input.business.locations_cell();
     let eu = if input.export.eu_political_ads {
         "Yes"
     } else {
@@ -173,7 +173,7 @@ pub fn export_csvs(input: &Input, account: &Account) -> Result<Vec<CsvFile>, Exp
             "Daily",
             bid_label(c)?,
             language,
-            location,
+            &location,
             &suffix,
             eu,
         ])?;
@@ -359,6 +359,24 @@ mod tests {
         assert_eq!(
             rows[1],
             "Campaign,Add,Enabled,Acme - Brand,Search,Google search,37.50,Daily,Manual CPC,en,United States,utm_campaign=acme-brand&utm_term={keyword},Yes"
+        );
+    }
+
+    #[test]
+    fn several_locations_share_the_cell_separated_by_semicolons() {
+        let mut input = input();
+        input.business.locations = vec![
+            "Belo Horizonte,State of Minas Gerais,Brazil".into(),
+            "Sao Paulo,State of Sao Paulo,Brazil".into(),
+        ];
+        let files = export_csvs(&input, &account()).unwrap();
+        let rows: Vec<&str> = file(&files, "1-campaign.csv").split("\r\n").collect();
+        assert!(
+            rows[1].contains(
+                ",\"Belo Horizonte,State of Minas Gerais,Brazil;Sao Paulo,State of Sao Paulo,Brazil\","
+            ),
+            "{}",
+            rows[1]
         );
     }
 

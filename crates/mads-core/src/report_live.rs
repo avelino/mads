@@ -3,8 +3,8 @@
 use std::fmt::Write as _;
 
 use crate::{
-    google::{Account, AdGroup, Campaign, Keyword, normalize},
-    perf::{Live, LiveStatus},
+    google::{Account, AdGroup, Campaign, Dropped, Keyword, normalize, stray_in},
+    perf::{JUDGE_CONVERSIONS, Live, LiveStatus, THIN_CLICKS, THIN_DAYS},
 };
 
 const LISTED: usize = 10;
@@ -45,8 +45,21 @@ pub(crate) fn performance(md: &mut String, live: &Live) {
     if !thin.is_empty() {
         let _ = writeln!(
             md,
-            "Too little data to judge results (under 14 days or 100 clicks), so only their structure changed: {}.\n",
+            "Too little data to judge results (under {THIN_DAYS} days or {THIN_CLICKS} clicks, and under {JUDGE_CONVERSIONS} conversions), so only their structure changed: {}.\n",
             thin.join(", ")
+        );
+    }
+    let untracked: Vec<&str> = p
+        .campaigns
+        .iter()
+        .filter(|c| c.untracked)
+        .map(|c| c.name.as_str())
+        .collect();
+    if !untracked.is_empty() {
+        let _ = writeln!(
+            md,
+            "Check the conversion action of {}: it pays for clicks whose result Google Ads does not see, and automatic bidding learns nothing from them. For an App campaign that is the install event of its store. Pause it if that cannot be fixed.\n",
+            untracked.join(", ")
         );
     }
     let findings = p.findings();
@@ -68,13 +81,7 @@ pub(crate) fn changes(md: &mut String, live: &Live, account: &Account, comma: bo
             None => {
                 let _ = writeln!(md, "**{}**: new campaign.\n", c.name);
             }
-            Some(o) => {
-                let paused = live
-                    .performance
-                    .campaign(&c.name)
-                    .is_some_and(|p| p.live_status == Some(LiveStatus::Paused));
-                campaign(md, o, c, comma, paused);
-            }
+            Some(o) => campaign(md, live, o, c, comma),
         }
     }
     for o in old
@@ -93,8 +100,37 @@ fn same(a: &str, b: &str) -> bool {
     normalize(a) == normalize(b)
 }
 
-fn campaign(md: &mut String, o: &Campaign, c: &Campaign, comma: bool, paused: bool) {
-    let mut lines = Vec::new();
+/// What the account has that no run decided: a bid strategy changed by hand, and ad groups of an
+/// older import still serving.
+fn by_hand(live: &Live, o: &Campaign, c: &Campaign) -> Vec<String> {
+    let mut out = Vec::new();
+    let label = c.bid_strategy.label();
+    if let Some(p) = live
+        .performance
+        .campaign(&c.name)
+        .filter(|p| p.bids_unlike(label))
+    {
+        out.push(format!(
+            "bids with `{}` in Google Ads, not {label}: the import leaves the strategy as it is, and the ad group CPCs of this run only count under Manual CPC",
+            p.bid_strategy
+        ));
+    }
+    for d in stray_in(live, o, c) {
+        if let Dropped::AdGroup { name, .. } | Dropped::AssetGroup { name, .. } = d {
+            out.push(format!(
+                "ad group {name} serves in Google Ads and is not part of this run: paused by the import"
+            ));
+        }
+    }
+    out
+}
+
+fn campaign(md: &mut String, live: &Live, o: &Campaign, c: &Campaign, comma: bool) {
+    let paused = live
+        .performance
+        .campaign(&c.name)
+        .is_some_and(|p| p.live_status == Some(LiveStatus::Paused));
+    let mut lines = by_hand(live, o, c);
     if o.daily_budget != c.daily_budget {
         lines.push(format!(
             "daily budget {} to {}",
@@ -379,6 +415,25 @@ mod tests {
     }
 
     #[test]
+    fn changes_name_a_strategy_changed_by_hand_and_groups_of_older_imports() {
+        let (mut live, new) = fixture();
+        live.performance.campaigns[0].bid_strategy = "Maximizar as conversões".into();
+        live.performance.campaigns[0].ad_groups = vec![crate::perf::AdGroupPerf {
+            name: "Uvas antigas".into(),
+            live_status: Some(LiveStatus::Enabled),
+            ..Default::default()
+        }];
+        let mut md = String::new();
+        changes(&mut md, &live, &new, false);
+        for needle in [
+            "bids with `Maximizar as conversões` in Google Ads, not Manual CPC",
+            "ad group Uvas antigas serves in Google Ads and is not part of this run: paused by the import",
+        ] {
+            assert!(md.contains(needle), "missing {needle} in\n{md}");
+        }
+    }
+
+    #[test]
     fn performance_section_names_the_data_and_its_limits() {
         let (live, _) = fixture();
         let mut md = String::new();
@@ -392,6 +447,22 @@ mod tests {
         ] {
             assert!(md.contains(needle), "missing {needle} in\n{md}");
         }
+    }
+
+    #[test]
+    fn an_untracked_campaign_comes_with_what_to_do_about_it() {
+        let (mut live, _) = fixture();
+        let mut md = String::new();
+        performance(&mut md, &live);
+        assert!(!md.contains("conversion action"), "{md}");
+        assert!(md.contains("and under 30 conversions"), "{md}");
+        live.performance.campaigns[0].untracked = true;
+        let mut md = String::new();
+        performance(&mut md, &live);
+        assert!(
+            md.contains("Check the conversion action of Catalogo"),
+            "{md}"
+        );
     }
 
     #[test]

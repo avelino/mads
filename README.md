@@ -184,7 +184,7 @@ On GitHub Actions `--format auto` picks `github`. Validation issues become annot
 
 - **Search, Performance Max and Demand Gen.** No video, Shopping, Display-only, Dynamic Search Ads or broad match. Image campaigns need an image model key and a logo, see [Image campaigns](docs/guides/image-campaigns.md).
 - **Image campaigns go through Google Ads Editor, and pictures are attached by hand.** `editor/account.csv` holds the whole account in Editor's own format (Search and App rows checked against a real export), but Editor does not import the link between an ad and its images. Search, App and Demand Gen imported into Editor 2.13.3 with no error. Performance Max rows have not gone through a real import yet.
-- **One location per account.** `business.locations` takes exactly one entry.
+- **Every campaign targets the same places.** `business.locations` takes 1 to 10 entries for the whole account. Several places in one cell of `1-campaign.csv` (separated by `;`) have not gone through a real bulk upload yet: the Editor file writes one row per place.
 - **Search bids with `manual_cpc` only.** `maximize_clicks` and `maximize_conversions` on Search return `UNSUPPORTED` until the Google bulk templates for them are verified. Performance Max uses `maximize_conversions` and Demand Gen `maximize_clicks` or `maximize_conversions`.
 - **Campaign negatives are expanded.** The campaign-level negative list is exported as ad group negatives in every ad group, not as campaign-level rows.
 - **No asset CSVs yet.** Sitelinks, callouts and structured snippets are collected and validated, but files 6 to 8 are not written until their templates are verified.

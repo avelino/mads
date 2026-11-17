@@ -52,7 +52,13 @@ A BCP 47 tag such as `pt-BR` or `en-US`. Agents write all ad text in it. The CSV
 
 ### locations
 
-Exactly one entry in the current version. Use the location name Google Ads shows, such as `Brazil`. mads does not check the name against Google's list. A wrong name fails at upload.
+1 to 10 entries, the places where the buyers are. A country takes its name, such as `Brazil`. A city or a state takes Google's canonical name, without accents, such as `Belo Horizonte,State of Minas Gerais,Brazil`. A bare `Sao Paulo` names both a city and a state and is not resolved.
+
+```toml
+locations = ["Belo Horizonte,State of Minas Gerais,Brazil", "Sao Paulo,State of Sao Paulo,Brazil"]
+```
+
+Every campaign targets all of them. `mads init --focus` picks the places of the offer, for a route the origin and the destination. mads does not check a name against Google's list. A wrong name fails at upload, and the sync script leaves it out with a warning in its log.
 
 ### brand_terms
 
@@ -181,7 +187,7 @@ unknown field `languge`, expected one of `name`, `url`, `language`, `locations`,
 Value errors name the key.
 
 ```text
-error: business.locations: exactly 1 location is supported in v1
+error: business.locations: must have 1 to 10 locations
 error: budget.currency: must be 3 uppercase letters
 error: business.url: must be an absolute http(s) URL
 error: business.description: must be 20 to 4000 chars, got 5

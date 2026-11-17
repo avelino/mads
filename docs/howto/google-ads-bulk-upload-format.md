@@ -49,7 +49,7 @@ Campaign,Add,Paused,Vinellu - Rotulos - Search,Search,Google search,50,Daily,Man
 | `Budget type` | `Daily` |
 | `Bid strategy type` | `Manual CPC`. No other value is exported today. |
 | `Language` | Primary subtag of `business.language` (`pt-BR` gives `pt`) |
-| `Location` | The single `business.locations` entry |
+| `Location` | Every `business.locations` entry, separated by `;`. More than one entry has not gone through a real upload yet |
 | `Final URL suffix` | `export.url_suffix` with `{mads_campaign}` replaced by the campaign slug |
 | `EU political ads` | `Yes` or `No` from `export.eu_political_ads` |
 

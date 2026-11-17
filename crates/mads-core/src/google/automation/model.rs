@@ -436,7 +436,7 @@ impl Plan<'_> {
             budget_type: "Daily".into(),
             bid_strategy: c.bid_strategy.label().into(),
             language: business.language_primary().into(),
-            location: business.locations.first().cloned().unwrap_or_default(),
+            location: business.locations_cell(),
             devices: self.input.google_ads.devices.trim().into(),
             tracking_template: tracking_template(self.input, &c.slug),
             label: self.labels.clone(),

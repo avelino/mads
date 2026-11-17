@@ -926,7 +926,7 @@ mod tests {
     async fn write_business_validates_and_reports_the_toml_key() {
         let t = tools(site());
         let mut bad = business_args();
-        bad["locations"] = json!(["Brazil", "Chile"]);
+        bad["locations"] = json!([]);
         let out = t.call("write_business", bad).await;
         assert!(out.is_error);
         let paths: Vec<&str> = out.content["errors"]

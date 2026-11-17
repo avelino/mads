@@ -11,7 +11,7 @@ Unknown keys are rejected in every table, so a typo fails fast. Input errors exi
 | `name` | string | yes | | 1 to 80 characters after trim |
 | `url` | string | yes | | Absolute `http` or `https` URL |
 | `language` | string | yes | | BCP 47 tag, such as `pt-BR`. The primary subtag has 2 or 3 letters, other subtags 2 to 8 letters or digits. The CSV `Language` column gets the primary subtag. |
-| `locations` | string array | yes | | Exactly 1 entry, 1 to 80 characters. A Google location name such as `Brazil`. |
+| `locations` | string array | yes | | 1 to 10 entries, each 1 to 80 characters, no `;`, no repeats. A Google location name such as `Brazil`, or a canonical name such as `Sao Paulo,State of Sao Paulo,Brazil`. |
 | `goal` | string | yes | | 1 to 200 characters |
 | `description` | string | yes | | 20 to 4000 characters |
 | `conversion_tracking` | bool | no | `false` | |
@@ -223,7 +223,7 @@ A final URL or sitelink URL is accepted only when it is in the allowed set. The 
 business.name: must be 1 to 80 chars, got 0
 business.url: must be an absolute http(s) URL
 business.language: must be a BCP 47 tag such as pt-BR
-business.locations: exactly 1 location is supported in v1
+business.locations: must have 1 to 10 locations
 business.goal: must be 1 to 200 chars, got <n>
 business.description: must be 20 to 4000 chars, got <n>
 business.pages: at most 20 pages

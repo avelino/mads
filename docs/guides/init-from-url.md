@@ -99,7 +99,7 @@ mads init --from-url https://www.buser.com.br/onibus/belo-horizonte-mg/sao-paulo
   --focus --daily-budget 10000 --currency BRL --provider claude-cli
 ```
 
-The agent still studies the business for context, but it writes a `[focus]` table with the offer's name, pages (the start page and close variants such as the return direction) and `terms` (the words every search about the offer has, such as the origin and the destination), keeps the catalog to those pages, and ranks only ways people search for that offer. Without `--focus`, the start page is only where the agent begins: it drafts the whole business.
+The agent still studies the business for context, but it writes a `[focus]` table with the offer's name, pages (the start page and close variants such as the return direction) and `terms` (the words every search about the offer has, such as the origin and the destination), keeps the catalog to those pages, and ranks only ways people search for that offer. When the offer is tied to places it also sets `locations` to them, for a route the origin city and the destination city, so no campaign runs across the whole country. Without `--focus`, the start page is only where the agent begins: it drafts the whole business.
 
 For several offers, run init once per offer in its own folder. Each one gets its own budget, run and report.
 

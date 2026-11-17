@@ -43,6 +43,13 @@ pub struct Rules<'a> {
     focus_terms: Vec<Vec<String>>,
 }
 
+/// Letters and digits only: in "Vivino: notas" and "(Vivino)" the word is still Vivino.
+fn words_only(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect()
+}
+
 impl<'a> Rules<'a> {
     pub fn new(input: &'a Input, max_ad_groups: usize) -> Self {
         let mut allowed = AllowedUrls::default();
@@ -594,10 +601,11 @@ impl<'a> Rules<'a> {
                 format!("text contains avoided term '{term}'"),
             ));
         }
+        let words = words_only(&norm);
         if let Some(term) = self
             .third_party_terms
             .iter()
-            .find(|t| contains_word_sequence(&norm, t))
+            .find(|t| contains_word_sequence(&words, &words_only(t)))
         {
             out.push(Issue::warning(
                 "W01",
@@ -1274,6 +1282,22 @@ mod tests {
         assert!(issues.iter().all(|i| !i.is_error()));
         a.campaigns[0].ad_groups[0].rsa.headlines[0] = s("Vivino é bom?");
         assert!(run(&a).iter().any(|i| i.code == "W01"));
+    }
+
+    #[test]
+    fn w01_sees_a_third_party_term_next_to_punctuation() {
+        for headline in [
+            "Vivino: notas reais",
+            "Notas do Alamos Malbec?",
+            "(Vivino) é bom",
+        ] {
+            let mut a = account();
+            a.campaigns[0].ad_groups[0].rsa.headlines[0] = s(headline);
+            assert!(
+                run(&a).iter().any(|i| i.code == "W01"),
+                "no W01 for {headline}"
+            );
+        }
     }
 
     #[test]

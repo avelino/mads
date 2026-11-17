@@ -58,7 +58,8 @@ If Google refuses a keyword or an ad in a restricted category, the `Restricted c
 The import changes what the file lists, and an item the file does not name keeps serving.
 
 - A live campaign keeps its status. A new campaign follows `export.status`.
-- A campaign, ad group, asset group or keyword that the new run dropped arrives as a row with status `Paused`.
+- A campaign, ad group, asset group or keyword that the new run dropped arrives as a row with status `Paused`. So does an enabled ad group that an older import left in a campaign the run keeps.
+- A bid strategy you changed in Google Ads stays as it is.
 - A responsive search ad with new texts comes in as another ad next to the old one. The old one stays enabled, so pause it by hand after you check the preview.
 - A negative keyword that the new run dropped stays in Google Ads. Remove it by hand.
 

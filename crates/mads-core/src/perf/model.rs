@@ -81,6 +81,9 @@ pub struct CampaignPerf {
     /// Google's status reasons, such as "limited by policy" or "no ads".
     pub status_reasons: String,
     pub budget: Option<f64>,
+    /// The bid strategy type as the campaign report writes it. Empty without that column.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bid_strategy: String,
     pub metrics: Metrics,
     pub lost_to_budget_pct: Option<f64>,
     pub lost_to_rank_pct: Option<f64>,
@@ -110,6 +113,9 @@ pub struct CampaignPerf {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AdGroupPerf {
     pub name: String,
+    /// Status in Google Ads. Only the ad group and asset group reports know it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_status: Option<LiveStatus>,
     /// Totals from the ad group report. Without it, the sum of the keywords stands in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
@@ -189,6 +195,32 @@ impl Metrics {
         self.ctr_pct = ratio(self.clicks as f64 * 100.0, self.impressions as f64);
         self.avg_cpc = ratio(self.cost, self.clicks as f64);
         self.cost_per_conversion = ratio(self.cost, self.conversions);
+    }
+}
+
+/// The kind of bidding a strategy name stands for, in Portuguese or English. A name mads does
+/// not know is its own kind, so it never passes for one of the three mads writes.
+fn bid_family(name: &str) -> String {
+    let n = crate::input::fold(name);
+    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
+    if has(&["valor", "value", "roas"]) {
+        "value".into()
+    } else if has(&["manual"]) {
+        "manual".into()
+    } else if has(&["convers"]) {
+        "conversions".into()
+    } else if has(&["clique", "click"]) {
+        "clicks".into()
+    } else {
+        n
+    }
+}
+
+impl CampaignPerf {
+    /// The campaign bids in Google Ads with another strategy than `label`, the one a run
+    /// exports: somebody changed it by hand. False when the reports do not say how it bids.
+    pub fn bids_unlike(&self, label: &str) -> bool {
+        !self.bid_strategy.is_empty() && bid_family(&self.bid_strategy) != bid_family(label)
     }
 }
 

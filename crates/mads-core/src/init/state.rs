@@ -28,7 +28,8 @@ pub struct BusinessDraft {
     pub url: String,
     /// BCP 47 tag of the site's main language, such as pt-BR.
     pub language: String,
-    /// Exactly one Google location name, such as Brazil.
+    /// 1 to 10 Google location names where the buyers are: a country such as Brazil, or canonical
+    /// names such as `Belo Horizonte,State of Minas Gerais,Brazil`.
     pub locations: Vec<String>,
     /// What the ads should achieve, in a few words.
     pub goal: String,
@@ -937,7 +938,7 @@ mod tests {
     fn business_errors_name_the_toml_key() {
         let mut s = state();
         let mut b = business();
-        b.locations = vec!["Brazil".into(), "Chile".into()];
+        b.locations = vec![];
         let err = s.set_business(b).unwrap_err();
         assert_eq!(err[0].path, "business.locations");
         let mut b = business();

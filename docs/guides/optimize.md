@@ -8,7 +8,7 @@ This page shows how to feed Google Ads reports back to mads so it rebuilds a run
 mads optimize out/<run-id> --reports perf/2026-10-17 --provider anthropic --model <model-id>
 ```
 
-To change how much the account spends per day, pass `--daily-budget`. The plan mission splits the new amount across the campaigns, and the budgets running today stay as the baseline it compares against.
+To change how much the account spends per day, pass `--daily-budget`. The plan mission splits the new amount across the campaigns, and the budgets running today stay as the baseline it compares against. A budget you changed in Google Ads after the import is read from the campaigns report, so the baseline is what the campaign ran with and not what the base run exported.
 
 ```bash
 mads optimize out/<run-id> --reports perf/2026-10-17 --daily-budget 500 --provider anthropic --model <model-id>
@@ -58,12 +58,12 @@ The steps and the columns each report needs are in [Export Google Ads reports](e
 |---|---|---|
 | Search terms | Insights and reports, Search terms | Match type, Added/Excluded, Conversions |
 | Search keywords | Keywords, Search keywords | Quality Score, First page bid estimate, Top of page bid estimate, Status reasons |
-| Campaigns | Campaigns | Campaign status, Budget, Status reasons, Search lost IS (budget), Search lost IS (rank) |
+| Campaigns | Campaigns | Campaign status, Budget, Bid strategy type, Status reasons, Search lost IS (budget), Search lost IS (rank) |
 | Campaigns by day | Campaigns, segmented by Day | The same |
-| Ad groups | Ad groups | Conversions |
+| Ad groups | Ad groups | Ad group status, Conversions |
 | Assets | Assets | Performance label |
 
-None is required, but at least one must be there. The ad groups report gives each group its totals and nothing about keywords: without the keywords and search terms reports, keywords stay blind. The Ads page export (one row per ad, with `Ad status` and `Ad type`) is skipped: mads reads no ad-level numbers. Export them for the same dates. Reports of different dates are read, but mads warns and leaves out the cost hidden from search terms, since campaign totals and term rows no longer add up. A CSV that is not one of these is listed as skipped and changes nothing. The two title lines, number formats such as `1.020,50` or `1,020.50`, `--` for empty and the `Total:` rows are handled.
+None is required, but at least one must be there. The ad groups report gives each group its totals and nothing about keywords: without the keywords and search terms reports, keywords stay blind. An asset groups report is read the same way, one row per group. The Ads page export (one row per ad, with `Ad status` and `Ad type`) is skipped: mads reads no ad-level numbers. Export them for the same dates. Reports of different dates are read, but mads warns and leaves out the cost hidden from search terms, since campaign totals and term rows no longer add up. A CSV that is not one of these is listed as skipped and changes nothing. The two title lines, number formats such as `1.020,50` or `1,020.50`, `--` for empty and the `Total:` rows are handled.
 
 Do not rename campaigns or ad groups in Google Ads. The name is what links a report row to the run.
 
@@ -71,12 +71,14 @@ Do not rename campaigns or ad groups in Google Ads. The name is what links a rep
 
 The reports are not sent to the agents as they are. One search terms export can have thousands of rows. mads builds a digest per campaign and per ad group and stores it in `workspace.json` under `live.performance`.
 
-- **Campaigns.** Impressions, clicks, cost, conversions, value, CTR, average CPC, cost per conversion, the live status, Google's status reasons and the [share of impressions lost](https://support.google.com/google-ads/answer/7103314?hl=en) to budget (not enough budget) and to rank (Ad Rank too low). With a campaigns report, its numbers win. With only the by-day report, totals are summed, the lost shares are averaged over the days, and the budget, status and status reasons come from the last day.
+- **Campaigns.** Impressions, clicks, cost, conversions, value, CTR, average CPC, cost per conversion, the live status, the budget, the bid strategy type, Google's status reasons and the [share of impressions lost](https://support.google.com/google-ads/answer/7103314?hl=en) to budget (not enough budget) and to rank (Ad Rank too low). With a campaigns report, its numbers win. With only the by-day report, totals are summed, the lost shares are averaged over the days, and the budget, status and status reasons come from the last day.
 - **Real spend.** `avg_daily_cost` is the cost per day and `budget_use_pct` is that cost over the daily budget. With the by-day report the days count from the first day with impressions (`days_running`), so a campaign that started mid-window is not diluted. Under 100 the budget is not what limits the campaign. `idle_budget` sums what the enabled campaigns leave unspent every day.
-- **Ad groups.** Impressions, clicks, cost, conversions and value per ad group. They win over the sum of the group's keywords. Without a campaigns report, campaign totals are summed from them.
+- **Ad groups.** Impressions, clicks, cost, conversions, value and the status per ad group. They win over the sum of the group's keywords. Without a campaigns report, campaign totals are summed from them.
+- **Groups of older imports.** An enabled ad group of a campaign of the run that the run does not have. An earlier import left it serving next to the groups of this run, on the same searches. The agents see it marked `not_in_run`, and the import pauses it.
+- **Bidding changed by hand.** When the bid strategy type of the report is not the one the run exported, you changed it in Google Ads. The agents are told, and the import keeps it.
 - **Keywords.** The same numbers, the max CPC, the Quality Score and the bid estimates when the export has them, and three signals read from the [keyword status](https://support.google.com/google-ads/answer/2453978?hl=en) reasons: `below_first_page` (the keyword is active but not reaching the first page of results, below the [first page bid estimate](https://support.google.com/google-ads/answer/105665?hl=en)), `rarely_shown` (Google rarely shows it because of a low Quality Score) and `low_quality`. A Quality Score of 4 or less also counts as `low_quality`.
 - **Search terms.** The 30 most expensive terms of each ad group, each marked `keyword`, `negative`, `excluded` or `new`. Every group also gets the total cost of its terms with zero conversions. When a campaigns report is there, `hidden_terms_cost` is the campaign cost Google does not show by term: the report [leaves out terms with too little query activity](https://support.google.com/google-ads/answer/2472708?hl=en), for privacy.
-- **Thin campaigns.** Under 14 days running (or in the date range without day rows) or under 100 clicks, and under 30 conversions. The agents are told to fix structure only there: bids under the first page, low quality, missing ads, mixed groups. They do not cut or reward anything because of its results.
+- **Thin campaigns.** Under 14 days running (or in the date range without day rows) or under 100 clicks, and under 30 conversions. The agents are told to fix structure only there: bids under the first page, low quality, missing ads, mixed groups. They do not cut or reward anything because of its results. Its budget is another matter: money a thin campaign does not spend can go to a campaign that converts.
 - **Stalled campaigns.** Enabled with Google's status reason "no ads", or 7 days or more without one impression. A stalled campaign is broken, not short of data, so it is never thin. On a live account a Demand Gen campaign ran 15 days with no ads while mads kept its budget, because zero clicks read as too little data.
 - **Untracked campaigns.** 100 clicks or more, zero conversions, while another campaign of the account converts. Its result is not measured, or there is none. A Search campaign that lands on a site with no conversion tracking, next to an App campaign counting installs, is the usual case.
 - **Missing reports.** `missing_reports` lists the kinds of report the folder lacks. Without the keywords or search terms report, `upsert_ad_group` puts back every keyword that ran, with warning `W10`.
@@ -91,7 +93,9 @@ The plan mission gets `live_account` (every campaign as it ran) and `performance
 
 Each campaign mission gets `live` and `performance` in `get_brief` as one line per ad group, then calls `get_ad_group_performance` for each group before it rebuilds it. The tools enforce it: rebuilding a group that ran before reading its detail fails with `LIVE_DETAIL`. That call returns the group's keywords, negatives and texts as they ran, the keywords that had traffic with their numbers, a count of the silent ones per signal, and the 20 most expensive search terms. One call with every group did not fit in what an agent CLI can read. See [MCP tools](../reference/mcp-tools.md).
 
-A stalled or untracked campaign gets no more daily budget than it ran with, and an untracked one no more than its average daily cost rounded up: the plan is refused with `E27`. These flags win over thin. Cutting is always allowed, and the budget it frees goes to a campaign that converts at its budget limit. An untracked campaign also keeps its bids: `upsert_ad_group` refuses a higher `default_cpc` with `E28`.
+A stalled or untracked campaign gets no more daily budget than it ran with, and an untracked one no more than its average daily cost rounded up: the plan is refused with `E27`. These flags win over thin. Cutting is always allowed, and the budget it frees goes to a campaign that converts at its budget limit.
+
+The prompt asks the plan to cut any campaign that spends under its budget down to its real spend plus a tenth, thin or not, unless this run fixes what kept it from spending. A converting campaign that uses 90 percent or more of its budget takes what is freed, about 20 percent more per run, or up to 40 percent when it had 30 conversions or more in the date range. This part is a prompt rule, not a check in code. An untracked campaign also keeps its bids: `upsert_ad_group` refuses a higher `default_cpc` with `E28`.
 
 Image and app campaigns get the same fields. A picture whose image id, ratio and prompt stay is reused from the old run and costs nothing. Before this check a reused id lost its file, and one optimize run drew 10 unchanged pictures again.
 
@@ -103,6 +107,8 @@ What the file does to the live account:
 
 - A campaign that is live keeps its status from the campaigns report. A new campaign follows `export.status`. So does a campaign the reports show as removed: Google Ads keeps removed campaigns out of reach, and the import treats it as a new one.
 - A campaign, ad group, asset group or keyword that the new run dropped comes as a row with status `Paused`. An import changes what the file lists: Editor reads a [status column with Enabled, Paused or Removed](https://support.google.com/google-ads/editor/answer/57747?hl=en), and [new statuses for existing items come through CSV import](https://support.google.com/google-ads/editor/answer/53082?hl=en). An item the file does not name keeps serving. mads writes these rows only for campaigns the reports show in the account and not removed: a row for a campaign that was never imported would create it.
+- An enabled ad group of an older import, in a campaign the run keeps, comes as a row with status `Paused` too. The ad groups report must have the Ad group status column for mads to see it.
+- A bid strategy you changed in Google Ads stays. The campaign row comes with an empty `Bid Strategy Type`, and Editor changes nothing for an empty cell. The ad group CPCs of the run only count under Manual CPC.
 - A responsive search ad with new texts comes in as another ad in the group, and the old one stays enabled. Check it in the Editor preview and pause the old ad by hand.
 - A negative the new run dropped stays in Google Ads. Remove it by hand.
 

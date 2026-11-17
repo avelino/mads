@@ -176,6 +176,8 @@ mod tests {
             "W10",
             "hidden_terms_cost",
             "get_ad_group_performance",
+            "lands on a list page",
+            "not_in_run",
         ] {
             assert!(
                 m.system.contains(rule),
@@ -204,6 +206,9 @@ mod tests {
             "vs_target",
             "target_cpa",
             "target_cpi",
+            "at 90 or more",
+            "up to 40",
+            "does not spend",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }

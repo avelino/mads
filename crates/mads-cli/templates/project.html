@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Projeto") }}</p>
+    <h1>{{ project.name }}</h1>
+    <p class="lede">
+      {% if project.url != "" %}<span class="mono">{{ project.url }}</span>{% endif %}
+      {% if project.daily != "" %} · {{ project.daily }} {{ project.currency }}{{ chrome.t("/dia") }}{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/projects/{{ project.id }}/draft">{{ chrome.t("Rascunho") }}</a>
+    {% if project.has_error %}
+    <a class="button primary" href="/projects/{{ project.id }}/init">{{ chrome.t("Estudar o site") }}</a>
+    {% else %}
+    <a class="button primary" href="/projects/{{ project.id }}/run">{{ chrome.t("Nova execução") }}</a>
+    {% endif %}
+    <a class="button" href="/projects/{{ project.id }}/settings">{{ chrome.t("Configurações") }}</a>
+    <a class="button" href="/">{{ chrome.t("Voltar") }}</a>
+  </div>
+</section>
+
+{% if project.has_error %}
+<div class="notice error">
+  <strong>{{ chrome.t("O rascunho não carrega.") }}</strong>
+  <p>{{ project.error_text }}</p>
+  <p><a class="button primary" href="/projects/{{ project.id }}/init">{{ chrome.t("Estudar o site de novo") }}</a></p>
+</div>
+{% endif %}
+
+<section class="split">
+  <div>
+    <div class="section-head">
+      <h2>{{ chrome.t("Execuções") }}</h2>
+      <span class="muted">{{ project.runs.len() }} {{ chrome.t("no total") }}</span>
+    </div>
+    {% if project.has_runs %}
+    <div class="list">
+      {% for run in project.runs %}
+      <a class="row-card" href="/runs/{{ run.id }}">
+        <div class="row-main">
+          <span class="mono strong">{{ run.id }}</span>
+          <span class="status status-{{ run.class }}">{{ chrome.t(run.label) }}</span>
+          {% if run.has_parent %}
+          <span class="chip">{{ chrome.t("revisão de") }} {{ run.parent }}</span>
+          {% endif %}
+        </div>
+        <div class="meta-row">
+          <span>{{ run.when }}</span>
+          <span>{{ run.provider }}{% if run.model != "-" %} · {{ run.model }}{% endif %}</span>
+          <span>{{ run.missions }} {{ chrome.t("missão(ões)") }}</span>
+          <span>{{ run.tokens }} {{ chrome.t("tokens") }}</span>
+          <span>{{ chrome.t("custo") }} {{ run.cost }}</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty small-empty">
+      <p>{{ chrome.t("Nenhuma execução neste projeto. Gere a primeira conta em Nova execução.") }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <aside class="side">
+    <div class="panel">
+      <h3>{{ chrome.t("Rascunho") }}</h3>
+      <dl class="facts">
+        <dt>{{ chrome.t("Nome") }}</dt><dd>{{ project.name }}</dd>
+        <dt>{{ chrome.t("Site") }}</dt><dd class="mono">{{ project.url }}</dd>
+        <dt>{{ chrome.t("Orçamento") }}</dt><dd>{{ project.daily }} {{ project.currency }}{{ chrome.t("/dia") }}</dd>
+        <dt>{{ chrome.t("Atualizado") }}</dt><dd>{{ project.updated }}</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <h3>{{ chrome.t("Próximo passo") }}</h3>
+      {% if project.has_error %}
+      <p class="small">{{ chrome.t("O rascunho precisa de atenção. Estude o site de novo ou corrija os arquivos.") }}</p>
+      <p><a class="button primary" href="/projects/{{ project.id }}/init">{{ chrome.t("Estudar o site") }}</a></p>
+      {% else %}
+      <p class="small">{{ chrome.t("Revise o rascunho e gere a conta. Cada execução guarda um snapshot.") }}</p>
+      <p class="actions-row">
+        <a class="button" href="/projects/{{ project.id }}/draft">{{ chrome.t("Revisar rascunho") }}</a>
+        <a class="button primary" href="/projects/{{ project.id }}/run">{{ chrome.t("Nova execução") }}</a>
+      </p>
+      {% endif %}
+    </div>
+  </aside>
+</section>
+{% endblock %}

@@ -81,6 +81,11 @@ pub enum Event {
     ArtifactWritten {
         path: String,
     },
+    /// The run stopped at the plan checkpoint. Consumers that key on `RunFinished`
+    /// would otherwise wait forever for a run that is meant to continue later.
+    RunPaused {
+        totals: Totals,
+    },
     RunFinished {
         ok: bool,
         exit_code: i32,
@@ -97,11 +102,18 @@ pub struct EventSink {
 
 impl EventSink {
     pub fn channel() -> (EventSink, UnboundedReceiver<EventEnvelope>) {
+        Self::channel_from(0)
+    }
+
+    /// A sink whose first event continues after `base`. A job that appends to a log
+    /// that already holds earlier events must not restart the sequence at 1, or the
+    /// `Last-Event-ID` dedup on the reader side silently drops every live event.
+    pub fn channel_from(base: u64) -> (EventSink, UnboundedReceiver<EventEnvelope>) {
         let (tx, rx) = unbounded_channel();
         (
             EventSink {
                 tx,
-                seq: Arc::new(AtomicU64::new(0)),
+                seq: Arc::new(AtomicU64::new(base)),
             },
             rx,
         )
@@ -114,6 +126,27 @@ impl EventSink {
             .format(&Rfc3339)
             .unwrap_or_default();
         let _ = self.tx.send(EventEnvelope { seq, ts, event });
+    }
+}
+
+/// The seq a new writer appending to `path` must continue from: the last one
+/// already in the log. A missing or empty log starts at 0. A last line that
+/// does not parse (a writer that crashed mid-line) falls back to the line
+/// count, which is the next free sequence number for a well-formed log.
+pub fn last_seq_in_log(path: &std::path::Path) -> u64 {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return 0;
+    };
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    match lines
+        .last()
+        .and_then(|last| serde_json::from_str::<EventEnvelope>(last).ok())
+    {
+        Some(envelope) => envelope.seq,
+        None => lines.len() as u64,
     }
 }
 

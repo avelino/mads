@@ -8,6 +8,7 @@
 
 * [Getting started](getting-started.md)
 * [Tutorial](tutorial.md)
+* [mads studio](guides/mads-studio.md)
 
 ## Guides
 
@@ -25,6 +26,8 @@
 * [Export Google Ads reports](guides/export-google-ads-reports.md)
 * [Optimize a live account](guides/optimize.md)
 * [Cost and limits](guides/cost-and-limits.md)
+* [mads studio security](guides/mads-studio-security.md)
+* [mads studio troubleshooting](guides/mads-studio-troubleshooting.md)
 * [Docker](guides/docker.md)
 * [GitHub Actions](guides/github-actions.md)
 

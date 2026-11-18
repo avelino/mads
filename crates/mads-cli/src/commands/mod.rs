@@ -3,3 +3,5 @@ pub mod generate;
 pub mod init;
 pub mod optimize;
 pub mod providers;
+#[cfg(feature = "serve")]
+pub mod serve;

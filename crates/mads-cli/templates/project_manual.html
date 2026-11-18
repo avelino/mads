@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Projeto") }}</p>
+    <h1>{{ chrome.t("Novo projeto manual") }}</h1>
+    <p class="lede">{{ chrome.t("Preencha o rascunho sem rodar o agente. O estúdio escreve o business.toml e valida com o mesmo parser do mads.") }}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/">{{ chrome.t("Voltar") }}</a>
+  </div>
+</section>
+
+<form class="panel form" data-project-manual-form data-action="/api/projects/manual">
+  <div class="form-grid">
+    <label>{{ chrome.t("Nome do negócio") }}
+      <input name="name" required maxlength="80" placeholder="Vinellu">
+    </label>
+    <label>{{ chrome.t("Site") }}
+      <input name="url" type="url" required placeholder="https://exemplo.com">
+    </label>
+    <label>{{ chrome.t("Orçamento diário") }}
+      <input name="daily" type="number" min="0.01" step="0.01" required value="50">
+    </label>
+    <label>{{ chrome.t("Moeda") }}
+      <input name="currency" required maxlength="3" value="BRL" placeholder="BRL">
+    </label>
+    <label>{{ chrome.t("Idioma") }}
+      <input name="language" required maxlength="20" value="pt-BR" placeholder="pt-BR">
+    </label>
+    <label>{{ chrome.t("Localização") }}
+      <input name="location" required placeholder="{{ chrome.t("Brasil") }}">
+    </label>
+    <label class="full">{{ chrome.t("Objetivo") }}
+      <input name="goal" required placeholder="{{ chrome.t("vender vinho online") }}">
+    </label>
+    <label class="full">{{ chrome.t("Descrição") }}
+      <textarea name="description" rows="6" required maxlength="4000" placeholder="{{ chrome.t("O que o negócio vende, para quem e o que o diferencia.") }}"></textarea>
+    </label>
+  </div>
+
+  <div class="notice">
+    <strong>{{ chrome.t("Sem provedor e sem tokens.") }}</strong>
+    <p>{{ chrome.t("Nada é gerado agora. O projeto nasce com um rascunho válido e você pode revisar, estudar o site ou rodar uma execução depois.") }}</p>
+  </div>
+
+  <div class="form-actions">
+    <button class="button primary" type="submit">{{ chrome.t("Criar projeto") }}</button>
+    <a class="button" href="/">{{ chrome.t("Cancelar") }}</a>
+    <span class="form-error error" data-form-error role="alert"></span>
+  </div>
+</form>
+{% endblock %}

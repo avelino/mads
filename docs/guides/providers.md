@@ -130,3 +130,7 @@ error: unknown provider 'gpt-9000'; run `mads providers` to see the options
 ```
 
 Both exit with code `2`.
+
+## In the studio
+
+**Connections** saves an API key in `~/.config/mads/secrets.toml` with mode `0600`. The key is used by the next job without restarting the server. An environment variable still wins. The browser never receives the key. See [mads studio security](mads-studio-security.md#api-keys).

@@ -16,6 +16,7 @@ LLM agents make the marketing decisions. Deterministic Rust code enforces the ru
 - Learns from a live account with `mads optimize`: reads the search terms, keywords and campaigns reports you export from Google Ads and rebuilds the account from the numbers, with an Editor file that pauses what it drops. See [Optimize a live account](docs/guides/optimize.md).
 - Exports the Google Ads bulk upload CSVs, a Google Ads Editor CSV with the pictures for image campaigns, and a `report.md` with budgets, bids, warnings and token usage.
 - Runs unattended in CI with GitHub annotations and a step summary.
+- Serves **mads studio** in the browser with `mads serve`: projects, draft review, live missions, safe human revisions and optimization. See [mads studio](docs/guides/mads-studio.md).
 
 ## Quick start
 
@@ -33,6 +34,14 @@ Or use the container. No Rust needed. See [Docker](docs/guides/docker.md).
 ```bash
 docker run --rm ghcr.io/avelino/mads:latest --version
 ```
+
+Prefer a browser? Start the local studio.
+
+```bash
+mads serve --root ~/mads --port 4780 --open
+```
+
+It prints a local address with a one-time token. Create a project, study the site, review the draft and generate the account. The CLI keeps working and is still the path for CI.
 
 Let an agent read your site and draft the two input files. The budget is a flag because a site does not say how much you want to spend.
 

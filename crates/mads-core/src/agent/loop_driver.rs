@@ -100,14 +100,22 @@ impl Driver for LoopDriver {
 
         for turn in 1..=ctx.max_turns {
             turns = turn as u32;
+            if ctx.control.is_cancelled() {
+                return done(MissionOutcome::Failed("cancelled".into()), usage, turns);
+            }
             let req = ChatRequest {
                 system: mission.system.clone(),
                 messages: messages.clone(),
                 tools: specs.clone(),
             };
-            let resp = match self.complete(&req).await {
-                Ok(r) => r,
-                Err(m) => return done(MissionOutcome::Failed(m), usage, turns),
+            let resp = tokio::select! {
+                _ = ctx.control.cancelled() => {
+                    return done(MissionOutcome::Failed("cancelled".into()), usage, turns);
+                }
+                result = self.complete(&req) => match result {
+                    Ok(r) => r,
+                    Err(m) => return done(MissionOutcome::Failed(m), usage, turns),
+                },
             };
             usage.add(&resp.usage);
             ctx.events.emit(Event::Usage {
@@ -277,6 +285,7 @@ mod tests {
             max_turns,
             budget: Arc::new(TokenBudget::new(max_tokens)),
             transcripts: None,
+            control: RunControl::default(),
         };
         Harness {
             driver,

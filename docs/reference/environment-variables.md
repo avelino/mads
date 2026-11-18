@@ -21,9 +21,17 @@ Each one is the environment form of a flag. A flag wins over its variable.
 | `MADS_IMAGE_MODEL` | `--image-model` | Image model name. |
 | `MADS_GEMINI_BASE_URL` | none | Endpoint of the Gemini image API. Default `https://generativelanguage.googleapis.com`. |
 | `MADS_OPENAI_BASE_URL` | none | Endpoint of the OpenAI image API. Default `https://api.openai.com`. |
-| `MADS_ALLOW_PRIVATE_HOSTS` | none | Any non-empty value lets `mads init` read loopback and private hosts. Local development only. |
+| `MADS_ALLOW_PRIVATE_HOSTS` | none | Any non-empty value lets `mads init` read loopback and private hosts, and lets the studio reach private provider endpoints (ollama, LiteLLM). Local development only. |
+| `MADS_ALLOW_REPLAY` | none | Any non-empty value lets the studio accept the hidden `replay` provider's script path in a run request. Tests and offline demos only. |
+| `MADS_ROOT` | `--root` | Root of the projects for `mads serve`. Default `~/mads`. |
 
 mads has no variable for the turn, timeout, token or retry limits. Use the flags.
+
+## Studio keys
+
+`mads serve` can save a provider key in `~/.config/mads/secrets.toml` with mode `0600`. On Windows the path is `%APPDATA%\mads\secrets.toml`. The file holds a `[keys]` table keyed by provider name. The browser never receives the value.
+
+An environment variable wins over the file. The Connections page shows which source is in use. See [mads studio security](../guides/mads-studio-security.md).
 
 ## Provider keys
 

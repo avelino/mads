@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ chrome.t("Configurações") }}</p>
+    <h1>{{ chrome.t("Conexões") }}</h1>
+    <p class="lede">{{ chrome.t("Provedores de texto e de imagem. As chaves ficam no servidor, nunca no navegador.") }}</p>
+  </div>
+</section>
+
+<div class="split">
+  <div>
+    <div class="section-head"><h2>{{ chrome.t("Provedores de texto") }}</h2><span class="muted">{{ chrome.t("status do processo") }}</span></div>
+    <table class="table">
+      <thead><tr><th>{{ chrome.t("Provedor") }}</th><th>{{ chrome.t("Tipo") }}</th><th>{{ chrome.t("Status") }}</th></tr></thead>
+      <tbody>
+      {% for provider in providers %}
+      <tr>
+        <td class="mono">{{ provider.name }}</td>
+        <td><span class="chip">{{ provider.kind }}</span></td>
+        <td><span class="status {% if provider.ready %}status-ok{% else %}status-warn{% endif %}">{{ chrome.t(provider.status) }}</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="section-head"><h2>{{ chrome.t("Provedores de imagem") }}</h2></div>
+    <table class="table">
+      <thead><tr><th>{{ chrome.t("Provedor") }}</th><th>{{ chrome.t("Status") }}</th></tr></thead>
+      <tbody>
+      {% for provider in image_providers %}
+      <tr>
+        <td class="mono">{{ provider.name }}</td>
+        <td><span class="status {% if provider.ready %}status-ok{% else %}status-warn{% endif %}">{{ chrome.t(provider.status) }}</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="section-head"><h2>{{ chrome.t("Chaves salvas") }}</h2><span class="muted">{{ chrome.t("arquivo local") }}</span></div>
+    {% if secrets_error != "" %}
+    <div class="notice error"><strong>{{ chrome.t("O arquivo de chaves não carrega.") }}</strong><p>{{ secrets_error }}</p></div>
+    {% endif %}
+    <table class="table">
+      <thead><tr><th>{{ chrome.t("Provedor") }}</th><th>{{ chrome.t("Origem") }}</th><th>{{ chrome.t("Chave") }}</th></tr></thead>
+      <tbody>
+      {% for key in keys %}
+      <tr>
+        <td class="mono">{{ key.provider }}</td>
+        <td><span class="status {% if key.ready %}status-ok{% else %}status-warn{% endif %}">{{ chrome.t(key.source_label) }}</span></td>
+        <td>
+          {% if key.needs_key %}
+          <form class="key-form" data-key-form data-provider="{{ key.provider }}">
+            <input name="value" type="password" autocomplete="off" spellcheck="false" placeholder="{{ chrome.t("cole a chave") }}">
+            <button class="button" type="submit">{{ chrome.t("Salvar") }}</button>
+            {% if key.saved %}<button class="button danger" type="button" data-key-delete="{{ key.provider }}">{{ chrome.t("Remover") }}</button>{% endif %}
+            <span class="small error" data-key-error role="alert"></span>
+          </form>
+          {% else %}
+          <span class="muted small">{{ chrome.t("não precisa de chave") }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <aside class="side">
+    <div class="panel">
+      <h3>{{ chrome.t("Arquivo de chaves") }}</h3>
+      <p class="mono small break">{{ key_file }}</p>
+      <p class="small muted">{{ chrome.t("Formato") }} <span class="mono">[keys]</span>, {{ chrome.t("permissão") }} <span class="mono">0600</span>. {{ chrome.t("Variáveis de ambiente têm precedência. O navegador nunca recebe o valor.") }}</p>
+    </div>
+    <div class="panel muted-panel">
+      <h3>CLI</h3>
+      <p class="small">{{ chrome.t("O") }} <span class="mono">mads providers</span> {{ chrome.t("mostra os mesmos estados no terminal. Logins de agentes CLI continuam sendo feitos fora do estúdio.") }}</p>
+    </div>
+  </aside>
+</div>
+{% endblock %}

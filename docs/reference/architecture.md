@@ -35,9 +35,23 @@ business.toml, catalog.csv
 |---|---|
 | `mads-core` | Everything that is not IO. Input parsing, the Google model and rules, keyword expansion, RSA merge, CSV export, workspace, tools, missions, the agent loop, orchestration, events and the report. |
 | `mads-providers` | `GenaiChatModel` (all API providers through `genai`), `CliDriver` with the claude, codex and gemini agents, the per-mission MCP server, provider listing and selection, `WebClient` and `SiteClient`. |
-| `mads-cli` | The `mads` binary. Argument parsing, renderers, `events.ndjson`, exit codes. |
+| `mads-cli` | The `mads` binary. Argument parsing, renderers, `events.ndjson`, exit codes, and the optional `serve` module behind the `serve` feature. |
 
 The dependency rule is strict. `mads-cli` depends on `mads-providers` and `mads-core`. `mads-providers` depends on `mads-core`. `mads-core` performs no network IO. It defines traits and the other crates implement them.
+
+## Studio
+
+`mads serve` lives in `crates/mads-cli/src/serve/` and is enabled by the default `serve` feature. It is part of the same binary as the CLI. The module owns the project store, the job registry, the event bridge, sessions and CSRF, the secret file, the Askama templates and the SSE endpoints.
+
+The server calls `run::generate`, `run::export_run`, `init::run_init` and `optimize::prepare` in process. It does not shell out to `mads`. Jobs run on their own current-thread runtime and publish the same `EventEnvelope` values the CLI prints.
+
+- The filesystem is the database. A project directory is scanned for `business.toml` and `project.json`.
+- Jobs take a per-project `flock` and one active job is allowed per project.
+- `RunControl` carries a cancellation token into the mission loop.
+- `run.json` carries `origin`, `parent_run`, `revision` and `edits`. A human revision is a sibling run with the `-rN` suffix.
+- Keys saved in the browser go to a `0600` TOML file outside the projects. `ProviderSelection` can carry the key so the code does not touch the process environment.
+
+The CLI keeps its contract. `serve` is additive. A slim build uses `--no-default-features`.
 
 ## Ports
 

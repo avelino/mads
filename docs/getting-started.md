@@ -2,6 +2,8 @@
 
 This page installs mads and runs it once, end to end, so you finish with five CSV files and a report.
 
+Prefer a browser? [mads studio](guides/mads-studio.md) runs the same flow with `mads serve`.
+
 ## Install
 
 mads installs from source for now. You need `rustup`. The repository pins its toolchain, so the first build installs the right Rust version.

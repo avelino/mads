@@ -159,6 +159,7 @@ mod tests {
             max_turns: 5,
             budget: Arc::new(TokenBudget::new(0)),
             transcripts: None,
+            control: RunControl::default(),
         };
         let mission = MissionSpec {
             id: "m".into(),

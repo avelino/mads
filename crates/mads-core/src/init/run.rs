@@ -48,6 +48,8 @@ pub struct InitConfig {
     pub web_search: bool,
     /// The start URL is the one offer to advertise, not the whole business.
     pub focus: bool,
+    /// The studio can stop an init mission. The CLI leaves it idle.
+    pub control: crate::agent::RunControl,
 }
 
 impl InitConfig {
@@ -68,6 +70,7 @@ impl InitConfig {
             model: None,
             web_search: true,
             focus: false,
+            control: crate::agent::RunControl::default(),
         }
     }
 }
@@ -170,7 +173,7 @@ pub async fn run_init(
     let budget = Arc::new(TokenBudget::new(cfg.max_tokens));
     let (mut usage, mut finished) = (Usage::default(), false);
     for attempt in 1..=1 + cfg.mission_retries {
-        if budget.exceeded() {
+        if cfg.control.is_cancelled() || budget.exceeded() {
             break;
         }
         events.emit(Event::MissionStarted {
@@ -188,6 +191,7 @@ pub async fn run_init(
             max_turns: cfg.max_turns,
             budget: budget.clone(),
             transcripts: Some(transcripts.clone()),
+            control: cfg.control.clone(),
         };
         let report = tokio::time::timeout(
             cfg.mission_timeout,

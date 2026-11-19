@@ -400,6 +400,94 @@ async fn set_account_plan_rejects_bad_plans_and_keeps_state() {
 }
 
 #[tokio::test]
+async fn set_account_plan_enforces_the_strategy_share_and_keeps_state() {
+    let mut input = testutil::input();
+    input.strategy = Some(crate::input::strategy::Strategy {
+        name: "profitability".into(),
+        intent: crate::input::strategy::StrategyIntent::Purchase,
+        products: vec!["https://vinellu.com/w/alamos".into()],
+        min_share: 80,
+        prose: String::new(),
+    });
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let t = plan_tools(&ws).await;
+    // The catalog campaign mixes two items, so no campaign only holds the product.
+    let out = t.call("set_account_plan", plan_args()).await;
+    assert!(out.is_error);
+    assert!(error_codes(&out).contains(&"E33".to_string()));
+    assert!(ws.lock().await.account.campaigns.is_empty());
+}
+
+#[tokio::test]
+async fn a_live_plan_below_the_strategy_share_is_a_warning_and_is_stored() {
+    let mut input = testutil::input();
+    input.strategy = Some(crate::input::strategy::Strategy {
+        name: "profitability".into(),
+        intent: crate::input::strategy::StrategyIntent::Purchase,
+        products: vec!["https://vinellu.com/w/alamos".into()],
+        min_share: 80,
+        prose: String::new(),
+    });
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    ws.lock().await.live = Some(crate::perf::Live {
+        baseline: Default::default(),
+        performance: Default::default(),
+    });
+    let out = plan_tools(&ws)
+        .await
+        .call("set_account_plan", plan_args())
+        .await;
+    assert!(!out.is_error, "{}", out.content);
+    assert!(warning_codes(&out).contains(&"W14".to_string()));
+    assert_eq!(ws.lock().await.account.campaigns.len(), 2);
+}
+
+#[tokio::test]
+async fn get_business_and_get_brief_carry_the_strategy() {
+    let ws = shared();
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    assert!(out.content["result"].get("strategy").is_none());
+
+    let mut input = testutil::input();
+    input.strategy = Some(crate::input::strategy::Strategy {
+        name: "profitability".into(),
+        intent: crate::input::strategy::StrategyIntent::Purchase,
+        products: vec!["https://vinellu.com/w/alamos".into()],
+        min_share: 80,
+        prose: "Sell the Alamos.".into(),
+    });
+    let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    let s = &out.content["result"]["strategy"];
+    assert_eq!(s["name"], "profitability");
+    assert_eq!(s["intent"], "purchase");
+    assert_eq!(s["min_share"], 80);
+    assert_eq!(s["product_ids"], json!(["alamos-malbec"]));
+    assert_eq!(s["prose"], "Sell the Alamos.");
+
+    let args = json!({"campaigns": [
+        {"name": "Alamos", "intent": "catalog", "daily_budget": 40.0,
+         "bid_strategy": {"type": "manual_cpc"}, "rationale": "r",
+         "ad_groups": [{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}]},
+        {"name": "Mix", "intent": "generic", "daily_budget": 10.0,
+         "bid_strategy": {"type": "manual_cpc"}, "rationale": "r",
+         "ad_groups": [{"name": "mix", "theme": "mix", "entity_ids": ["alamos-malbec", "luigi-bosca"]}]}
+    ]});
+    let out = plan_tools(&ws).await.call("set_account_plan", args).await;
+    assert!(!out.is_error, "{}", out.content);
+    for (slug, expected) in [("alamos", true), ("mix", false)] {
+        let out = campaign_tools(&ws, slug)
+            .await
+            .call("get_brief", json!({}))
+            .await;
+        let s = &out.content["result"]["strategy"];
+        assert_eq!(s["intent"], "purchase");
+        assert_eq!(s["product_campaign"], expected, "{slug}");
+        assert_eq!(s["prose"], "Sell the Alamos.");
+    }
+}
+
+#[tokio::test]
 async fn set_account_plan_with_six_campaigns_is_too_many() {
     let ws = shared();
     let camps: Vec<Value> = (0..6)

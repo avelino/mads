@@ -80,6 +80,18 @@ When the task says Focus, the account advertises one offer of the business, such
 
 Without Focus in the task, leave `focus` empty.
 
+## strategy
+
+When the task says Strategy, the account follows a campaign strategy: a name, an intent and the products it advertises. The text after the Strategy line says how to choose and what to stress.
+
+- The products are pages of the site. Every product must be a catalog item, so add each one with `add_catalog_items`. `finish` fails with E32 for a product that is not in the catalog.
+- When the task lists Products, leave `strategy.products` empty in `write_business`: they are set already.
+- When the task says to pick N items, write their pages in `strategy.products` of `write_business`, at most N, choosing the way the strategy text says. With a focus and no pages written there, the focus pages are the products.
+- When the account is in a restricted category, mads lowers a `purchase` intent to `consideration` by itself. Do not write sale words for those products.
+- In `write_research`, rank the opportunities of the strategy products first.
+
+Without Strategy in the task, leave `strategy` out of `write_business`.
+
 ## restricted
 
 Google Ads reviews some subjects under its restricted content policy, and refuses keywords and ads it reads as breaking it, even for a business that only informs about the subject. Decide for every business which categories apply and set `restricted` in `write_business`. The key is required: an empty list says you checked and none applies.

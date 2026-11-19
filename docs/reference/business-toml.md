@@ -139,6 +139,35 @@ terms = [["bh", "belo horizonte"], ["sp", "sao paulo"]]
 
 With these terms `clickbus bh sp` is accepted and a bare `clickbus` is refused, because it also matches searches for every other route.
 
+## [strategy]
+
+`mads init --strategy` writes this table and the `STRATEGY.md` it points to.
+
+| Key | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | The strategy as people say it, 1 to 80 characters. |
+| `intent` | string | yes | What the ads are for: `purchase`, `consideration` or `discovery`. |
+| `products` | string array | yes | 1 to 50 absolute URLs of the product pages, in priority order. |
+| `min_share` | integer | yes | Percent of the budget the products get, 0 to 100. |
+| `file` | path | no | Text for the agents, relative to the directory that holds `business.toml`. At most 8000 characters. |
+
+Checked when the file loads:
+
+- `strategy.products` must be 1 to 50 absolute http(s) URLs. With `[focus]`, every product must be one of its `urls`, compared the same way as the catalog match below (a trailing slash at the end of the URL and a leading `www.` make no difference, the query string does).
+- `strategy.min_share` must be 0 to 100.
+- `strategy.intent = "purchase"` is refused when `business.restricted` is not empty, with the key `strategy.intent`. Google Ads forbids sale words for restricted categories, so use `consideration`.
+- Every product needs a catalog item with the same page, with the key `strategy.products`. A trailing slash at the end of the URL and a leading `www.` make no difference, the query string does (`?id=1` and `?id=2` are different products). The check runs when `mads` reads the catalog, so a `[strategy]` without `[catalog]` fails.
+- A `file` over 8000 characters fails with the key `strategy.file`.
+
+```toml
+[strategy]
+name = "need"
+intent = "purchase"
+products = ["https://vinellu.com/w/alamos-malbec"]
+min_share = 80
+file = "STRATEGY.md"
+```
+
 ## [design]
 
 | Key | Type | Required | Description |

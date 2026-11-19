@@ -378,6 +378,10 @@ impl InitTools {
             let issue = Issue::error("E12", "research", "write_research was not called");
             return ToolOutput::fail_issues(&[issue], &[], "finish: no research");
         }
+        let issues = state.finish_issues();
+        if !issues.is_empty() {
+            return ToolOutput::fail_issues(&issues, &[], "finish: strategy products");
+        }
         self.finished.store(true, Ordering::SeqCst);
         ToolOutput::ok(
             json!({"catalog_items": state.catalog_len()}),

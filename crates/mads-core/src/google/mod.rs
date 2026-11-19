@@ -18,6 +18,6 @@ pub use export::*;
 pub use issue::*;
 pub use model::*;
 pub use rsa::*;
-pub(crate) use rules::blocks;
+pub(crate) use rules::{ProductScope, blocks, is_product_campaign, product_share};
 pub use rules::{Rules, variant_themes};
 pub use text::*;

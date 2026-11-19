@@ -236,6 +236,9 @@ async fn get_brief(t: &MissionTools, slug: &str) -> ToolOutput {
         "assets_set": c.assets.is_some(),
         "rules": rules_summary(&t.settings),
     });
+    if ws.input.strategy.is_some() {
+        result["strategy"] = super::brief_strategy(&ws.input, c);
+    }
     if let Some(live) = &ws.live {
         let (ran, performance) = super::live::brief_view(live, &c.name);
         result["live"] = ran;

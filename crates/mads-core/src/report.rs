@@ -2,7 +2,10 @@ use std::{collections::BTreeMap, fmt::Write};
 
 use crate::{
     events::Totals,
-    google::{Account, CampaignKind, EDITOR_FILE, ExportLayout, Issue, folder_name},
+    google::{
+        Account, CampaignKind, EDITOR_FILE, ExportLayout, Issue, ProductScope, folder_name,
+        product_share,
+    },
     images::ImageStepResult,
     input::{ExportStatus, Input},
     perf::Live,
@@ -60,6 +63,7 @@ pub fn render_report(d: &ReportData) -> String {
         crate::report_live::performance(&mut md, live);
     }
     bids(&mut md, d);
+    strategy(&mut md, d);
     if let Some(live) = &d.live {
         crate::report_live::changes(&mut md, live, &d.account, d.input.export.decimal_comma);
     }
@@ -206,6 +210,29 @@ fn bids(md: &mut String, d: &ReportData) {
         }
         md.push('\n');
     }
+}
+
+/// The strategy the run followed and the budget share its product campaigns got.
+fn strategy(md: &mut String, d: &ReportData) {
+    let Some(s) = &d.input.strategy else {
+        return;
+    };
+    let _ = writeln!(
+        md,
+        "## Strategy\n\n**{}**, intent {}.\n\nProducts:\n",
+        s.name,
+        s.intent.as_str()
+    );
+    for url in &s.products {
+        let _ = writeln!(md, "- {url}");
+    }
+    let (product, base) = product_share(&d.account, &ProductScope::new(&d.input));
+    let share = (product * 100).checked_div(base).unwrap_or(0);
+    let _ = writeln!(
+        md,
+        "\nProduct campaigns got {share}% of the non-brand budget (asked for at least {}%).\n",
+        s.min_share
+    );
 }
 
 fn validation(md: &mut String, d: &ReportData) {
@@ -885,5 +912,64 @@ mod tests {
         assert!(!md.contains("S1 creates the campaigns paused"), "{md}");
         assert!(!md.contains("Upload files 1 to 5"), "{md}");
         assert!(!md.contains('\u{2014}'), "{md}");
+    }
+
+    fn strategy_data(intent: crate::input::strategy::StrategyIntent) -> ReportData {
+        use crate::google::PlannedAdGroup;
+        let mut input = testutil::input();
+        input.strategy = Some(crate::input::strategy::Strategy {
+            name: "need".into(),
+            intent,
+            products: vec!["https://vinellu.com/w/alamos".into()],
+            min_share: 80,
+            prose: String::new(),
+        });
+        let campaign = |name: &str, intent: Intent, budget: u64, ids: &[&str]| {
+            let mut c = account().campaigns.remove(0);
+            c.name = name.into();
+            c.intent = intent;
+            c.daily_budget = Cents(budget);
+            c.planned_ad_groups = vec![PlannedAdGroup {
+                name: "g".into(),
+                theme: "t".into(),
+                entity_ids: ids.iter().map(|i| i.to_string()).collect(),
+                final_url: "https://vinellu.com/w/alamos".into(),
+            }];
+            c
+        };
+        let a = Account {
+            brand_kit: None,
+            campaigns: vec![
+                campaign("Brand", Intent::Brand, 2000, &[]),
+                campaign("Alamos", Intent::Catalog, 6400, &["alamos-malbec"]),
+                campaign("Rest", Intent::Catalog, 1600, &["luigi-bosca"]),
+            ],
+        };
+        data(&input, &a)
+    }
+
+    #[test]
+    fn a_strategy_run_reports_the_strategy_and_the_share_its_products_got() {
+        use crate::input::strategy::StrategyIntent;
+        for (intent, word) in [
+            (StrategyIntent::Purchase, "purchase"),
+            (StrategyIntent::Consideration, "consideration"),
+        ] {
+            let md = render_report(&strategy_data(intent));
+            assert!(md.contains("## Strategy"), "{md}");
+            assert!(md.contains("need") && md.contains(word), "{md}");
+            assert!(md.contains("https://vinellu.com/w/alamos"), "{md}");
+            assert!(
+                md.contains(
+                    "Product campaigns got 80% of the non-brand budget (asked for at least 80%)."
+                ),
+                "{md}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_run_without_a_strategy_has_no_strategy_section() {
+        assert!(!render_default().contains("## Strategy"));
     }
 }

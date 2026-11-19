@@ -72,6 +72,7 @@ pub async fn finalize(
 ) -> Finalized {
     step(events, "validate", "checking limits and policies");
     let (mut errors, mut warnings): (Vec<_>, Vec<_>) = Rules::new(input, opts.max_ad_groups)
+        .with_live(live.is_some())
         .account(account, true)
         .into_iter()
         .partition(Issue::is_error);
@@ -221,6 +222,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
+            strategy: None,
             apps: Vec::new(),
             google_ads: Default::default(),
             business: Business {

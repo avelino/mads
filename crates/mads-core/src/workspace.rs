@@ -83,6 +83,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
+            strategy: None,
             apps: Vec::new(),
             google_ads: Default::default(),
             business: Business {

@@ -76,6 +76,15 @@ Rules live in `crates/mads-core/src/google/rules.rs` (account, campaign, ad grou
 
 Tools reuse these rules. If the rule belongs to an agent-facing tool, make sure the tool filters the issue by path so the agent only sees what its call changed.
 
+## Add a strategy
+
+A shipped strategy is a `.md` file in the format users write: a TOML header between `+++` lines, then prose for the agents.
+
+1. Add `crates/mads-core/prompts/strategies/<name>.md` with `intent`, `min_share` and either `top` or a note that products are required.
+2. Add the name to `SHIPPED` in `crates/mads-core/src/input/strategy.rs`, and embed the file next to the other three there.
+3. Add its values to `shipped_strategies_resolve_with_their_values` in the same file.
+4. Add a row to the "Shipped strategies" table in `docs/guides/strategies.md`, and the name to the `--strategy` text in `docs/reference/cli.md` and `crates/mads-cli/src/cli.rs`.
+
 ## Add a tool
 
 Tools are in `crates/mads-core/src/tools/plan.rs` (plan mission) and `campaign.rs` (campaign missions).

@@ -16,6 +16,10 @@ When `get_brief` has `focus`, the account advertises only that offer. Every keyw
 
 When `focus.terms` is set, every keyword must contain one word of each group, or the tool refuses it with `E23`. mads also adds every variant alone as a keyword, so put the focus words inside each variant, such as "<competitor> <focus words>", never a bare brand or competitor name with the focus words only in `modifiers`.
 
+## Strategy
+
+When `get_brief` has `strategy`, `strategy.intent` says what the searches are for, and `strategy.prose` is the advertiser's own text: follow it. `strategy.product_campaign` says whether this campaign is one of the product campaigns, and the `purchase` and `consideration` words below apply to them. With `purchase`, the keywords of product ad groups carry buying words in the business language (buy, price, where to buy) and information searches (what is, how to use, review, recipe) are negatives. `consideration` keeps comparison and review searches. `discovery` allows category and problem searches. When the business does not sell the item people search for (an app, a guide, a review site), the purchase-words negatives rule under Negatives wins and `purchase` acts as `consideration`. The restricted category rules below still win.
+
 ## Restricted categories
 
 When `business.restricted` is not empty, Google Ads reviews this account under its restricted content policy and refuses keywords and ads it reads as a breach. For every listed category:

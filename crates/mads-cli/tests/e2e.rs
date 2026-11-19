@@ -485,6 +485,99 @@ fn init_cmd(p: &Project, site: &str, script: &Path, extra: &[&str]) -> assert_cm
 }
 
 #[test]
+fn init_with_a_strategy_writes_it_and_lowers_purchase_for_alcohol() {
+    let site = serve_site();
+    let p = Project::new(SITE);
+    let script = p.script("init.json", json!({"init": [init_script(&site)]}));
+    let product = format!("{site}/w/alamos");
+    let out = init_cmd(
+        &p,
+        &site,
+        &script,
+        &["--strategy", "need", "--product", &product],
+    )
+    .success();
+    let toml = fs::read_to_string(p.dir.path().join("site/business.toml")).unwrap();
+    assert!(
+        toml.contains("[strategy]") && toml.contains("intent = \"consideration\""),
+        "{toml}"
+    );
+    let md = fs::read_to_string(p.dir.path().join("site/STRATEGY.md")).unwrap();
+    assert!(
+        md.starts_with("Intent lowered from purchase to consideration"),
+        "{md}"
+    );
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(stderr.contains("Intent lowered"), "{stderr}");
+}
+
+#[test]
+fn bad_strategy_flags_exit_2_before_any_model_call() {
+    let site = serve_site();
+    let p = Project::new(SITE);
+    let script = p.script("init.json", json!({"init": []}));
+    for (extra, needle) in [
+        (
+            vec!["--strategy", "nope"],
+            "visibility, profitability, need",
+        ),
+        (vec!["--strategy", "need"], "strategy.products"),
+        (
+            vec!["--strategy", "need", "--product", "https://other.example/a"],
+            "strategy.products",
+        ),
+        (vec!["--strategy", "./missing.md"], "missing.md"),
+    ] {
+        let out = init_cmd(&p, &site, &script, &extra).code(2);
+        let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+        assert!(stderr.contains(needle), "{extra:?}: {stderr}");
+    }
+}
+
+#[test]
+fn need_with_focus_and_no_product_is_not_refused_at_resolve() {
+    let site = serve_site();
+    let p = Project::new(SITE);
+    let script = p.script("init.json", json!({"init": []}));
+    let out = init_cmd(&p, &site, &script, &["--focus", "--strategy", "need"]);
+    let code = out.get_output().status.code();
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(
+        !stderr.contains("strategy.products") && code != Some(2),
+        "{code:?}: {stderr}"
+    );
+}
+
+#[test]
+fn a_strategy_file_extending_a_shipped_one_is_read() {
+    let site = serve_site();
+    let p = Project::new(SITE);
+    let script = p.script("init.json", json!({"init": [init_script(&site)]}));
+    let file = p.dir.path().join("mine.md");
+    fs::write(
+        &file,
+        "+++\nextends = \"need\"\nmin_share = 90\n+++\nOnly buyers.\n",
+    )
+    .unwrap();
+    let file = file.to_string_lossy().to_string();
+    let product = format!("{site}/w/alamos");
+    init_cmd(
+        &p,
+        &site,
+        &script,
+        &["--strategy", &file, "--product", &product],
+    )
+    .success();
+    let toml = fs::read_to_string(p.dir.path().join("site/business.toml")).unwrap();
+    assert!(
+        toml.contains("min_share = 90") && toml.contains("name = \"mine\""),
+        "{toml}"
+    );
+    let md = fs::read_to_string(p.dir.path().join("site/STRATEGY.md")).unwrap();
+    assert!(md.contains("Only buyers."), "{md}");
+}
+
+#[test]
 fn init_drafts_business_and_catalog_from_a_site() {
     let site = serve_site();
     let p = Project::new(SITE);

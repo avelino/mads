@@ -24,7 +24,10 @@ pub use output::ToolOutput;
 pub(crate) use output::parse_args;
 
 use crate::{
-    google::{AspectRatio, CampaignKind, SnippetHeader},
+    google::{
+        AspectRatio, Campaign, CampaignKind, ProductScope, SnippetHeader, is_product_campaign,
+    },
+    input::Input,
     workspace::Workspace,
 };
 
@@ -182,6 +185,29 @@ impl ToolHost for MissionTools {
     fn finished(&self) -> bool {
         self.finished.load(Ordering::SeqCst)
     }
+}
+
+/// The strategy as the plan agent reads it, or null without one.
+fn business_strategy(input: &Input) -> Value {
+    let Some(s) = &input.strategy else {
+        return Value::Null;
+    };
+    json!({
+        "name": s.name, "intent": s.intent, "min_share": s.min_share,
+        "product_ids": s.product_ids(&input.catalog), "prose": s.prose,
+    })
+}
+
+/// The strategy as a campaign agent reads it, or null without one.
+fn brief_strategy(input: &Input, campaign: &Campaign) -> Value {
+    let Some(s) = &input.strategy else {
+        return Value::Null;
+    };
+    json!({
+        "intent": s.intent,
+        "product_campaign": is_product_campaign(campaign, &ProductScope::new(input)),
+        "prose": s.prose,
+    })
 }
 
 /// Limits the agent has to respect, in plain numbers.

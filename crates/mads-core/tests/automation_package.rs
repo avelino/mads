@@ -70,6 +70,7 @@ fn input(google_ads: GoogleAds) -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
+        strategy: None,
         apps: Vec::new(),
         google_ads,
     }

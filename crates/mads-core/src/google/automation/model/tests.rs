@@ -62,6 +62,7 @@ pub(super) fn input() -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
+        strategy: None,
         apps: Vec::new(),
         google_ads: GoogleAds {
             customer_id: "000-000-0000".into(),

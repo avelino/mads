@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 use super::{ColorNote, DESIGN_FILE, DesignDraft, RESEARCH_FILE, ResearchDraft, render_design};
 use crate::{
     google::Issue,
-    input::{AllowedUrls, InputError, normalize_url, parse_catalog, parse_input_toml},
+    input::{
+        AllowedUrls, InputError, ResolvedStrategy, STRATEGY_FILE, StrategyIntent, bare_host,
+        page_key, parse_catalog, parse_input_toml, strategy::product_key,
+    },
     money::Cents,
 };
 
@@ -53,6 +56,18 @@ pub struct BusinessDraft {
     /// Google Ads restricted content categories the business falls in, an empty list for none.
     /// Required, so the choice is always made and written down.
     pub restricted: Vec<crate::input::RestrictedCategory>,
+    /// Only with a campaign strategy in the task: the products it advertises.
+    #[serde(default, skip_serializing)]
+    pub strategy: StrategyDraft,
+}
+
+/// `[strategy]` of business.toml: what the agent writes of it, the rest comes from the task.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StrategyDraft {
+    /// With a strategy that has no products: the pages of the items you picked, at most `top`. Fetched or in the sitemap.
+    #[serde(default)]
+    pub products: Vec<String>,
 }
 
 /// `[focus]` of business.toml: a name and the pages of one offer.
@@ -168,6 +183,15 @@ struct OutFileRef {
 }
 
 #[derive(Serialize)]
+struct OutStrategy<'a> {
+    name: &'a str,
+    intent: &'static str,
+    products: Vec<String>,
+    min_share: u8,
+    file: &'static str,
+}
+
+#[derive(Serialize)]
 struct OutBrand<'a> {
     logo: &'a str,
 }
@@ -203,6 +227,8 @@ struct OutFile<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     focus: Option<&'a FocusDraft>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    strategy: Option<OutStrategy<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     app: Option<OutApps<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     export: Option<&'a toml::Value>,
@@ -219,6 +245,8 @@ pub struct RenderedFiles {
     pub csv: Option<String>,
     pub research: Option<String>,
     pub design: Option<String>,
+    /// `STRATEGY.md`: the strategy text, with the note when the intent was lowered.
+    pub strategy: Option<String>,
 }
 
 pub const CATALOG_FILE: &str = "catalog.csv";
@@ -254,12 +282,33 @@ pub struct InitState {
     kept: KeptByHand,
     /// The first app of each store the site links to.
     apps: Vec<crate::input::App>,
+    /// `--strategy`: what the account is for, resolved before the agent starts.
+    strategy: Option<ResolvedStrategy>,
 }
 
-fn bare_host(url: &str) -> Option<String> {
-    let parsed = url::Url::parse(url).ok()?;
-    let host = parsed.host_str()?.to_lowercase();
-    Some(host.trim_start_matches("www.").to_string())
+/// Under a `[focus]`, a product page that is none of its URLs.
+fn outside_focus(b: &BusinessDraft, url: &str) -> bool {
+    !b.focus.is_empty()
+        && !b
+            .focus
+            .urls
+            .iter()
+            .any(|f| product_key(f) == product_key(url))
+}
+
+/// Purchase asks for sale words, which Google Ads forbids in a restricted category.
+fn lowering_note(s: &ResolvedStrategy, b: &BusinessDraft) -> Option<String> {
+    (s.intent == StrategyIntent::Purchase && !b.restricted.is_empty()).then(|| {
+        let names: Vec<String> = b
+            .restricted
+            .iter()
+            .map(|c| c.policy().to_lowercase())
+            .collect();
+        format!(
+            "Intent lowered from purchase to consideration: Google Ads forbids sale words for {}.",
+            names.join(", ")
+        )
+    })
 }
 
 fn issue_of(e: InputError) -> Issue {
@@ -267,11 +316,6 @@ fn issue_of(e: InputError) -> Issue {
         InputError::Invalid { key, message } => Issue::error("INPUT", key, message),
         other => Issue::error("INPUT", "business", other.to_string()),
     }
-}
-
-/// `…/a` and `…/a/` are the same page for a crawler.
-fn page_key(url: &str) -> Option<String> {
-    normalize_url(url).map(|u| u.trim_end_matches('/').to_string())
 }
 
 impl InitState {
@@ -297,7 +341,104 @@ impl InitState {
             start_url: start_url.to_string(),
             kept: KeptByHand::default(),
             apps: Vec::new(),
+            strategy: None,
         }
+    }
+
+    pub fn use_strategy(&mut self, s: ResolvedStrategy) {
+        self.strategy = Some(s);
+    }
+
+    /// The product pages: the ones the task gave, else the focus pages when the agent named none,
+    /// else the ones the agent picked.
+    fn products_of(&self, s: &ResolvedStrategy, b: &BusinessDraft) -> Vec<String> {
+        if !s.products.is_empty() {
+            s.products.clone()
+        } else if !b.focus.is_empty() && b.strategy.products.is_empty() {
+            b.focus.urls.clone()
+        } else {
+            b.strategy.products.clone()
+        }
+    }
+
+    pub fn strategy_products(&self) -> Vec<String> {
+        match (&self.strategy, &self.business) {
+            (Some(s), Some(b)) => self.products_of(s, b),
+            (Some(s), None) => s.products.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The line that tells the person `purchase` became `consideration`.
+    pub fn strategy_note(&self) -> Option<String> {
+        lowering_note(self.strategy.as_ref()?, self.business.as_ref()?)
+    }
+
+    fn strategy_issues(&self, b: &BusinessDraft) -> Vec<Issue> {
+        let Some(s) = &self.strategy else {
+            return Vec::new();
+        };
+        let path = "business.strategy.products";
+        let given = &b.strategy.products;
+        if !s.products.is_empty() {
+            let mut out = Vec::new();
+            if !given.is_empty() {
+                let msg = "the products are set by the strategy: leave strategy.products empty";
+                out.push(Issue::error("E12", path, msg));
+            }
+            // The agent cannot fix this by widening focus.urls: the products are not its to pick.
+            if let Some(u) = s.products.iter().find(|u| outside_focus(b, u)) {
+                let msg = format!(
+                    "the strategy product is not a page of the focus '{}': {u}",
+                    b.focus.name
+                );
+                out.push(Issue::error("E22", path, msg));
+            }
+            return out;
+        }
+        let mut out = Vec::new();
+        for (i, u) in given.iter().enumerate() {
+            let at = format!("{path}[{i}]");
+            if !self.is_seen(u) {
+                let msg = format!("URL was not fetched or listed in the sitemap: {u}");
+                out.push(Issue::error("E07", at, msg));
+            } else if outside_focus(b, u) {
+                let msg = format!("not a page of the focus '{}': {u}", b.focus.name);
+                out.push(Issue::error("E22", at, msg));
+            }
+        }
+        let over = s.top.is_some_and(|t| given.len() > t as usize);
+        if over || (given.is_empty() && s.top.is_some() && b.focus.is_empty()) {
+            let top = s.top.unwrap_or_default();
+            let msg = format!("write 1 to {top} products, got {}", given.len());
+            out.push(Issue::error("E13", path, msg));
+        } else if self.products_of(s, b).is_empty() {
+            let msg = "strategy has no products: write strategy.products in write_business";
+            out.push(Issue::error("E32", path, msg));
+        }
+        out
+    }
+
+    /// What `finish` checks for the strategy: every product is a catalog item.
+    pub fn finish_issues(&self) -> Vec<Issue> {
+        if self.strategy.is_none() || self.business.is_none() {
+            return Vec::new();
+        }
+        let products = self.strategy_products();
+        let path = "strategy.products";
+        if products.is_empty() {
+            let msg = "strategy has no products: write strategy.products in write_business";
+            return vec![Issue::error("E32", path, msg)];
+        }
+        let keys: Vec<_> = self.catalog.iter().map(|c| product_key(&c.url)).collect();
+        products
+            .iter()
+            .filter(|p| !keys.contains(&product_key(p)))
+            .map(|p| {
+                let msg = format!("strategy product has no catalog item: {p}");
+                Issue::error("E32", path, msg)
+            })
+            .collect()
     }
 
     /// A kept `[campaigns] formats` that leaves out the app this run found: the old choice is
@@ -535,6 +676,17 @@ impl InitState {
             design: (complete && self.design_markdown(&business.name).is_some())
                 .then_some(OutFileRef { file: DESIGN_FILE }),
             focus: Some(&business.focus).filter(|f| !f.is_empty()),
+            strategy: self.strategy.as_ref().map(|s| OutStrategy {
+                name: &s.name,
+                intent: if lowering_note(s, business).is_some() {
+                    StrategyIntent::Consideration.as_str()
+                } else {
+                    s.intent.as_str()
+                },
+                products: self.products_of(s, business),
+                min_share: s.min_share,
+                file: STRATEGY_FILE,
+            }),
             app: match apps.as_slice() {
                 _ if !complete => None,
                 [] => None,
@@ -563,6 +715,7 @@ impl InitState {
             })
             .collect();
         issues.extend(self.focus_issues(&draft.focus));
+        issues.extend(self.strategy_issues(&draft));
         let text = self
             .render_toml(&draft, false, &KeptByHand::default())
             .map_err(|m| vec![Issue::error("INPUT", "business", m)])?;
@@ -645,6 +798,14 @@ impl InitState {
         Ok(Added { added, skipped })
     }
 
+    fn strategy_markdown(&self, business: &BusinessDraft) -> Option<String> {
+        let s = self.strategy.as_ref()?;
+        Some(match lowering_note(s, business) {
+            Some(note) => format!("{note}\n\n{}", s.prose),
+            None => s.prose.clone(),
+        })
+    }
+
     /// `business.toml`, plus `catalog.csv` and `research.md` when there is something to put in them.
     pub fn render_files(&self) -> Result<RenderedFiles, String> {
         let business = self
@@ -674,6 +835,7 @@ impl InitState {
             csv,
             research,
             design: self.design_markdown(&business.name),
+            strategy: self.strategy_markdown(business),
         })
     }
 }
@@ -741,6 +903,7 @@ mod tests {
             }],
             focus: FocusDraft::default(),
             restricted: vec![crate::input::RestrictedCategory::Alcohol],
+            strategy: StrategyDraft::default(),
         }
     }
 
@@ -786,6 +949,173 @@ mod tests {
             notes: String::new(),
             image: String::new(),
         }
+    }
+
+    fn need(products: &[&str]) -> ResolvedStrategy {
+        ResolvedStrategy {
+            name: "need".into(),
+            intent: StrategyIntent::Purchase,
+            products: products.iter().map(|p| p.to_string()).collect(),
+            top: None,
+            min_share: 80,
+            prose: "Buyers only.".into(),
+        }
+    }
+
+    fn visibility(top: u32) -> ResolvedStrategy {
+        ResolvedStrategy {
+            name: "visibility".into(),
+            intent: StrategyIntent::Discovery,
+            products: vec![],
+            top: Some(top),
+            min_share: 50,
+            prose: String::new(),
+        }
+    }
+
+    fn with_products(urls: &[&str]) -> BusinessDraft {
+        let mut b = business();
+        b.strategy.products = urls.iter().map(|u| u.to_string()).collect();
+        b
+    }
+
+    #[test]
+    fn a_strategy_with_products_needs_them_in_the_catalog() {
+        let mut s = state();
+        s.note_seen("https://vinellu.com/a");
+        s.use_strategy(need(&["https://www.vinellu.com/a/"]));
+        s.set_business(business()).unwrap();
+        assert_eq!(s.finish_issues()[0].code, "E32");
+        s.add_catalog(vec![item("A", "https://vinellu.com/a")])
+            .unwrap();
+        assert!(s.finish_issues().is_empty());
+    }
+
+    #[test]
+    fn with_top_the_agent_writes_at_most_top_products() {
+        let mut s = state();
+        s.use_strategy(visibility(2));
+        let three = with_products(&[
+            "https://vinellu.com/w/alamos",
+            "https://vinellu.com/w/luigi",
+            "https://vinellu.com/w/cartuxa",
+        ]);
+        let errs = s.set_business(three).unwrap_err();
+        assert!(errs.iter().any(|i| i.code == "E13"), "{errs:?}");
+        assert!(s.business().is_none());
+        let none = s.set_business(business()).unwrap_err();
+        assert!(none.iter().any(|i| i.code == "E13"), "{none:?}");
+        let two = with_products(&[
+            "https://vinellu.com/w/alamos",
+            "https://vinellu.com/w/luigi",
+        ]);
+        s.set_business(two).unwrap();
+    }
+
+    #[test]
+    fn products_must_be_seen_and_inside_the_focus() {
+        let mut s = state();
+        s.use_strategy(visibility(2));
+        let errs = s
+            .set_business(with_products(&["https://vinellu.com/nope"]))
+            .unwrap_err();
+        assert_eq!(errs[0].code, "E07");
+        assert_eq!(errs[0].path, "business.strategy.products[0]");
+        let mut b = with_products(&["https://vinellu.com/w/luigi"]);
+        b.focus = FocusDraft {
+            name: "Alamos".into(),
+            urls: vec!["https://vinellu.com/w/alamos".into()],
+            terms: vec![],
+        };
+        let errs = s.set_business(b).unwrap_err();
+        assert!(errs.iter().any(|i| i.code == "E22"), "{errs:?}");
+    }
+
+    #[test]
+    fn given_products_leave_the_draft_list_empty() {
+        let mut s = state();
+        s.use_strategy(need(&["https://vinellu.com/w/alamos"]));
+        let errs = s
+            .set_business(with_products(&["https://vinellu.com/w/luigi"]))
+            .unwrap_err();
+        assert_eq!(errs[0].code, "E12");
+    }
+
+    #[test]
+    fn a_given_product_outside_the_focus_is_an_e22_at_the_products_path() {
+        let mut s = state();
+        s.use_strategy(need(&["https://vinellu.com/w/luigi"]));
+        let mut b = business();
+        b.focus = FocusDraft {
+            name: "Alamos".into(),
+            urls: vec!["https://vinellu.com/w/alamos".into()],
+            terms: vec![],
+        };
+        let errs = s.set_business(b).unwrap_err();
+        let e22 = errs.iter().find(|i| i.code == "E22").expect("E22");
+        assert_eq!(e22.path, "business.strategy.products");
+    }
+
+    #[test]
+    fn with_focus_and_no_products_the_focus_pages_are_the_products() {
+        let mut s = state();
+        s.require_focus();
+        s.use_strategy(visibility(2));
+        let mut b = business();
+        b.focus = FocusDraft {
+            name: "Vinellu".into(),
+            urls: vec!["https://vinellu.com".into()],
+            terms: vec![vec!["vinellu".into()]],
+        };
+        s.set_business(b).unwrap();
+        assert_eq!(s.strategy_products(), vec!["https://vinellu.com"]);
+    }
+
+    #[test]
+    fn purchase_is_lowered_under_a_restricted_policy() {
+        let mut s = state();
+        s.note_seen("https://vinellu.com/a");
+        s.use_strategy(need(&["https://vinellu.com/a"]));
+        s.set_business(business()).unwrap();
+        s.add_catalog(vec![item("A", "https://vinellu.com/a")])
+            .unwrap();
+        let files = s.render_files().unwrap();
+        let parsed = parse_input_toml(&files.toml).unwrap();
+        assert_eq!(
+            parsed.strategy.unwrap().intent,
+            StrategyIntent::Consideration
+        );
+        let line = "Intent lowered from purchase to consideration: Google Ads forbids sale words for alcohol.";
+        let text = files.strategy.unwrap();
+        assert!(
+            text.starts_with(&format!("{line}\n\nBuyers only.")),
+            "{text}"
+        );
+        assert_eq!(s.strategy_note().as_deref(), Some(line));
+    }
+
+    #[test]
+    fn without_a_restricted_policy_purchase_stays() {
+        let mut s = state();
+        s.use_strategy(need(&["https://vinellu.com/w/alamos"]));
+        let mut b = business();
+        b.restricted = vec![];
+        s.set_business(b).unwrap();
+        let files = s.render_files().unwrap();
+        let parsed = parse_input_toml(&files.toml).unwrap();
+        assert_eq!(parsed.strategy.unwrap().intent, StrategyIntent::Purchase);
+        assert_eq!(files.strategy.as_deref(), Some("Buyers only."));
+        assert_eq!(s.strategy_note(), None);
+    }
+
+    #[test]
+    fn without_strategy_nothing_changes() {
+        let mut s = state();
+        s.set_business(business()).unwrap();
+        let files = s.render_files().unwrap();
+        assert!(!files.toml.contains("[strategy]"));
+        assert_eq!(files.strategy, None);
+        assert!(s.finish_issues().is_empty());
     }
 
     #[test]

@@ -149,6 +149,9 @@ async fn get_brief(t: &MissionTools, slug: &str) -> ToolOutput {
         "rules": rules_summary(&t.settings),
         "image_rules": image_rules_summary(),
     });
+    if ws.input.strategy.is_some() {
+        result["strategy"] = super::brief_strategy(&ws.input, c);
+    }
     if !ws.input.design.is_empty() {
         result["design"] = json!(ws.input.design);
     }

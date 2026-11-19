@@ -56,6 +56,9 @@ An agent studies the business and writes `business.toml`, `catalog.csv` and `res
 | `--force` | off | Overwrite existing files. |
 | `--no-web-search` | off | Keep the agent off the web. Agent CLIs search the web by default. API providers never do. |
 | `--focus` | off | Advertise only the offer of `--from-url` (a route, a product line, a location), not the whole business. init writes a `[focus]` table with `terms` and keeps the catalog inside it. |
+| `--strategy <STRATEGY>` | | visibility, profitability, need, or a path to a strategy .md file. Without it the plan agent spreads the budget by expected return. init writes a `[strategy]` table and `STRATEGY.md` next to `business.toml`. A value with a `/` or ending in `.md` is read as a file, and its name is the file stem. |
+| `--product <URL>` | | Product page to push, on the same site as `--from-url`. Repeat for more. Replaces the products of the strategy. Needs `--strategy`. |
+| `--top <TOP>` | | How many products the agent picks when no `--product` is given. Replaces the strategy's top. Needs `--strategy`. |
 
 It also takes the agent flags of `generate` (`--provider`, `--model`, `--plan-model`, `--base-url`, `--max-turns`, `--mission-timeout`, `--max-tokens`, `--mission-retries`) with the same defaults. When `--plan-model` is set, init uses it instead of `--model`.
 

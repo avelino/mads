@@ -46,6 +46,8 @@ When `business.toml` has `[campaigns] formats`, the result also has `required_fo
 
 `focus` is the `[focus]` table of `business.toml`, or null. With a focus, every landing page must be a focus URL (`E22`), and a planned group without entity lands on the first focus URL instead of `business.url`. Both `get_brief` tools return it too.
 
+`strategy` is the campaign strategy, and is absent without one: `name`, `intent`, `min_share`, `product_ids` (the catalog ids of the strategy products) and `prose`. `set_account_plan` checks the budget share of the campaigns that only hold those products.
+
 `apps` lists the `[app]` and `[[app]]` tables, each with its `store`, `id` and `store_url`, and is empty without one. `app_campaigns.available` says whether `app_installs` can be planned: it needs an image model and an app, not a logo. The planned groups of an App campaign land on the store page of its app.
 
 `catalog_photos` counts the catalog items with an `image`. `image_campaigns.available` is `true` only when the run has an image model and `business.toml` has a logo. Otherwise `reason` says which one is missing, `no image model in this run (set --image-provider and its API key)` or `no logo: set [brand] logo in business.toml`.
@@ -108,7 +110,7 @@ Each ad group.
 | `entity_ids` | string array | no | Catalog ids this ad group covers. |
 | `final_url` | string | no | Landing page. Empty resolves to the entity URL (one entity) or `business.url`. |
 
-Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, `E17`, `E18`, `E21`, unknown catalog ids (`E12`) and `UNSUPPORTED`. An image campaign in a run without an image model or a logo is `UNSUPPORTED`. With image campaigns available, a plan without one needs a rationale with `No image campaign: <reason>` (`NO_IMAGE_REASON`). With the app available, a plan without `app_installs` needs `No app campaign: <reason>` (`NO_APP_REASON`). Neither is asked when `business.toml` sets `[campaigns] formats`. Result.
+Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, `E17`, `E18`, `E21`, `E33`, unknown catalog ids (`E12`) and `UNSUPPORTED`. An image campaign in a run without an image model or a logo is `UNSUPPORTED`. With image campaigns available, a plan without one needs a rationale with `No image campaign: <reason>` (`NO_IMAGE_REASON`). With the app available, a plan without `app_installs` needs `No app campaign: <reason>` (`NO_APP_REASON`). Neither is asked when `business.toml` sets `[campaigns] formats`. With a strategy, a plan that gives the product campaigns less than `min_share` percent is refused with `E33`, and in a `mads optimize` run it is stored with the warning `W14`. Result.
 
 ```json
 {"campaigns": [{"name": "Vinellu - Marca", "slug": "vinellu-marca", "ad_groups": 1}]}
@@ -139,6 +141,8 @@ No arguments. Returns what the agent needs.
   "rules": {}
 }
 ```
+
+`strategy` is present only with a campaign strategy: `intent`, `product_campaign` (true when every planned ad group of this campaign covers only strategy products) and `prose`.
 
 `entities` are the full catalog rows of the entities in this campaign's ad groups. `built_ad_groups` is what an earlier attempt already saved.
 
@@ -362,9 +366,10 @@ Saves the business profile. Replaces the previous one.
 | `brand_terms`, `competitors`, `avoid` | string array | no |
 | `pages` | array of `{"name", "url"}` | no |
 | `focus` | `{"name", "urls", "terms"}` | no |
+| `strategy` | `{"products"}` | no |
 | `restricted` | string array | yes | Google Ads restricted content categories, `[]` for none. Values in [Restricted categories](../guides/restricted-categories.md). A call without it fails with `ARGS`. |
 
-The draft is validated like `business.toml`. With `--focus`, `focus` must have a name and list the start URL (`E22`) and have `terms` (`E23`), and its URLs must have been seen (`E07`). Once a focus is set, `add_catalog_items` refuses items whose URL is not a focus URL (`E22`). Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
+The draft is validated like `business.toml`. With `--focus`, `focus` must have a name and list the start URL (`E22`) and have `terms` (`E23`), and its URLs must have been seen (`E07`). Once a focus is set, `add_catalog_items` refuses items whose URL is not a focus URL (`E22`). With a strategy in the task, `strategy.products` holds the pages of the items the agent picked: each one seen (`E07`) and in the focus when there is one (`E22`), at most the strategy's `top` (`E13`). When the task gives the products, the list must be empty (`E12`). With a focus and no products written, the focus pages are the products. Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07`, `E12`, `E13`, `E22` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
 
 ### write_research
 
@@ -415,7 +420,7 @@ Each item has `name` and `url` (required) and `category`, `aliases` (string arra
 
 ### finish
 
-No arguments. Fails with `E12` when `write_business` or `write_research` was not called. The error path is `business` or `research`. Result `{"catalog_items": 20}`. After it succeeds, mads downloads the first logo candidate that passes Google's checks into `brand/logo.png`, then writes `business.toml`, `research.md` and, when there are items, `catalog.csv`.
+No arguments. Fails with `E12` when `write_business` or `write_research` was not called. The error path is `business` or `research`. With a strategy it also fails with `E32` (path `strategy.products`) when a product has no catalog item. Result `{"catalog_items": 20}`. After it succeeds, mads downloads the first logo candidate that passes Google's checks into `brand/logo.png`, then writes `business.toml`, `research.md`, `STRATEGY.md` with a strategy and, when there are items, `catalog.csv`.
 
 ## Progress summaries
 

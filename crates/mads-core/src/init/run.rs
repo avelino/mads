@@ -16,6 +16,7 @@ use crate::{
         Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget, transcript_path,
     },
     events::{Event, EventSink, Totals},
+    input::{ResolvedStrategy, STRATEGY_FILE},
     money::Cents,
     usage::Usage,
 };
@@ -48,6 +49,8 @@ pub struct InitConfig {
     pub web_search: bool,
     /// The start URL is the one offer to advertise, not the whole business.
     pub focus: bool,
+    /// The campaign strategy the account follows, resolved before the agent starts.
+    pub strategy: Option<ResolvedStrategy>,
 }
 
 impl InitConfig {
@@ -68,6 +71,7 @@ impl InitConfig {
             model: None,
             web_search: true,
             focus: false,
+            strategy: None,
         }
     }
 }
@@ -91,6 +95,22 @@ pub struct InitResult {
     /// What the agent did, kept whether the mission finished or not.
     pub transcripts: PathBuf,
     pub totals: Totals,
+    /// Set when the strategy's intent was lowered, for the person to read.
+    pub strategy_note: Option<String>,
+}
+
+fn strategy_task(s: &ResolvedStrategy) -> String {
+    let head = format!(" Strategy: {}, intent {}.", s.name, s.intent.as_str());
+    let what = match (s.products.is_empty(), s.top) {
+        (false, _) => format!(" Products: {}", s.products.join(", ")),
+        (true, Some(top)) => format!(
+            " Pick the {top} items the strategy describes and write their pages in strategy.products of write_business."
+        ),
+        (true, None) => {
+            " Write the pages the strategy describes in strategy.products of write_business.".into()
+        }
+    };
+    format!("{head}{what}\n\n{}", s.prose)
 }
 
 /// The init mission. `web` is whether the driver can give the agent a web search.
@@ -109,11 +129,12 @@ pub fn mission_spec(cfg: &InitConfig, web: bool) -> MissionSpec {
     } else {
         String::new()
     };
+    let strategy_note = cfg.strategy.as_ref().map(strategy_task).unwrap_or_default();
     MissionSpec {
         id: INIT_ID.into(),
         system: INIT_PROMPT.into(),
         user: format!(
-            "Research {url} and draft business.toml, catalog.csv and research.md. Start with fetch_page on {url}. The catalog can have at most {limit} items. {web_note}{focus_note}",
+            "Research {url} and draft business.toml, catalog.csv and research.md. Start with fetch_page on {url}. The catalog can have at most {limit} items. {web_note}{focus_note}{strategy_note}",
             url = cfg.start_url,
             limit = cfg.catalog_limit
         ),
@@ -133,6 +154,7 @@ pub async fn run_init(
     let research_path = cfg.out_dir.join(RESEARCH_FILE);
     let logo_path = cfg.out_dir.join(LOGO_FILE);
     let design_path = cfg.out_dir.join(DESIGN_FILE);
+    let strategy_path = cfg.out_dir.join(STRATEGY_FILE);
     if !cfg.force {
         let existing: Vec<PathBuf> = [
             &business_path,
@@ -140,6 +162,7 @@ pub async fn run_init(
             &research_path,
             &logo_path,
             &design_path,
+            &strategy_path,
         ]
         .into_iter()
         .filter(|p| p.exists())
@@ -161,6 +184,9 @@ pub async fn run_init(
     let mut draft = InitState::new(&cfg.start_url, cfg.daily, &cfg.currency, cfg.catalog_limit);
     if cfg.focus {
         draft.require_focus();
+    }
+    if let Some(s) = cfg.strategy.clone() {
+        draft.use_strategy(s);
     }
     keep_hand_written(&business_path, &mut draft, &events);
     if mission.web_search {
@@ -218,6 +244,7 @@ pub async fn run_init(
         }
     }
 
+    let mut strategy_note = None;
     let (catalog, research, logo) = if finished {
         if let Some(note) = state.lock().await.stale_formats_note() {
             events.emit(Event::Step {
@@ -227,6 +254,7 @@ pub async fn run_init(
         }
         let logo = save_logo(&cfg, &state, site.as_ref(), &events).await?;
         let (catalog, research) = write_files(&cfg, &state, &events).await?;
+        strategy_note = state.lock().await.strategy_note();
         (catalog, research, logo)
     } else {
         (None, None, None)
@@ -252,6 +280,7 @@ pub async fn run_init(
         logo,
         transcripts,
         totals,
+        strategy_note,
     })
 }
 
@@ -358,6 +387,7 @@ async fn write_files(
         csv,
         research,
         design,
+        strategy,
     } = state
         .lock()
         .await
@@ -369,6 +399,7 @@ async fn write_files(
     let catalog = write_optional(cfg, CATALOG_FILE, csv, events)?;
     let research = write_optional(cfg, RESEARCH_FILE, research, events)?;
     write_optional(cfg, DESIGN_FILE, design, events)?;
+    write_optional(cfg, STRATEGY_FILE, strategy, events)?;
     Ok((catalog, research))
 }
 
@@ -687,6 +718,34 @@ mod tests {
             )
         );
         assert!(m.system.contains("## focus"));
+    }
+
+    #[test]
+    fn a_strategy_reaches_the_task_only_when_given() {
+        let mut c = InitConfig::new(
+            PathBuf::from("."),
+            "https://vinellu.com".into(),
+            Cents(100),
+            "BRL".into(),
+        );
+        assert!(!mission_spec(&c, false).user.contains("Strategy:"));
+        c.strategy = Some(ResolvedStrategy {
+            name: "need".into(),
+            intent: crate::input::StrategyIntent::Purchase,
+            products: vec!["https://vinellu.com/a".into()],
+            top: None,
+            min_share: 80,
+            prose: "Buyers only.".into(),
+        });
+        let m = mission_spec(&c, false);
+        assert!(
+            m.user.contains("Strategy: need, intent purchase"),
+            "{}",
+            m.user
+        );
+        assert!(m.user.contains("Products: https://vinellu.com/a"));
+        assert!(m.user.contains("Buyers only."));
+        assert!(m.system.contains("## strategy"));
     }
 
     #[tokio::test]

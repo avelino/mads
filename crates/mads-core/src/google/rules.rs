@@ -4,8 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     Account, AdGroup, Assets, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Intent, Issue,
-    Keyword, MatchType, Rsa, char_len, contains_word_sequence, merge_rsa, normalize,
+    Keyword, MatchType, PlannedAdGroup, Rsa, char_len, contains_word_sequence, merge_rsa,
+    normalize,
 };
+use crate::input::strategy::product_key;
 use crate::input::{AllowedUrls, AppStore, Budget, Business, Input, fold};
 
 const HEADLINE: usize = 30;
@@ -41,6 +43,12 @@ pub struct Rules<'a> {
     focus: Option<AllowedUrls>,
     /// `focus.terms`, folded: every keyword needs one term of each group.
     focus_terms: Vec<Vec<String>>,
+    /// The strategy's products: what makes a planned group a product group.
+    products: ProductScope,
+    /// Percent of the non-brand budget the strategy asks the product campaigns to get.
+    min_share: Option<u8>,
+    /// In `mads optimize` live performance wins over the strategy: E33 becomes W14.
+    live: bool,
 }
 
 /// Letters and digits only: in "Vivino: notas" and "(Vivino)" the word is still Vivino.
@@ -118,7 +126,15 @@ impl<'a> Rules<'a> {
                         .collect()
                 })
                 .collect(),
+            products: ProductScope::new(input),
+            min_share: input.strategy.as_ref().map(|s| s.min_share),
+            live: false,
         }
+    }
+
+    pub fn with_live(mut self, live: bool) -> Self {
+        self.live = live;
+        self
     }
 
     pub fn url_allowed(&self, url: &str) -> bool {
@@ -162,6 +178,7 @@ impl<'a> Rules<'a> {
         count(&mut out, "campaigns", a.campaigns.len(), 1, 5, "campaigns");
         self.required_formats(&mut out, a);
         self.account_budget(&mut out, a);
+        self.strategy_share(&mut out, a);
         self.one_app_campaign_per_store(&mut out, a);
         dup_names(
             &mut out,
@@ -202,6 +219,30 @@ impl<'a> Rules<'a> {
                 out.push(Issue::error("E21", "campaigns", msg));
             }
         }
+    }
+
+    /// E33 (W14 when live): the product campaigns get at least `min_share` of the non-brand budget.
+    fn strategy_share(&self, out: &mut Vec<Issue>, a: &Account) {
+        let Some(min_share) = self.min_share else {
+            return;
+        };
+        if a.campaigns.is_empty() {
+            return;
+        }
+        let (product, base) = product_share(a, &self.products);
+        if product * 100 >= u64::from(min_share) * base && (base > 0 || min_share == 0) {
+            return;
+        }
+        let share = (product * 100).checked_div(base).unwrap_or(0);
+        let msg = format!(
+            "product campaigns get {share}% of the non-brand budget, the strategy asks for at least {min_share}%: move budget to campaigns that only hold {}",
+            self.products.ids.join(", ")
+        );
+        out.push(if self.live {
+            Issue::warning("W14", "campaigns", msg)
+        } else {
+            Issue::error("E33", "campaigns", msg)
+        });
     }
 
     fn account_budget(&self, out: &mut Vec<Issue>, a: &Account) {
@@ -704,6 +745,77 @@ fn dups(out: &mut Vec<Issue>, path: &str, items: &[String]) {
     }
 }
 
+/// What a planned group has to match to count as a product group.
+#[derive(Debug, Default)]
+pub(crate) struct ProductScope {
+    /// Catalog ids of the strategy's products.
+    pub ids: Vec<String>,
+    /// `product_key` of every product URL.
+    keys: Vec<String>,
+    /// Where a group with an empty `final_url` lands: the first `[focus]` URL, else the business URL.
+    default_landing: Option<String>,
+}
+
+impl ProductScope {
+    pub(crate) fn new(input: &Input) -> Self {
+        let Some(s) = &input.strategy else {
+            return Self::default();
+        };
+        let default_landing = match &input.focus {
+            Some(f) => f.urls.first().cloned(),
+            None => Some(input.business.url.clone()),
+        };
+        Self {
+            ids: s.product_ids(&input.catalog),
+            keys: s.products.iter().filter_map(|p| product_key(p)).collect(),
+            default_landing,
+        }
+    }
+
+    fn lands_on_product(&self, g: &PlannedAdGroup) -> bool {
+        let url = if g.final_url.trim().is_empty() {
+            self.default_landing.as_deref()
+        } else {
+            Some(g.final_url.as_str())
+        };
+        url.and_then(product_key)
+            .is_some_and(|k| self.keys.contains(&k))
+    }
+}
+
+/// Daily budget in cents of the product campaigns and of the non-brand, non-app base they are
+/// measured against.
+pub(crate) fn product_share(a: &Account, products: &ProductScope) -> (u64, u64) {
+    let in_base = |c: &&Campaign| c.intent != Intent::Brand && c.kind != CampaignKind::AppInstalls;
+    let base = a
+        .campaigns
+        .iter()
+        .filter(in_base)
+        .map(|c| c.daily_budget.0)
+        .sum();
+    let product = a
+        .campaigns
+        .iter()
+        .filter(in_base)
+        .filter(|c| is_product_campaign(c, products))
+        .map(|c| c.daily_budget.0)
+        .sum();
+    (product, base)
+}
+
+/// A campaign whose planned groups each hold only strategy products: by `entity_ids`, or, when a
+/// group has none, by the page it lands on.
+pub(crate) fn is_product_campaign(c: &Campaign, products: &ProductScope) -> bool {
+    !c.planned_ad_groups.is_empty()
+        && c.planned_ad_groups.iter().all(|g| {
+            if g.entity_ids.is_empty() {
+                products.lands_on_product(g)
+            } else {
+                g.entity_ids.iter().all(|id| products.ids.contains(id))
+            }
+        })
+}
+
 fn dup_names<'n>(out: &mut Vec<Issue>, path: &str, names: impl Iterator<Item = &'n str>) {
     let mut seen = BTreeSet::new();
     for (i, n) in names.enumerate() {
@@ -850,6 +962,7 @@ mod tests {
             formats: Vec::new(),
             design: String::new(),
             focus: None,
+            strategy: None,
             apps: Vec::new(),
             google_ads: Default::default(),
             business: Business {
@@ -1390,5 +1503,184 @@ mod tests {
         let inp = input();
         let issues = Rules::new(&inp, 0).account(&a, true);
         assert!(issues.iter().any(|i| i.code == "E13"));
+    }
+
+    fn share_campaign(
+        intent: Intent,
+        kind: CampaignKind,
+        budget: u64,
+        groups: &[&[&str]],
+    ) -> Campaign {
+        let mut c = campaign(&format!("C{budget}{groups:?}"), budget);
+        c.intent = intent;
+        c.kind = kind;
+        c.planned_ad_groups = groups
+            .iter()
+            .map(|ids| PlannedAdGroup {
+                name: s("g"),
+                theme: s("t"),
+                entity_ids: ids.iter().map(|i| s(i)).collect(),
+                final_url: s("https://x.com/a"),
+            })
+            .collect();
+        c
+    }
+
+    fn landing(mut c: Campaign, group: usize, url: &str) -> Campaign {
+        c.planned_ad_groups[group].final_url = s(url);
+        c
+    }
+
+    fn brand(b: u64) -> Campaign {
+        share_campaign(Intent::Brand, CampaignKind::Search, b, &[&[]])
+    }
+
+    fn cat(b: u64, groups: &[&[&str]]) -> Campaign {
+        share_campaign(Intent::Catalog, CampaignKind::Search, b, groups)
+    }
+
+    fn app(b: u64) -> Campaign {
+        share_campaign(Intent::Generic, CampaignKind::AppInstalls, b, &[&[]])
+    }
+
+    fn strategy_input() -> Input {
+        let mut inp = input();
+        inp.budget.daily = Cents(10000);
+        inp.catalog = ["a", "b"]
+            .iter()
+            .map(|id| CatalogItem {
+                id: s(id),
+                name: s(id),
+                url: format!("https://x.com/{id}"),
+                third_party: false,
+                aliases: vec![],
+                ..inp.catalog[0].clone()
+            })
+            .collect();
+        inp.strategy = Some(crate::input::strategy::Strategy {
+            name: s("profitability"),
+            intent: crate::input::strategy::StrategyIntent::Purchase,
+            products: vec![s("https://x.com/a")],
+            min_share: 80,
+            prose: String::new(),
+        });
+        inp
+    }
+
+    fn run_with_strategy(campaigns: &[Campaign], live: bool) -> Vec<Issue> {
+        let inp = strategy_input();
+        let a = Account {
+            brand_kit: Some(kit()),
+            campaigns: campaigns.to_vec(),
+        };
+        Rules::new(&inp, 50).with_live(live).account(&a, false)
+    }
+
+    fn fails_79() -> Vec<Campaign> {
+        vec![brand(2000), cat(6300, &[&["a"]]), cat(1700, &[&["b"]])]
+    }
+
+    #[test]
+    fn strategy_share_e33() {
+        let cases: &[(&str, Vec<Campaign>, Option<&str>)] = &[
+            (
+                "80% passes",
+                vec![brand(2000), cat(6400, &[&["a"]]), cat(1600, &[&["b"]])],
+                None,
+            ),
+            ("79% fails", fails_79(), Some("E33")),
+            (
+                "mixed group is not a product campaign",
+                vec![brand(2000), cat(8000, &[&["a", "b"]])],
+                Some("E33"),
+            ),
+            (
+                "a group without entity_ids landing on a product counts",
+                vec![brand(2000), cat(8000, &[&["a"], &[]])],
+                None,
+            ),
+            (
+                "a group without entity_ids landing elsewhere does not",
+                vec![
+                    brand(2000),
+                    landing(cat(8000, &[&["a"], &[]]), 1, "https://x.com/b"),
+                ],
+                Some("E33"),
+            ),
+            (
+                "an empty final_url lands on the business url, not a product",
+                vec![brand(2000), landing(cat(8000, &[&["a"], &[]]), 1, "")],
+                Some("E33"),
+            ),
+            (
+                "app campaigns leave the base",
+                vec![app(5000), cat(4000, &[&["a"]]), cat(1000, &[&["b"]])],
+                None,
+            ),
+            ("only brand, base 0", vec![brand(10000)], Some("E33")),
+        ];
+        for (name, campaigns, code) in cases {
+            let issues = run_with_strategy(campaigns, false);
+            let got = issues
+                .iter()
+                .find(|i| i.code == "E33")
+                .map(|i| i.code.as_str());
+            assert_eq!(got, *code, "{name}");
+        }
+        let msg = run_with_strategy(&fails_79(), false)
+            .into_iter()
+            .find(|i| i.code == "E33")
+            .unwrap()
+            .message;
+        assert!(
+            msg.contains("get 78%") && msg.contains("at least 80%") && msg.contains("only hold a"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn with_focus_an_empty_final_url_lands_on_the_first_focus_url() {
+        let focus = |urls: &[&str]| {
+            let mut inp = strategy_input();
+            inp.focus = Some(crate::input::Focus {
+                name: s("f"),
+                urls: urls.iter().map(|u| s(u)).collect(),
+                terms: vec![],
+            });
+            inp
+        };
+        let run = |inp: &Input, c: Campaign| {
+            let a = Account {
+                brand_kit: Some(kit()),
+                campaigns: vec![brand(2000), c],
+            };
+            Rules::new(inp, 50).account(&a, false)
+        };
+        let c = landing(cat(8000, &[&[]]), 0, "");
+        let on_product = focus(&["https://www.x.com/a/", "https://x.com/b"]);
+        assert!(run(&on_product, c.clone()).iter().all(|i| i.code != "E33"));
+        let off_product = focus(&["https://x.com/b", "https://x.com/a"]);
+        assert!(run(&off_product, c).iter().any(|i| i.code == "E33"));
+    }
+
+    #[test]
+    fn strategy_share_is_a_warning_when_live() {
+        let issues = run_with_strategy(&fails_79(), true);
+        assert!(issues.iter().all(|i| i.code != "E33"));
+        let w: Vec<_> = issues.iter().filter(|i| i.code == "W14").collect();
+        assert_eq!(w.len(), 1);
+        assert!(!w[0].is_error());
+    }
+
+    #[test]
+    fn without_strategy_there_is_no_share_rule() {
+        let mut inp = strategy_input();
+        inp.strategy = None;
+        let a = Account {
+            brand_kit: Some(kit()),
+            campaigns: fails_79(),
+        };
+        let issues = Rules::new(&inp, 50).account(&a, false);
+        assert!(issues.iter().all(|i| i.code != "E33" && i.code != "W14"));
     }
 }

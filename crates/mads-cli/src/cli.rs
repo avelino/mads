@@ -70,6 +70,15 @@ pub struct InitArgs {
     /// Advertise only the offer of --from-url (a route, a product line), not the whole business.
     #[arg(long)]
     pub focus: bool,
+    /// visibility, profitability, need, or a path to a strategy .md file. Without it the plan agent spreads the budget by expected return.
+    #[arg(long)]
+    pub strategy: Option<String>,
+    /// Product page to push, on the same site as --from-url. Repeat for more. Replaces the products of the strategy.
+    #[arg(long = "product", value_name = "URL", requires = "strategy")]
+    pub products: Vec<String>,
+    /// How many products the agent picks when no --product is given. Replaces the strategy's top.
+    #[arg(long, requires = "strategy")]
+    pub top: Option<u32>,
     #[command(flatten)]
     pub agent: AgentArgs,
 }

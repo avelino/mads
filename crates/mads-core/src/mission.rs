@@ -4,6 +4,7 @@ pub const PLAN_ID: &str = "plan";
 
 const PLAN_CORE: &str = include_str!("../prompts/plan/core.md");
 const PLAN_FOCUS: &str = include_str!("../prompts/plan/focus.md");
+const PLAN_STRATEGY: &str = include_str!("../prompts/plan/strategy.md");
 const PLAN_RESTRICTED: &str = include_str!("../prompts/plan/restricted.md");
 const PLAN_APPS: &str = include_str!("../prompts/plan/apps.md");
 const PLAN_LIVE: &str = include_str!("../prompts/plan/live.md");
@@ -25,6 +26,7 @@ pub fn plan_prompt(input: &Input, live: bool) -> String {
     let sections = [
         (true, PLAN_CORE),
         (input.focus.is_some(), PLAN_FOCUS),
+        (input.strategy.is_some(), PLAN_STRATEGY),
         (!input.business.restricted.is_empty(), PLAN_RESTRICTED),
         (!input.apps.is_empty(), PLAN_APPS),
         (live, PLAN_LIVE),
@@ -274,11 +276,55 @@ mod tests {
         }
     }
 
+    fn sample_strategy() -> crate::input::strategy::Strategy {
+        crate::input::strategy::Strategy {
+            name: "need".into(),
+            intent: crate::input::strategy::StrategyIntent::Purchase,
+            products: vec!["https://vinellu.com/w/alamos".into()],
+            min_share: 80,
+            prose: String::new(),
+        }
+    }
+
+    #[test]
+    fn the_strategy_section_comes_only_with_a_strategy() {
+        let mut input = testutil::input();
+        assert!(!plan_prompt(&input, false).contains("min_share"));
+        input.strategy = Some(sample_strategy());
+        let p = plan_prompt(&input, false);
+        for rule in [
+            "`get_business` has `strategy`",
+            "campaigns that only hold the strategy products",
+            "at least `min_share` percent",
+            "Brand and App campaigns are outside that share",
+            "Follow the strategy prose",
+        ] {
+            assert!(p.contains(rule), "plan prompt misses rule: {rule}");
+        }
+    }
+
+    #[test]
+    fn the_campaign_prompt_explains_each_intent() {
+        let m = campaign_mission(&testutil::input(), &campaign());
+        for needle in [
+            "`strategy.intent`",
+            "buying words",
+            "`consideration` keeps comparison",
+            "`discovery` allows category",
+            "restricted category rules below still win",
+            "`strategy.product_campaign`",
+            "`purchase` acts as `consideration`",
+        ] {
+            assert!(m.system.contains(needle), "campaign prompt misses {needle}");
+        }
+    }
+
     #[test]
     fn the_plan_prompt_leaves_out_what_the_run_does_not_have() {
         let lean = plan_prompt(&testutil::input(), false);
         for gone in [
             "`focus`",
+            "min_share",
             "business.restricted",
             "app_installs` shows ads",
             "E30",

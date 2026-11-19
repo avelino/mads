@@ -194,6 +194,9 @@ async fn get_business(t: &MissionTools) -> ToolOutput {
         "focus": ws.input.focus,
         "rules": rules_summary(&t.settings),
     });
+    if ws.input.strategy.is_some() {
+        result["strategy"] = super::business_strategy(&ws.input);
+    }
     if !ws.input.research.is_empty() {
         result["research"] = json!(ws.input.research);
     }
@@ -318,7 +321,7 @@ async fn set_brand_kit(t: &MissionTools, a: SetBrandKitArgs) -> ToolOutput {
 async fn set_account_plan(t: &MissionTools, a: SetAccountPlanArgs) -> ToolOutput {
     let mut guard = t.ws.lock().await;
     let ws: &mut Workspace = &mut guard;
-    let rules = Rules::new(&ws.input, t.settings.max_ad_groups);
+    let rules = Rules::new(&ws.input, t.settings.max_ad_groups).with_live(ws.live.is_some());
     let mut issues = Vec::new();
     let campaigns: Vec<Campaign> = a
         .campaigns

@@ -12,6 +12,18 @@ pub fn normalize_url(raw: &str) -> Option<String> {
     Some(url.to_string())
 }
 
+/// `…/a` and `…/a/` are the same page for a crawler.
+pub fn page_key(url: &str) -> Option<String> {
+    normalize_url(url).map(|u| u.trim_end_matches('/').to_string())
+}
+
+/// Lowercase host without a leading `www.`, for comparing a site with its own pages.
+pub fn bare_host(url: &str) -> Option<String> {
+    let parsed = Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_lowercase();
+    Some(host.trim_start_matches("www.").to_string())
+}
+
 /// URLs an ad is allowed to point at. Anything outside the set may be a hallucination.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AllowedUrls(BTreeSet<String>);

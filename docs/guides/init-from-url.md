@@ -103,6 +103,10 @@ The agent still studies the business for context, but it writes a `[focus]` tabl
 
 For several offers, run init once per offer in its own folder. Each one gets its own budget, run and report.
 
+## Push some products
+
+Pass `--strategy` to say which products get most of the budget and which searches they buy. See [Campaign strategies](strategies.md).
+
 ## The logo
 
 Image campaigns need the brand logo, and mads never draws one. While the agent fetches pages, mads collects logo candidates from the markup: `apple-touch-icon` first, then `og:logo`, then the largest `<link rel="icon">`, then `<img>` tags with `logo` in `src`, `alt`, `class` or `id`. SVG, ICO and GIF files are skipped.

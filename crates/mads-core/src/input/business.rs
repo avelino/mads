@@ -2,7 +2,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CatalogItem, normalize_url, parse_catalog};
+use super::{
+    CatalogItem, STRATEGY_MAX_CHARS, Strategy, StrategyIntent, normalize_url, parse_catalog,
+    strategy::product_key,
+};
 use crate::{google::CampaignKind, money::Cents};
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -15,7 +18,7 @@ pub enum InputError {
     Io(String),
 }
 
-fn invalid(key: &str, message: impl Into<String>) -> InputError {
+pub(crate) fn invalid(key: &str, message: impl Into<String>) -> InputError {
     InputError::Invalid {
         key: key.into(),
         message: message.into(),
@@ -42,6 +45,7 @@ struct RawFile {
     campaigns: Option<RawCampaigns>,
     design: Option<RawResearch>,
     focus: Option<RawFocus>,
+    strategy: Option<RawStrategy>,
     #[serde(default, deserialize_with = "apps_or_one")]
     app: Vec<App>,
     #[serde(default)]
@@ -55,6 +59,16 @@ struct RawFocus {
     urls: Vec<String>,
     #[serde(default)]
     terms: Vec<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStrategy {
+    name: String,
+    intent: StrategyIntent,
+    products: Vec<String>,
+    min_share: u8,
+    file: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -405,6 +419,60 @@ fn check_focus(raw: Option<RawFocus>) -> Result<Option<Focus>, InputError> {
     }))
 }
 
+const STRATEGY_MAX_PRODUCTS: usize = 50;
+
+/// 1 to 50 http(s) URLs, and with `[focus]` each one a page of it.
+fn check_strategy_products(products: &[String], focus: Option<&Focus>) -> Result<(), InputError> {
+    let key = "strategy.products";
+    if products.is_empty() || products.len() > STRATEGY_MAX_PRODUCTS {
+        let msg = format!("1 to {STRATEGY_MAX_PRODUCTS} URLs, got {}", products.len());
+        return Err(invalid(key, msg));
+    }
+    if let Some(bad) = products.iter().find(|u| normalize_url(u).is_none()) {
+        return Err(invalid(key, format!("not an absolute http(s) URL: {bad}")));
+    }
+    let Some(f) = focus else {
+        return Ok(());
+    };
+    let pages: Vec<_> = f.urls.iter().map(|u| product_key(u)).collect();
+    match products.iter().find(|p| !pages.contains(&product_key(p))) {
+        Some(bad) => Err(invalid(key, format!("not one of the [focus] urls: {bad}"))),
+        None => Ok(()),
+    }
+}
+
+fn check_strategy(
+    raw: Option<RawStrategy>,
+    business: &Business,
+    focus: Option<&Focus>,
+) -> Result<(Option<Strategy>, Option<String>), InputError> {
+    let Some(r) = raw else {
+        return Ok((None, None));
+    };
+    check_len("strategy.name", &r.name, 1, 80)?;
+    check_strategy_products(&r.products, focus)?;
+    if r.min_share > 100 {
+        return Err(invalid(
+            "strategy.min_share",
+            "min_share is a percentage, 0 to 100",
+        ));
+    }
+    if r.intent == StrategyIntent::Purchase && !business.restricted.is_empty() {
+        return Err(invalid(
+            "strategy.intent",
+            "Google Ads forbids sale words for restricted categories: use consideration",
+        ));
+    }
+    let strategy = Strategy {
+        name: r.name,
+        intent: r.intent,
+        products: r.products,
+        min_share: r.min_share,
+        prose: String::new(),
+    };
+    Ok((Some(strategy), r.file))
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Page {
     pub name: String,
@@ -534,6 +602,9 @@ pub struct InputFile {
     /// DESIGN.md, relative to the TOML file.
     pub design_file: Option<String>,
     pub focus: Option<Focus>,
+    pub strategy: Option<Strategy>,
+    /// The strategy text, relative to the TOML file.
+    pub strategy_file: Option<String>,
     pub apps: Vec<App>,
     pub google_ads: GoogleAds,
 }
@@ -560,6 +631,9 @@ pub struct Input {
     /// The offer the account advertises. None: the whole business.
     #[serde(default)]
     pub focus: Option<Focus>,
+    /// How the account is run. None: the plan agent decides alone.
+    #[serde(default)]
+    pub strategy: Option<Strategy>,
     /// The apps `app_installs` campaigns promote, one per store. A `workspace.json` from before
     /// there were two stores holds a single `app`.
     #[serde(default, alias = "app", deserialize_with = "apps_or_one")]
@@ -569,7 +643,7 @@ pub struct Input {
     pub google_ads: GoogleAds,
 }
 
-fn check_len(key: &str, s: &str, min: usize, max: usize) -> Result<(), InputError> {
+pub(super) fn check_len(key: &str, s: &str, min: usize, max: usize) -> Result<(), InputError> {
     let n = s.trim().chars().count();
     if (min..=max).contains(&n) {
         Ok(())
@@ -701,21 +775,25 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
         decimal_comma: e.decimal_comma.unwrap_or(comma_default),
     };
 
+    let business = Business {
+        name: b.name,
+        url: b.url,
+        language: b.language,
+        locations: b.locations,
+        goal: b.goal,
+        description: b.description,
+        conversion_tracking: b.conversion_tracking,
+        brand_terms,
+        competitors: b.competitors,
+        avoid: b.avoid,
+        pages,
+        restricted: b.restricted,
+    };
+    let focus = check_focus(raw.focus)?;
+    let (strategy, strategy_file) = check_strategy(raw.strategy, &business, focus.as_ref())?;
+
     Ok(InputFile {
-        business: Business {
-            name: b.name,
-            url: b.url,
-            language: b.language,
-            locations: b.locations,
-            goal: b.goal,
-            description: b.description,
-            conversion_tracking: b.conversion_tracking,
-            brand_terms,
-            competitors: b.competitors,
-            avoid: b.avoid,
-            pages,
-            restricted: b.restricted,
-        },
+        business,
         budget: Budget {
             daily,
             currency: raw.budget.currency,
@@ -729,7 +807,9 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
         logo_file: raw.brand.as_ref().map(|b| b.logo.clone()),
         formats: check_formats(raw.campaigns, raw.brand.is_some(), b_tracking)?,
         design_file: raw.design.map(|d| d.file),
-        focus: check_focus(raw.focus)?,
+        focus,
+        strategy,
+        strategy_file,
         apps: check_apps(raw.app)?,
         google_ads: check_google_ads(raw.google_ads)?,
     })
@@ -864,6 +944,7 @@ pub fn load_input(path: &Path) -> Result<Input, InputError> {
         Some(rel) => load_text(&dir.join(rel), "design.file", DESIGN_MAX_CHARS)?,
         None => String::new(),
     };
+    let strategy = load_strategy(&file, &catalog, dir)?;
     let logo = match &file.logo_file {
         Some(rel) => Some(load_logo(&dir.join(rel))?),
         None => None,
@@ -878,9 +959,42 @@ pub fn load_input(path: &Path) -> Result<Input, InputError> {
         formats: file.formats,
         design,
         focus: file.focus,
+        strategy,
         apps: file.apps,
         google_ads: file.google_ads,
     })
+}
+
+fn check_products_in_catalog(s: &Strategy, catalog: &[CatalogItem]) -> Result<(), InputError> {
+    let missing = s.products.iter().find(|p| {
+        !catalog
+            .iter()
+            .any(|c| product_key(&c.url) == product_key(p))
+    });
+    match missing {
+        Some(url) => Err(invalid(
+            "strategy.products",
+            format!("no catalog item has this page: {url}"),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// The strategy with its text, once every product is a page of the catalog.
+fn load_strategy(
+    file: &InputFile,
+    catalog: &[CatalogItem],
+    dir: &Path,
+) -> Result<Option<Strategy>, InputError> {
+    let Some(mut s) = file.strategy.clone() else {
+        return Ok(None);
+    };
+    if let Some(rel) = &file.strategy_file {
+        let text = load_text(&dir.join(rel), "strategy.file", STRATEGY_MAX_CHARS)?;
+        s.prose = text.trim().to_string();
+    }
+    check_products_in_catalog(&s, catalog)?;
+    Ok(Some(s))
 }
 
 /// Checks the logo against Google's limits and returns its absolute path.
@@ -1441,6 +1555,121 @@ currency = "BRL"
         assert_eq!(err_key(&empty_group), "focus.terms");
         let no_name = format!("{MINIMAL}\n[focus]\nname = \"\"\nurls = [\"https://x.com\"]\n");
         assert_eq!(err_key(&no_name), "focus.name");
+    }
+
+    #[test]
+    fn strategy_is_optional_and_checked() {
+        assert!(parse_input_toml(MINIMAL).unwrap().strategy.is_none());
+        let ok = format!(
+            "{MINIMAL}\n[strategy]\nname = \"need\"\nintent = \"purchase\"\nproducts = [\"https://vinellu.com/a\"]\nmin_share = 80\n"
+        );
+        let s = parse_input_toml(&ok).unwrap().strategy.unwrap();
+        assert_eq!((s.intent, s.min_share), (StrategyIntent::Purchase, 80));
+        for (bad, key) in [
+            ("products = []\nmin_share = 80", "strategy.products"),
+            ("products = [\"/a\"]\nmin_share = 80", "strategy.products"),
+            (
+                "products = [\"https://vinellu.com/a\"]\nmin_share = 101",
+                "strategy.min_share",
+            ),
+        ] {
+            let t = format!("{MINIMAL}\n[strategy]\nname = \"x\"\nintent = \"purchase\"\n{bad}\n");
+            assert_eq!(err_key(&t), key, "{bad}");
+        }
+    }
+
+    #[test]
+    fn purchase_under_a_restricted_policy_is_refused() {
+        let base = MINIMAL.replace("goal =", "restricted = [\"alcohol\"]\ngoal =");
+        let t = format!(
+            "{base}\n[strategy]\nname = \"x\"\nintent = \"purchase\"\nproducts = [\"https://vinellu.com/a\"]\nmin_share = 80\n"
+        );
+        assert_eq!(err_key(&t), "strategy.intent");
+    }
+
+    #[test]
+    fn strategy_products_match_focus_pages_without_www() {
+        let t = format!(
+            "{MINIMAL}\n[focus]\nname = \"x\"\nurls = [\"https://vinellu.com/a\"]\n[strategy]\nname = \"x\"\nintent = \"consideration\"\nproducts = [\"https://www.vinellu.com/a/\"]\nmin_share = 80\n"
+        );
+        assert!(parse_input_toml(&t).is_ok());
+    }
+
+    #[test]
+    fn strategy_products_must_be_focus_pages() {
+        let t = format!(
+            "{MINIMAL}\n[focus]\nname = \"x\"\nurls = [\"https://vinellu.com/a\"]\n[strategy]\nname = \"x\"\nintent = \"consideration\"\nproducts = [\"https://vinellu.com/b\"]\nmin_share = 80\n"
+        );
+        assert_eq!(err_key(&t), "strategy.products");
+    }
+
+    fn strategy_dir(product: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = format!(
+            "{MINIMAL}\n[catalog]\nfile = \"c.csv\"\n[strategy]\nname = \"x\"\nintent = \"consideration\"\nproducts = [\"{product}\"]\nmin_share = 80\nfile = \"STRATEGY.md\"\n"
+        );
+        std::fs::write(dir.path().join("business.toml"), toml).unwrap();
+        std::fs::write(
+            dir.path().join("c.csv"),
+            "name,url\nAlamos,https://vinellu.com/a\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("STRATEGY.md"), "Only buyers.").unwrap();
+        dir
+    }
+
+    #[test]
+    fn load_input_matches_products_to_the_catalog_and_reads_the_prose() {
+        let dir = strategy_dir("https://www.vinellu.com/a/");
+        let input = load_input(&dir.path().join("business.toml")).unwrap();
+        let s = input.strategy.as_ref().unwrap();
+        assert_eq!(s.prose, "Only buyers.");
+        assert_eq!(s.product_ids(&input.catalog), ["alamos"]);
+
+        let dir = strategy_dir("https://vinellu.com/a?id=2");
+        assert!(load_input(&dir.path().join("business.toml")).is_err());
+        std::fs::write(
+            dir.path().join("c.csv"),
+            "name,url\nAlamos,https://vinellu.com/a?id=1\n",
+        )
+        .unwrap();
+        assert!(load_input(&dir.path().join("business.toml")).is_err());
+
+        let dir = strategy_dir("https://vinellu.com/zzz");
+        match load_input(&dir.path().join("business.toml")) {
+            Err(InputError::Invalid { key, message }) => {
+                assert_eq!(key, "strategy.products");
+                assert!(message.contains("https://vinellu.com/zzz"), "{message}");
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_old_workspace_without_strategy_still_loads() {
+        let toml = format!(
+            "{MINIMAL}\n[strategy]\nname = \"x\"\nintent = \"consideration\"\nproducts = [\"https://vinellu.com/a\"]\nmin_share = 80\n"
+        );
+        let f = parse_input_toml(&toml).unwrap();
+        let input = Input {
+            business: f.business,
+            budget: f.budget,
+            export: f.export,
+            catalog: Vec::new(),
+            research: String::new(),
+            logo: None,
+            formats: Vec::new(),
+            design: String::new(),
+            focus: None,
+            strategy: f.strategy,
+            apps: Vec::new(),
+            google_ads: f.google_ads,
+        };
+        let mut json: serde_json::Value = serde_json::to_value(&input).unwrap();
+        assert!(json["strategy"].is_object());
+        json.as_object_mut().unwrap().remove("strategy");
+        let back: Input = serde_json::from_value(json).unwrap();
+        assert!(back.strategy.is_none());
     }
 
     #[test]

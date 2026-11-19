@@ -4,7 +4,10 @@ use anyhow::Context;
 use mads_core::{
     events::EventSink,
     init::{InitConfig, InitError, run_init},
-    input::normalize_url,
+    input::{
+        ResolvedStrategy, SHIPPED, StrategyOverrides, StrategySource, check_product_hosts,
+        normalize_url, resolve_strategy,
+    },
     money::Cents,
 };
 use mads_providers::{SiteClient, build_drivers, preflight};
@@ -31,6 +34,7 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
         return Err(usage("--currency must be 3 uppercase letters, such as BRL"));
     }
 
+    let strategy = strategy_of(&args).map_err(usage)?;
     let selection = args.agent.selection();
     let drivers = build_drivers(&selection).map_err(|e| usage(e.to_string()))?;
     preflight(&selection)
@@ -49,6 +53,7 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
     cfg.force = args.force;
     cfg.web_search = !args.no_web_search;
     cfg.focus = args.focus;
+    cfg.strategy = strategy;
     cfg.max_turns = args.agent.max_turns;
     cfg.mission_timeout = args.agent.mission_timeout;
     cfg.max_tokens = args.agent.max_tokens;
@@ -66,6 +71,9 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
                 eprintln!("See what the agent did in {}", r.transcripts.display());
             }
             if r.exit_code == 0 && format != Format::Json {
+                if let Some(note) = &r.strategy_note {
+                    eprintln!("{note}");
+                }
                 if let Some(research) = &r.research {
                     eprintln!("Read what the agent found in {}", research.display());
                 }
@@ -117,4 +125,41 @@ pub async fn run(args: InitArgs, format: Format) -> anyhow::Result<i32> {
         Err(e @ InitError::Exists(_)) => Err(usage(e.to_string())),
         Err(e) => Err(e.into()),
     }
+}
+
+/// A value with a `/` or a `.md` ending is a file, anything else must be a shipped name.
+fn strategy_of(args: &InitArgs) -> Result<Option<ResolvedStrategy>, String> {
+    let Some(value) = &args.strategy else {
+        return Ok(None);
+    };
+    let ov = StrategyOverrides {
+        products: args.products.clone(),
+        top: args.top,
+        focus: args.focus,
+    };
+    let resolved = if value.contains('/') || value.ends_with(".md") {
+        let text = std::fs::read_to_string(value)
+            .map_err(|e| format!("--strategy {value}: cannot read the file: {e}"))?;
+        let stem = std::path::Path::new(value)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("strategy");
+        resolve_strategy(
+            StrategySource::File {
+                name: stem,
+                text: &text,
+            },
+            ov,
+        )
+    } else if SHIPPED.contains(&value.as_str()) {
+        resolve_strategy(StrategySource::Shipped(value), ov)
+    } else {
+        return Err(format!(
+            "--strategy must be one of: {}, or a path to a .md file, got '{value}'",
+            SHIPPED.join(", ")
+        ));
+    }
+    .map_err(|e| e.to_string())?;
+    check_product_hosts(&args.from_url, &resolved.products).map_err(|e| e.to_string())?;
+    Ok(Some(resolved))
 }

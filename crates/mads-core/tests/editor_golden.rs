@@ -41,6 +41,7 @@ fn input() -> Input {
         formats: Vec::new(),
         design: String::new(),
         focus: None,
+        strategy: None,
         apps: vec![App { store: AppStore::GooglePlay, id: "com.vinellu.app".into() }],
         google_ads: Default::default(),
     }

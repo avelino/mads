@@ -13,9 +13,9 @@ use crate::{
     google::{AdGroup, Campaign, CampaignKind, Cents, Issue, Keyword, MatchType, normalize},
     input::Budget,
     perf::{
-        AdGroupPerf, CampaignPerf, JUDGE_CONVERSIONS, KeywordPerf, Live, Metrics,
-        NO_RESULT_TARGETS, Performance, ReportKind, STALLED_DAYS, Signal, THIN_CLICKS, THIN_DAYS,
-        TermPerf, VsTarget, vs_target, vs_target_in_app,
+        AdGroupPerf, CampaignPerf, DISPLAY_CTR_PCT, JUDGE_CONVERSIONS, KeywordPerf, Live, Metrics,
+        NO_ACTION_FOR_STORE, NO_RESULT_TARGETS, Performance, ReportKind, STALLED_DAYS, Signal,
+        THIN_CLICKS, THIN_DAYS, TermPerf, VsTarget, vs_target, vs_target_in_app,
     },
 };
 
@@ -98,6 +98,7 @@ fn live_rules(p: &Performance) -> String {
     if p.campaigns.iter().any(|c| c.app.is_some()) {
         rules.push(APP_EVENTS_RULE.into());
     }
+    rules.extend(report_rules(p));
     if let Some(idle) = p.idle_budget {
         rules.push(format!(
             "idle_budget: {idle:.2} a day of the budget goes unspent. Move it to campaigns that convert at their budget limit."
@@ -111,6 +112,29 @@ fn live_rules(p: &Performance) -> String {
         ));
     }
     rules.join(" ")
+}
+
+/// What the conversion action and network reports add to the campaigns, when they were read.
+fn report_rules(p: &Performance) -> Vec<String> {
+    let any = |f: fn(&CampaignPerf) -> bool| p.campaigns.iter().any(f);
+    let mut rules = Vec::new();
+    if any(|c| c.untracked_reason.is_some()) {
+        rules.push(format!(
+            "untracked_reason '{NO_ACTION_FOR_STORE}' means no conversion action counted for the store of that App campaign, for example an iOS campaign while only an Android download action exists. Its installs are not measured: it gets no more budget (E27), and its rationale says the conversion action of that store must be added in Google Ads."
+        ));
+    }
+    if any(|c| !c.off_goal_actions.is_empty()) {
+        rules.push("off_goal_actions lists the conversion actions a Search or Demand Gen campaign counted that are not installs, in an account whose goal is installs. Its cost per conversion does not measure the goal: do not move budget to or from it on that number alone.".into());
+    }
+    if any(|c| !c.networks.is_empty()) {
+        rules.push("networks is the share of the campaign's cost and conversions per network, and the CTR of each.".into());
+    }
+    if any(|c| c.accidental_display_clicks) {
+        rules.push(format!(
+            "accidental_display_clicks: the Display CTR of this App campaign is above {DISPLAY_CTR_PCT} percent, a line mads draws and not a Google rule. Its clicks are likely accidental: treat its install count with caution and do not raise its budget on cost per install alone."
+        ));
+    }
+    rules
 }
 
 const APP_EVENTS_RULE: &str = "app_installs_seen is what the advertiser's own analytics counted for the store of an App campaign, in_app_actions what those installs led to, install_to_action_pct their share and cost_per_in_app_action what each action cost. store_vs_app_install_ratio is Google's conversions over the installs the app saw: well above 1 means Google counts installs the app never sees, so the cost per install the store reports is a weak signal. A store whose installs rarely become in-app actions should not get more budget just because its cost per install is low: weigh its App campaign by cost_per_in_app_action.";
@@ -522,8 +546,8 @@ mod tests {
         google::{Account, AdGroup, BidStrategy, Campaign, Cents, Intent, Keyword, MatchType, Rsa},
         input::AppStore,
         perf::{
-            AdGroupPerf, AppPerf, CampaignPerf, KeywordPerf, Metrics, Performance, Signal,
-            StoreEvents, TermPerf, TermState,
+            AdGroupPerf, AppPerf, CampaignPerf, KeywordPerf, Metrics, Network, NetworkPerf,
+            Performance, Signal, StoreEvents, TermPerf, TermState,
         },
     };
 
@@ -847,6 +871,78 @@ mod tests {
             "{rules}"
         );
         assert!(rules.contains("target_cpa_in_app"), "{rules}");
+    }
+
+    fn network(network: Network, cost: f64, ctr: f64) -> NetworkPerf {
+        NetworkPerf {
+            network,
+            cost_share_pct: Some(cost),
+            conversions_share_pct: None,
+            ctr_pct: Some(ctr),
+        }
+    }
+
+    #[test]
+    fn display_clicks_that_look_accidental_reach_the_plan_with_a_rule() {
+        let mut live = app_live(false);
+        let c = &mut live.performance.campaigns[0];
+        c.networks = vec![
+            network(Network::Search, 40.0, 4.0),
+            network(Network::Display, 60.0, 22.5),
+        ];
+        c.accidental_display_clicks = true;
+        let (_, perf) = business_view(&live, &targets(Some(20), None));
+        let v = &perf["campaigns"][0];
+        assert_eq!(v["accidental_display_clicks"], true);
+        assert_eq!(v["networks"][1]["network"], "display");
+        assert_eq!(v["networks"][1]["ctr_pct"], 22.5);
+        assert!(v["networks"][1].get("conversions_share_pct").is_none(), "no nulls: {v}");
+        let rules = perf["live_rules"].as_str().unwrap();
+        for needle in [
+            "treat its install count with caution",
+            "do not raise its budget on cost per install alone",
+            "15 percent",
+            "not a Google rule",
+        ] {
+            assert!(rules.contains(needle), "missing {needle} in {rules}");
+        }
+        let (_, brief) = brief_view(&live, "Catalogo");
+        assert!(brief["live_rules"].as_str().unwrap().contains("accidental_display_clicks"));
+    }
+
+    #[test]
+    fn the_plan_is_told_why_an_app_campaign_is_untracked_and_which_actions_are_off_goal() {
+        let mut live = app_live(false);
+        let c = &mut live.performance.campaigns[0];
+        c.untracked = true;
+        c.untracked_reason = Some(NO_ACTION_FOR_STORE.into());
+        c.off_goal_actions = vec!["Purchase".into()];
+        let (_, perf) = business_view(&live, &targets(None, None));
+        let v = &perf["campaigns"][0];
+        assert_eq!(v["untracked_reason"], NO_ACTION_FOR_STORE);
+        assert_eq!(v["off_goal_actions"][0], "Purchase");
+        let rules = perf["live_rules"].as_str().unwrap();
+        assert!(rules.contains("only an Android download action exists"), "{rules}");
+        assert!(rules.contains("off_goal_actions"), "{rules}");
+    }
+
+    #[test]
+    fn reports_that_were_not_read_add_nothing_to_what_the_plan_sees() {
+        let (_, perf) = business_view(&app_live(false), &targets(None, None));
+        let v = &perf["campaigns"][0];
+        for key in [
+            "networks",
+            "conversion_actions",
+            "off_goal_actions",
+            "untracked_reason",
+            "accidental_display_clicks",
+        ] {
+            assert!(v.get(key).is_none(), "{key} in {v}");
+        }
+        let rules = perf["live_rules"].as_str().unwrap();
+        for word in ["untracked_reason", "off_goal_actions", "accidental_display_clicks"] {
+            assert!(!rules.contains(word), "{word} in {rules}");
+        }
     }
 
     #[test]

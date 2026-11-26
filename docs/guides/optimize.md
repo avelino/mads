@@ -107,6 +107,8 @@ The steps and the columns each report needs are in [Export Google Ads reports](e
 | Search keywords | Keywords, Search keywords | Quality Score, First page bid estimate, Top of page bid estimate, Status reasons |
 | Campaigns | Campaigns | Campaign status, Budget, Bid strategy type, Status reasons, Search lost IS (budget), Search lost IS (rank) |
 | Campaigns by day | Campaigns, segmented by Day | The same |
+| Conversions by action | Campaigns, segmented by Conversion action | Conversion category, Conversion source, All conv. |
+| Networks | Campaigns, segmented by Network | Impr., Clicks, Cost, Conversions |
 | Ad groups | Ad groups | Ad group status, Conversions |
 | Assets | Assets | Performance label |
 
@@ -128,6 +130,8 @@ The reports are not sent to the agents as they are. One search terms export can 
 - **Thin campaigns.** Under 14 days running (or in the date range without day rows) or under 100 clicks, and under 30 conversions. The agents are told to fix structure only there: bids under the first page, low quality, missing ads, mixed groups. They do not cut or reward anything because of its results. Its budget is another matter: money a thin campaign does not spend can go to a campaign that converts.
 - **Stalled campaigns.** Enabled with Google's status reason "no ads", or 7 days or more without one impression. A stalled campaign is broken, not short of data, so it is never thin. On a live account a Demand Gen campaign ran 15 days with no ads while mads kept its budget, because zero clicks read as too little data.
 - **Untracked campaigns.** 100 clicks or more, zero conversions, while another campaign of the account converts. Its result is not measured, or there is none. A Search campaign that lands on a site with no conversion tracking, next to an App campaign counting installs, is the usual case.
+- **Conversion actions.** The actions each campaign counted, the five with most conversions first. An App campaign with clicks enough to judge and no action for its store is `untracked` with `untracked_reason` set to `no conversion action for this store`, even when no other campaign converts. mads prints that reason and the plan is told it gets no more budget. In an account with an App campaign, a Search or Demand Gen campaign that counts actions that are not installs gets `off_goal_actions`, the names of those actions. It is a warning: nothing is capped. See [Conversions by action](export-google-ads-reports.md#conversions-by-action) for how mads reads the store.
+- **Networks.** For each campaign, the share of its cost and conversions per network and the CTR of each, in `networks`. A campaign that ran on one network gets no line. An App campaign whose Display CTR is above 15 percent, with at least 30 Display clicks, gets `accidental_display_clicks`: its clicks are likely accidental, so the plan treats its install count with caution and does not raise its budget on cost per install alone. The 15 percent and the 30 clicks are lines mads draws, not Google rules. Only an App campaign gets the flag.
 - **Missing reports.** `missing_reports` lists the kinds of report the folder lacks. Without the keywords or search terms report, `upsert_ad_group` puts back every keyword that ran, with warning `W10`.
 
 `mads optimize` prints these findings before the missions start, and `report.md` repeats them under Performance data.

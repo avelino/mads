@@ -17,6 +17,10 @@ pub enum ReportKind {
     /// One row per ad group with its totals. Says nothing about keywords or search terms.
     AdGroups,
     Assets,
+    /// The Campaigns report segmented by conversion action: one row per campaign and action.
+    ConversionActions,
+    /// The Campaigns report segmented by network: one row per campaign and network.
+    Networks,
 }
 
 /// The period a report covers, both days included.
@@ -64,6 +68,19 @@ pub(super) const AD_GROUP: &[&str] = &[
 ];
 pub(super) const ASSET: &[&str] = &["recurso", "asset"];
 pub(super) const DAY: &[&str] = &["dia", "day"];
+/// Exact names: `Networks` and the lost-share columns of the plain Campaigns report are other columns.
+pub(super) const NETWORK: &[&str] = &[
+    "rede",
+    "network",
+    "rede com parceiros de pesquisa",
+    "network with search partners",
+];
+pub(super) const CONVERSION_ACTION: &[&str] = &[
+    "acao de conversao",
+    "nome da acao de conversao",
+    "conversion action",
+    "conversion action name",
+];
 /// Columns only the ads report has: one row per ad, not per ad group.
 const AD: &[&str] = &[
     "status do anuncio",
@@ -187,7 +204,11 @@ fn kind_of(header: &[String]) -> Option<ReportKind> {
     } else if any(ASSET) {
         Some(ReportKind::Assets)
     } else if any(CAMPAIGN) && !any(AD_GROUP) {
-        Some(if any(DAY) {
+        Some(if any(CONVERSION_ACTION) {
+            ReportKind::ConversionActions
+        } else if any(NETWORK) {
+            ReportKind::Networks
+        } else if any(DAY) {
             ReportKind::CampaignsByDay
         } else {
             ReportKind::Campaigns
@@ -422,6 +443,67 @@ mod tests {
         let err = read_table(csv.as_bytes()).unwrap_err();
         assert!(err.starts_with("no known report header"), "{err}");
         assert!(err.contains("saw: Foo, Bar, Baz"), "{err}");
+    }
+
+    #[test]
+    fn reads_a_portuguese_conversion_action_report() {
+        let csv = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nCampanha,Ação de conversão,Categoria de conversão,Origem da conversão,Conversões,Todas as conv.\nApp Android,App (Android) primeira abertura,Download,Google Play,\"1.200,50\",\"1.300,00\"\nApp iOS,--,--,--,\"0,00\",\"0,00\"\nTotal: Contas,,,,\"1.200,50\",\"1.300,00\"\n";
+        let t = read_table(csv.as_bytes()).unwrap();
+        assert_eq!(t.kind, ReportKind::ConversionActions);
+        let rows: Vec<Row> = t.rows().collect();
+        assert_eq!(rows.len(), 2, "the Total row is dropped");
+        assert_eq!(
+            rows[0].text(CONVERSION_ACTION),
+            "App (Android) primeira abertura"
+        );
+        assert_eq!(rows[0].number(&["conversoes"]), Some(1200.5));
+        assert_eq!(rows[1].text(CONVERSION_ACTION), "", "-- is no action");
+    }
+
+    #[test]
+    fn reads_an_english_conversion_action_report() {
+        let csv = "Campaign report\nOct 3, 2026 - Oct 5, 2026\nCampaign,Conversion action,Conversions,All conv.\nApp,App (iOS) first open,\"1,200.50\",\"1,300.00\"\n";
+        let t = read_table(csv.as_bytes()).unwrap();
+        assert_eq!(t.kind, ReportKind::ConversionActions);
+        let row = t.rows().next().unwrap();
+        assert_eq!(row.text(CONVERSION_ACTION), "App (iOS) first open");
+        assert_eq!(row.number(&["conversions"]), Some(1200.5));
+    }
+
+    #[test]
+    fn reads_a_portuguese_network_report() {
+        let csv = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nCampanha,Rede (com parceiros de pesquisa),Impr.,Cliques,Custo,Conversões\nApp Android,Rede de Display,\"1.000\",180,\"90,50\",\"4,00\"\nTotal: Conta,,\"1.000\",180,\"90,50\",\"4,00\"\n";
+        let t = read_table(csv.as_bytes()).unwrap();
+        assert_eq!(t.kind, ReportKind::Networks);
+        let rows: Vec<Row> = t.rows().collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text(NETWORK), "Rede de Display");
+        assert_eq!(rows[0].number(&["custo"]), Some(90.5));
+    }
+
+    #[test]
+    fn reads_an_english_network_report() {
+        let csv = "Campaign report\nOct 3, 2026 - Oct 5, 2026\nCampaign,Network (with search partners),Impr.,Clicks,Cost\nApp,Display Network,\"1,000\",180,90.50\n";
+        let t = read_table(csv.as_bytes()).unwrap();
+        assert_eq!(t.kind, ReportKind::Networks);
+        let row = t.rows().next().unwrap();
+        assert_eq!(row.text(NETWORK), "Display Network");
+        assert_eq!(row.number(&["impr"]), Some(1000.0));
+    }
+
+    #[test]
+    fn network_and_conversion_columns_do_not_turn_a_plain_campaign_report_into_another_kind() {
+        let kind = |header: &str| read_table(format!("{header}\nx\n").as_bytes()).map(|t| t.kind);
+        assert_eq!(kind("Campaign,Networks,Cost"), Ok(ReportKind::Campaigns));
+        assert_eq!(
+            kind("Campanha,Parc. impr. perdidas na rede de pesquisa (orçamento),Conversões"),
+            Ok(ReportKind::Campaigns)
+        );
+        assert_eq!(
+            kind("Campaign,Conversion action,Cost"),
+            Ok(ReportKind::ConversionActions)
+        );
+        assert_eq!(kind("Campanha,Rede,Custo"), Ok(ReportKind::Networks));
     }
 
     #[test]

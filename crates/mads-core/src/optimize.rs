@@ -78,15 +78,16 @@ pub fn prepare(
         .as_deref()
         .map(read_events)
         .transpose()?;
-    let mut performance = digest(&files, &old.account);
+    // The digest reads the store of each App campaign, so it starts from the account that names them.
+    let mut account = old.account.clone();
+    name_app_stores(&mut account, &old.input);
+    let mut performance = digest(&files, &account);
 
     let run = RunDir::create(out)?;
     copy_dir(&base.join("input"), &run.root().join("input"))?;
     let images = Path::new(PLATFORM_DIR).join(EDITOR_DIR).join("images");
     copy_dir(&base.join(&images), &run.root().join(&images))?;
 
-    let mut account = old.account.clone();
-    name_app_stores(&mut account, &old.input);
     if let Some((file, events)) = &events {
         attach_app_events(&mut performance, &account, events);
         performance.app_events_file = Some(file.clone());

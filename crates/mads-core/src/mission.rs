@@ -22,7 +22,8 @@ pub fn campaign_id(slug: &str) -> String {
 /// it would be read at each step of the mission and bring nothing.
 pub fn plan_prompt(input: &Input, live: bool) -> String {
     let b = &input.budget;
-    let targets = live && (b.target_cpa.is_some() || b.target_cpi.is_some());
+    let targets = live
+        && (b.target_cpa.is_some() || b.target_cpi.is_some() || b.target_cpa_in_app.is_some());
     let sections = [
         (true, PLAN_CORE),
         (input.focus.is_some(), PLAN_FOCUS),
@@ -106,10 +107,10 @@ mod tests {
             terms: vec![],
         });
         input.business.restricted = vec![crate::input::RestrictedCategory::Alcohol];
-        input.apps = vec![crate::input::App {
-            store: crate::input::AppStore::GooglePlay,
-            id: "com.example.app".into(),
-        }];
+        input.apps = vec![crate::input::App::installs(
+            crate::input::AppStore::GooglePlay,
+            "com.example.app",
+        )];
         input.budget.target_cpa = Some(Cents(4000));
         input
     }
@@ -208,6 +209,7 @@ mod tests {
             "vs_target",
             "target_cpa",
             "target_cpi",
+            "target_cpa_in_app",
             "at 90 or more",
             "up to 40",
             "does not spend",
@@ -351,6 +353,17 @@ mod tests {
             !first_run.contains("vs_target"),
             "targets judge a live account only"
         );
+    }
+
+    #[test]
+    fn an_in_app_target_alone_brings_the_targets_section() {
+        let mut input = testutil::input();
+        input.budget.target_cpa_in_app = Some(Cents(1250));
+        let prompt = plan_prompt(&input, true);
+        assert!(
+            prompt.contains("vs_target") && prompt.contains("target_cpa_in_app")
+        );
+        assert!(!plan_prompt(&input, false).contains("vs_target"));
     }
 
     #[test]

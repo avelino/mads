@@ -1159,10 +1159,10 @@ async fn with_images_available_a_search_only_plan_must_say_why() {
 async fn an_app_campaign_lands_on_the_store_and_needs_no_logo() {
     let mut input = image_input();
     input.logo = None;
-    input.apps = vec![crate::input::App {
-        store: crate::input::AppStore::GooglePlay,
-        id: "com.vinellu.app".into(),
-    }];
+    input.apps = vec![crate::input::App::installs(
+        crate::input::AppStore::GooglePlay,
+        "com.vinellu.app",
+    )];
     let ws: SharedWorkspace = Arc::new(Mutex::new(Workspace::new(input)));
     let t = MissionTools::new(ws.clone(), MissionKind::Plan, image_settings(), None)
         .await
@@ -1211,19 +1211,19 @@ async fn an_app_campaign_lands_on_the_store_and_needs_no_logo() {
 
 fn app_input() -> crate::input::Input {
     let mut input = image_input();
-    input.apps = vec![crate::input::App {
-        store: crate::input::AppStore::GooglePlay,
-        id: "com.vinellu.app".into(),
-    }];
+    input.apps = vec![crate::input::App::installs(
+        crate::input::AppStore::GooglePlay,
+        "com.vinellu.app",
+    )];
     input
 }
 
 fn both_apps_input() -> crate::input::Input {
     let mut input = app_input();
-    input.apps.push(crate::input::App {
-        store: crate::input::AppStore::AppStore,
-        id: "6751919708".into(),
-    });
+    input.apps.push(crate::input::App::installs(
+        crate::input::AppStore::AppStore,
+        "6751919708",
+    ));
     input
 }
 
@@ -1774,6 +1774,20 @@ async fn get_business_shows_targets_and_the_verdict_of_each_campaign() {
     assert_eq!(r["performance"]["campaigns"][0]["vs_target"], "no_result");
     let rules = r["performance"]["live_rules"].as_str().unwrap();
     assert!(rules.contains("vs_target"), "{rules}");
+}
+
+#[tokio::test]
+async fn get_business_shows_the_in_app_target_only_when_there_is_one() {
+    let ws = live_planned().await;
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    let budget = &out.content["result"]["budget"];
+    assert!(budget.get("target_cpa_in_app").is_none());
+    ws.lock().await.input.budget.target_cpa_in_app = Some(crate::google::Cents(1250));
+    let out = plan_tools(&ws).await.call("get_business", json!({})).await;
+    let r = &out.content["result"];
+    assert_eq!(r["budget"]["target_cpa_in_app"], 12.5);
+    let rules = r["performance"]["live_rules"].as_str().unwrap();
+    assert!(rules.contains("target_cpa_in_app"), "{rules}");
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 ## Targets
 
-`budget` has `target_cpa` (the most the advertiser pays for a conversion), `target_cpi` (the same for an app install), or both. Each campaign that ran has `vs_target` when the numbers say: `within`, `over` (each conversion cost more than the target) or `no_result` (it spent twice the target with no conversion).
+`budget` has `target_cpa` (the most the advertiser pays for a conversion), `target_cpi` (the same for an app install), `target_cpa_in_app` (the same for an in-app action such as a sign-up), or any of them. An App campaign with an `app` block in `performance` is judged by `target_cpa_in_app` when there is one, and then its `vs_target` counts in-app actions, not installs. Each campaign that ran has `vs_target` when the numbers say: `within`, `over` (each conversion cost more than the target) or `no_result` (it spent twice the target with no conversion).
 
 Apply this line after `untracked` in the budget decision:
 

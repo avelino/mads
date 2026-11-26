@@ -108,6 +108,7 @@ struct RawBudget {
     max_cpc: Option<f64>,
     target_cpa: Option<f64>,
     target_cpi: Option<f64>,
+    target_cpa_in_app: Option<f64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -192,6 +193,23 @@ impl AppStore {
     }
 }
 
+/// What an App campaign asks Google to optimize for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppGoal {
+    /// App installs, the default.
+    #[default]
+    Installs,
+    /// An action inside the app, such as a sign-up. `App::conversion_action` names it.
+    InAppActions,
+}
+
+impl AppGoal {
+    fn is_installs(&self) -> bool {
+        *self == AppGoal::Installs
+    }
+}
+
 /// `[app]`: the app an `app_installs` campaign promotes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -199,9 +217,26 @@ pub struct App {
     pub store: AppStore,
     /// Package name on Google Play (`com.example.app`), numeric id on the App Store.
     pub id: String,
+    /// What the campaigns of this app optimize for. Installs when the file says nothing.
+    #[serde(default, skip_serializing_if = "AppGoal::is_installs")]
+    pub optimize_for: AppGoal,
+    /// Name of the in-app conversion action in Google Ads. Set exactly when `optimize_for` is
+    /// `in_app_actions`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub conversion_action: String,
 }
 
 impl App {
+    /// An app that optimizes for installs.
+    pub fn installs(store: AppStore, id: impl Into<String>) -> App {
+        App {
+            store,
+            id: id.into(),
+            optimize_for: AppGoal::Installs,
+            conversion_action: String::new(),
+        }
+    }
+
     /// The store page, which app ads link to.
     pub fn store_url(&self) -> String {
         match self.store {
@@ -229,20 +264,12 @@ impl App {
         match url.host_str()? {
             "play.google.com" if url.path().starts_with("/store/apps/details") => {
                 let id = url.query_pairs().find(|(k, _)| k == "id")?.1.to_string();
-                check_app(Some(App {
-                    store: AppStore::GooglePlay,
-                    id,
-                }))
-                .ok()?
+                check_app(Some(App::installs(AppStore::GooglePlay, id))).ok()?
             }
             "apps.apple.com" | "itunes.apple.com" => {
                 let last = url.path_segments()?.next_back()?;
                 let id = last.strip_prefix("id")?.to_string();
-                check_app(Some(App {
-                    store: AppStore::AppStore,
-                    id,
-                }))
-                .ok()?
+                check_app(Some(App::installs(AppStore::AppStore, id))).ok()?
             }
             _ => None,
         }
@@ -321,10 +348,7 @@ pub fn apps_from_specs(specs: &[String]) -> Result<Vec<App>, InputError> {
                     return Err(invalid("app.store", msg));
                 }
             };
-            Ok(App {
-                store,
-                id: id.to_string(),
-            })
+            Ok(App::installs(store, id))
         })
         .collect::<Result<Vec<_>, InputError>>()?;
     check_apps(apps)
@@ -345,7 +369,7 @@ fn check_apps(apps: Vec<App>) -> Result<Vec<App>, InputError> {
 }
 
 fn check_app(app: Option<App>) -> Result<Option<App>, InputError> {
-    let Some(a) = app else {
+    let Some(mut a) = app else {
         return Ok(None);
     };
     let ok = match a.store {
@@ -362,7 +386,18 @@ fn check_app(app: Option<App>) -> Result<Option<App>, InputError> {
             "Google Play takes a package name such as com.example.app, the App Store a numeric id";
         return Err(invalid("app.id", msg));
     }
-    Ok(Some(a))
+    a.conversion_action = a.conversion_action.trim().to_string();
+    match (a.optimize_for, a.conversion_action.is_empty()) {
+        (AppGoal::InAppActions, true) => {
+            let msg = "optimize_for = \"in_app_actions\" needs the conversion action's name";
+            Err(invalid("app.conversion_action", msg))
+        }
+        (AppGoal::Installs, false) => {
+            let msg = "only used with optimize_for = \"in_app_actions\"";
+            Err(invalid("app.conversion_action", msg))
+        }
+        _ => Ok(Some(a)),
+    }
 }
 
 /// The one offer an account advertises, such as a route or a product line. Every final URL is one of `urls`.
@@ -560,6 +595,10 @@ pub struct Budget {
     /// Most the advertiser pays for one app install. `target_cpa` stands for the other campaigns.
     #[serde(default)]
     pub target_cpi: Option<Cents>,
+    /// Most the advertiser pays for one in-app action, such as a sign-up. App campaigns are judged
+    /// by it when the app events say how many actions their installs became.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_cpa_in_app: Option<Cents>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -761,6 +800,7 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
     let max_cpc = money("budget.max_cpc", raw.budget.max_cpc)?;
     let target_cpa = money("budget.target_cpa", raw.budget.target_cpa)?;
     let target_cpi = money("budget.target_cpi", raw.budget.target_cpi)?;
+    let target_cpa_in_app = money("budget.target_cpa_in_app", raw.budget.target_cpa_in_app)?;
 
     let b_tracking = b.conversion_tracking;
     let primary = b.language.split('-').next().unwrap_or("").to_lowercase();
@@ -800,6 +840,7 @@ pub fn parse_input_toml(text: &str) -> Result<InputFile, InputError> {
             max_cpc,
             target_cpa,
             target_cpi,
+            target_cpa_in_app,
         },
         export,
         catalog_file: raw.catalog.map(|c| c.file),
@@ -1432,6 +1473,95 @@ currency = "BRL"
         );
         let bad = format!("{MINIMAL}\n[app]\nstore = \"app_store\"\nid = \"com.x\"\n");
         assert_eq!(err_key(&bad), "app.id");
+    }
+
+    const PLAY_APP: &str = "\n[[app]]\nstore = \"google_play\"\nid = \"com.example.app\"\n";
+
+    #[test]
+    fn an_app_optimizes_for_installs_unless_it_says_otherwise() {
+        let input = parse_input_toml(&format!("{MINIMAL}{PLAY_APP}")).unwrap();
+        assert_eq!(input.apps[0].optimize_for, AppGoal::Installs);
+        assert_eq!(input.apps[0].conversion_action, "");
+        let explicit = format!("{PLAY_APP}optimize_for = \"installs\"\n");
+        let input = parse_input_toml(&format!("{MINIMAL}{explicit}")).unwrap();
+        assert_eq!(input.apps[0].optimize_for, AppGoal::Installs);
+    }
+
+    #[test]
+    fn an_app_can_optimize_for_an_in_app_action() {
+        let goal = "optimize_for = \"in_app_actions\"\nconversion_action = \" Sign up \"\n";
+        let input = parse_input_toml(&format!("{MINIMAL}{PLAY_APP}{goal}")).unwrap();
+        let app = &input.apps[0];
+        assert_eq!(app.optimize_for, AppGoal::InAppActions);
+        assert_eq!(app.conversion_action, "Sign up", "trimmed");
+    }
+
+    #[test]
+    fn in_app_actions_need_a_conversion_action() {
+        let missing = format!("{PLAY_APP}optimize_for = \"in_app_actions\"\n");
+        assert_eq!(
+            err_key(&format!("{MINIMAL}{missing}")),
+            "app.conversion_action"
+        );
+        let blank = format!("{missing}conversion_action = \"  \"\n");
+        assert_eq!(
+            err_key(&format!("{MINIMAL}{blank}")),
+            "app.conversion_action"
+        );
+        let orphan = format!("{PLAY_APP}conversion_action = \"Sign up\"\n");
+        assert_eq!(
+            err_key(&format!("{MINIMAL}{orphan}")),
+            "app.conversion_action"
+        );
+    }
+
+    #[test]
+    fn the_app_goal_rejects_unknown_values_and_keys() {
+        let bad = format!("{PLAY_APP}optimize_for = \"purchases\"\n");
+        assert!(matches!(
+            parse_input_toml(&format!("{MINIMAL}{bad}")),
+            Err(InputError::Parse(_))
+        ));
+        let typo = format!("{PLAY_APP}conversion_actions = \"Sign up\"\n");
+        assert!(matches!(
+            parse_input_toml(&format!("{MINIMAL}{typo}")),
+            Err(InputError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn the_in_app_goal_survives_a_workspace_round_trip_and_old_ones_load() {
+        let goal = "optimize_for = \"in_app_actions\"\nconversion_action = \"Sign up\"\n";
+        let f = parse_input_toml(&format!("{MINIMAL}{PLAY_APP}{goal}")).unwrap();
+        let json = serde_json::to_value(&f.apps).unwrap();
+        let back: Vec<App> = serde_json::from_value(json).unwrap();
+        assert_eq!(back, f.apps);
+        let plain = parse_input_toml(&format!("{MINIMAL}{PLAY_APP}")).unwrap();
+        let json = serde_json::to_value(&plain.apps).unwrap();
+        assert_eq!(
+            json[0],
+            serde_json::json!({"store": "google_play", "id": "com.example.app"}),
+            "an installs app saves what it saved before"
+        );
+    }
+
+    #[test]
+    fn the_in_app_target_is_optional_and_checked_like_the_other_targets() {
+        let f = parse_input_toml(MINIMAL).unwrap();
+        assert_eq!(f.budget.target_cpa_in_app, None);
+        let toml = with(
+            "currency = \"BRL\"",
+            "currency = \"BRL\"\ntarget_cpa_in_app = 12.5",
+        );
+        let f = parse_input_toml(&toml).unwrap();
+        assert_eq!(f.budget.target_cpa_in_app, Some(Cents(1250)));
+        for bad in ["0", "1.234"] {
+            let toml = with(
+                "currency = \"BRL\"",
+                &format!("currency = \"BRL\"\ntarget_cpa_in_app = {bad}"),
+            );
+            assert_eq!(err_key(&toml), "budget.target_cpa_in_app");
+        }
     }
 
     const BOTH_APPS: &str = "\n[[app]]\nstore = \"google_play\"\nid = \"com.vinellu.app\"\n\n[[app]]\nstore = \"app_store\"\nid = \"6751919708\"\n";

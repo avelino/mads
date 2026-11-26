@@ -14,7 +14,7 @@ use super::{
     export::effective_negatives, merge_rsa, normalize,
 };
 use crate::{
-    input::Input,
+    input::{App, AppGoal, Input},
     money::Cents,
     perf::{Live, LiveStatus},
 };
@@ -67,6 +67,11 @@ pub fn editor_columns() -> Vec<String> {
     c.extend((1..=5).map(|i| format!("Long headline {i}")));
     c
 }
+
+/// Columns an in-app action goal adds after the ones above. Only a file with such a campaign has
+/// them, so the file of an installs account keeps its header. Google documents no column list for
+/// this goal and no real export has shown them: the names are not verified against Editor.
+const IN_APP_COLUMNS: [&str; 2] = ["Conversion action", "Target CPA"];
 
 /// One row as column name to value. Missing columns are empty.
 #[derive(Default)]
@@ -337,15 +342,29 @@ impl Ctx<'_> {
         };
         let suffix = e.url_suffix.replace("{mads_campaign}", &c.slug);
         match (c.kind, self.input.app_for(c.app_store)) {
-            (CampaignKind::AppInstalls, Some(app)) => row
-                .set("App campaign store", app.store_label())
-                .set("App campaign package name", &app.id)
-                .set("Campaign optimization", "Installs"),
+            (CampaignKind::AppInstalls, Some(app)) => self.app_campaign(row, app),
             (CampaignKind::AppInstalls, None) => row,
             (CampaignKind::Search, _) => row
                 .set("Networks", "Google search")
                 .set("Final URL suffix", suffix),
             _ => row.set("Final URL suffix", suffix),
+        }
+    }
+
+    /// The App columns: the store, and what the campaign optimizes for.
+    fn app_campaign(&self, row: Row, app: &App) -> Row {
+        let row = row
+            .set("App campaign store", app.store_label())
+            .set("App campaign package name", &app.id);
+        if app.optimize_for != AppGoal::InAppActions {
+            return row.set("Campaign optimization", "Installs");
+        }
+        let row = row
+            .set("Campaign optimization", "In-app actions")
+            .set("Conversion action", &app.conversion_action);
+        match self.input.budget.target_cpa_in_app {
+            Some(target) => row.set("Target CPA", money(target)),
+            None => row,
         }
     }
 
@@ -441,6 +460,17 @@ impl Ctx<'_> {
             .numbered("Description", 1, &g.descriptions)
     }
 
+    /// Some App campaign of the account optimizes for an in-app action.
+    fn has_in_app_goal(&self, account: &Account) -> bool {
+        account.campaigns.iter().any(|c| {
+            c.kind == CampaignKind::AppInstalls
+                && self
+                    .input
+                    .app_for(c.app_store)
+                    .is_some_and(|a| a.optimize_for == AppGoal::InAppActions)
+        })
+    }
+
     fn rows_of(&self, c: &Campaign) -> Vec<Row> {
         let mut out = vec![self.campaign(c)];
         out.extend(self.locations(c));
@@ -502,7 +532,10 @@ pub fn export_editor_live(
         status: input.export.status.as_str(),
         live,
     };
-    let cols = editor_columns();
+    let mut cols = editor_columns();
+    if ctx.has_in_app_goal(account) {
+        cols.extend(IN_APP_COLUMNS.map(String::from));
+    }
     let rows = account
         .campaigns
         .iter()
@@ -632,6 +665,101 @@ mod tests {
             Some("tintos"),
             "Demand Gen targets location on the ad group too"
         );
+    }
+
+    fn app_campaign() -> Campaign {
+        let mut c = demand_gen();
+        c.name = "App".into();
+        c.slug = "app".into();
+        c.kind = CampaignKind::AppInstalls;
+        c.bid_strategy = BidStrategy::MaximizeConversions;
+        c
+    }
+
+    fn app_input(goal: crate::input::AppGoal, action: &str) -> Input {
+        let mut input = crate::testutil::input();
+        let mut app =
+            crate::input::App::installs(crate::input::AppStore::GooglePlay, "com.example.app");
+        app.optimize_for = goal;
+        app.conversion_action = action.into();
+        input.apps = vec![app];
+        input
+    }
+
+    fn app_rows(input: &Input) -> (String, Vec<BTreeMap<String, String>>) {
+        let account = Account {
+            brand_kit: None,
+            campaigns: vec![app_campaign()],
+        };
+        let file = export_editor(input, &account).unwrap();
+        let text = String::from_utf16(
+            &file.bytes[2..]
+                .chunks(2)
+                .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let header = text.lines().next().unwrap().to_string();
+        (header, read_editor(&file.bytes).unwrap())
+    }
+
+    #[test]
+    fn an_app_campaign_optimizes_for_installs_by_default() {
+        let (header, rows) = app_rows(&app_input(crate::input::AppGoal::Installs, ""));
+        let campaign = rows
+            .iter()
+            .find(|r| r.contains_key("Campaign Type"))
+            .unwrap();
+        assert_eq!(
+            campaign.get("Campaign optimization").map(String::as_str),
+            Some("Installs")
+        );
+        assert!(!campaign.contains_key("Conversion action"));
+        assert!(!campaign.contains_key("Target CPA"));
+        assert_eq!(
+            header,
+            editor_columns().join("\t"),
+            "the installs file keeps its columns"
+        );
+    }
+
+    #[test]
+    fn an_app_campaign_can_optimize_for_an_in_app_action() {
+        let mut input = app_input(crate::input::AppGoal::InAppActions, "Sign up");
+        input.budget.target_cpa_in_app = Some(Cents(1250));
+        let (header, rows) = app_rows(&input);
+        let campaign = rows
+            .iter()
+            .find(|r| r.contains_key("Campaign Type"))
+            .unwrap();
+        let get = |k: &str| campaign.get(k).map(String::as_str);
+        assert_eq!(get("Campaign optimization"), Some("In-app actions"));
+        assert_eq!(get("Conversion action"), Some("Sign up"));
+        assert_eq!(get("Target CPA"), Some("12.50"));
+        assert_eq!(get("App campaign package name"), Some("com.example.app"));
+        assert_eq!(get("Bid Strategy Type"), Some("Maximize conversions"));
+        assert!(header.starts_with(&editor_columns().join("\t")));
+        assert!(
+            header.contains("Conversion action") && header.contains("Target CPA")
+        );
+        let others = rows.iter().filter(|r| !r.contains_key("Campaign Type"));
+        assert!(others.clone().all(|r| !r.contains_key("Conversion action")));
+        assert!(others.clone().all(|r| !r.contains_key("Target CPA")));
+        assert!(others.count() > 0);
+    }
+
+    #[test]
+    fn an_in_app_campaign_without_a_target_writes_no_target() {
+        let (_, rows) = app_rows(&app_input(crate::input::AppGoal::InAppActions, "Sign up"));
+        let campaign = rows
+            .iter()
+            .find(|r| r.contains_key("Campaign Type"))
+            .unwrap();
+        assert_eq!(
+            campaign.get("Conversion action").map(String::as_str),
+            Some("Sign up")
+        );
+        assert!(!campaign.contains_key("Target CPA"));
     }
 
     #[test]

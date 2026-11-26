@@ -117,7 +117,7 @@ fn is_total(row: &[String]) -> bool {
 }
 
 /// UTF-16 LE with a BOM (the "Excel" download) or UTF-8 with or without a BOM.
-fn decode(bytes: &[u8]) -> Result<String, String> {
+pub(super) fn decode(bytes: &[u8]) -> Result<String, String> {
     if let Some(body) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         let units: Vec<u16> = body
             .as_chunks::<2>()

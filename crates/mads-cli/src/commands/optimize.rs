@@ -30,6 +30,7 @@ pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
     let daily = money("--daily-budget", args.daily_budget)?;
     let target_cpa = money("--target-cpa", args.target_cpa)?;
     let target_cpi = money("--target-cpi", args.target_cpi)?;
+    let target_cpa_in_app = money("--target-cps", args.target_cps)?;
     let apps = (!args.apps.is_empty())
         .then(|| apps_from_specs(&args.apps))
         .transpose()
@@ -48,6 +49,8 @@ pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
             export_status: args.status.map(StatusArg::core),
             target_cpa,
             target_cpi,
+            target_cpa_in_app,
+            app_events: args.app_events,
         },
     )
     .map_err(|e| CliError {
@@ -82,6 +85,9 @@ fn summary(p: &Performance) -> String {
     );
     lines.push(format!("reports: {} read ({window})", p.reports.len()));
     lines.extend(p.unknown_files.iter().map(|u| format!("skipped: {u}")));
+    if let Some(file) = &p.app_events_file {
+        lines.push(format!("app events: {file} read"));
+    }
     if p.mixed_windows {
         lines.push(
             "warning: the reports cover different dates, export them for the same dates".into(),
@@ -107,4 +113,56 @@ fn summary(p: &Performance) -> String {
     }
     lines.extend(p.findings());
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use mads_core::{
+        input::AppStore,
+        perf::{AppPerf, CampaignPerf, StoreEvents},
+    };
+
+    use super::*;
+
+    #[test]
+    fn the_summary_names_the_app_events_before_the_missions_start() {
+        let app = AppPerf::new(
+            AppStore::GooglePlay,
+            StoreEvents {
+                installs: 2000.0,
+                in_app_actions: 100.0,
+            },
+            300.0,
+            2400.0,
+        );
+        let p = Performance {
+            app_events_file: Some("events.csv".into()),
+            campaigns: vec![CampaignPerf {
+                name: "App Android".into(),
+                app: Some(app),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let text = summary(&p);
+        assert!(text.contains("app events: events.csv read"), "{text}");
+        assert!(
+            text.contains(
+                "app events of App Android: 2000 installs seen by the app, 100 in-app actions (5% of the installs), 3.00 per in-app action, Google counts 1.2 conversions per install seen"
+            ),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn without_app_events_the_summary_says_nothing_about_them() {
+        let p = Performance {
+            campaigns: vec![CampaignPerf {
+                name: "App Android".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!summary(&p).contains("app events"));
+    }
 }

@@ -2,7 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::table::{ReportKind, Window};
+use super::{
+    app_events::AppPerf,
+    table::{ReportKind, Window},
+};
 use crate::google::{Account, MatchType};
 
 /// Below this many days or clicks a campaign's numbers are noise: agents fix structure only.
@@ -42,6 +45,12 @@ pub struct Performance {
     /// Kinds of report the folder lacks. Without keywords and search terms, keywords are blind.
     #[serde(default)]
     pub missing_reports: Vec<ReportKind>,
+    /// File the advertiser's app events came from (`--app-events`). None without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_events_file: Option<String>,
+    /// App campaigns whose store has no row in the app events file for the report window.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub app_events_missing: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,6 +117,9 @@ pub struct CampaignPerf {
     /// Cost Google does not show by search term: the campaign cost minus the listed terms.
     pub hidden_terms_cost: Option<f64>,
     pub ad_groups: Vec<AdGroupPerf>,
+    /// What the app's own analytics counted for the store of an App campaign (`--app-events`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<AppPerf>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -289,11 +301,46 @@ impl Performance {
         if let Some(idle) = self.idle_budget.filter(|i| *i > 0.0) {
             out.push(format!("budget unspent every day: {idle:.2}"));
         }
+        out.extend(self.app_event_lines());
         let blind = self.blind_reports();
         if !blind.is_empty() {
             out.push(format!(
                 "missing reports, keywords kept as they ran: {}",
                 blind.join(", ")
+            ));
+        }
+        out
+    }
+
+    /// One line per App campaign with app events, and one for the campaigns the file left out.
+    fn app_event_lines(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .campaigns
+            .iter()
+            .filter_map(|c| Some((c, c.app.as_ref()?)))
+            .map(|(c, app)| {
+                let mut line = format!(
+                    "app events of {}: {} installs seen by the app, {} in-app actions",
+                    c.name, app.app_installs_seen, app.in_app_actions
+                );
+                if let Some(pct) = app.install_to_action_pct {
+                    line.push_str(&format!(" ({pct}% of the installs)"));
+                }
+                if let Some(cost) = app.cost_per_in_app_action {
+                    line.push_str(&format!(", {cost:.2} per in-app action"));
+                }
+                if let Some(ratio) = app.store_vs_app_install_ratio {
+                    line.push_str(&format!(
+                        ", Google counts {ratio} conversions per install seen"
+                    ));
+                }
+                line
+            })
+            .collect();
+        if !self.app_events_missing.is_empty() {
+            out.push(format!(
+                "app events have no row for the report window, so these App campaigns are judged without them: {}",
+                self.app_events_missing.join(", ")
             ));
         }
         out

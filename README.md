@@ -187,6 +187,7 @@ On GitHub Actions `--format auto` picks `github`. Validation issues become annot
 - **Every campaign targets the same places.** `business.locations` takes 1 to 10 entries for the whole account. Several places in one cell of `1-campaign.csv` (separated by `;`) have not gone through a real bulk upload yet: the Editor file writes one row per place.
 - **Search bids with `manual_cpc` only.** `maximize_clicks` and `maximize_conversions` on Search return `UNSUPPORTED` until the Google bulk templates for them are verified. Performance Max uses `maximize_conversions` and Demand Gen `maximize_clicks` or `maximize_conversions`.
 - **Campaign negatives are expanded.** The campaign-level negative list is exported as ad group negatives in every ad group, not as campaign-level rows.
+- **In-app action columns are not verified.** An app with `optimize_for = "in_app_actions"` writes `Campaign optimization` as `In-app actions`, plus `Conversion action` and `Target CPA`, in the Editor file. The `Installs` value is checked against a real export. These names are not, so check the Editor preview. The drive-folder package does not write the goal.
 - **No asset CSVs yet.** Sitelinks, callouts and structured snippets are collected and validated, but files 6 to 8 are not written until their templates are verified.
 - **Bids and budget shares are estimates.** mads has no Keyword Planner or auction data.
 - **Latin scripts.** Length checks count Unicode characters. Google counts some CJK characters as 2.

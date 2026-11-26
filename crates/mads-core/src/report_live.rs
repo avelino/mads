@@ -25,6 +25,9 @@ pub(crate) fn performance(md: &mut String, live: &Live) {
     for u in &p.unknown_files {
         let _ = writeln!(md, "- skipped `{u}`");
     }
+    if let Some(file) = &p.app_events_file {
+        let _ = writeln!(md, "- `{file}`: app events from the product analytics");
+    }
     md.push('\n');
     if p.mixed_windows {
         md.push_str("The reports cover different dates, so their numbers do not add up: the cost hidden from search terms is left out. Export them again for the same dates.\n\n");
@@ -444,6 +447,35 @@ mod tests {
             "skipped `notas.csv",
             "Rotulos antigo",
             "only their structure changed: Catalogo",
+        ] {
+            assert!(md.contains(needle), "missing {needle} in\n{md}");
+        }
+    }
+
+    #[test]
+    fn app_events_are_in_the_performance_section_only_when_there_are_some() {
+        let (mut live, _) = fixture();
+        let mut md = String::new();
+        performance(&mut md, &live);
+        assert!(!md.contains("app events"), "{md}");
+        live.performance.app_events_file = Some("events.csv".into());
+        live.performance.campaigns[0].app = Some(crate::perf::AppPerf::new(
+            crate::input::AppStore::GooglePlay,
+            crate::perf::StoreEvents {
+                installs: 2000.0,
+                in_app_actions: 100.0,
+            },
+            300.0,
+            2400.0,
+        ));
+        live.performance.app_events_missing = vec!["Outro App".into()];
+        let mut md = String::new();
+        performance(&mut md, &live);
+        for needle in [
+            "`events.csv`: app events from the product analytics",
+            "app events of Catalogo: 2000 installs seen by the app, 100 in-app actions",
+            "3.00 per in-app action",
+            "judged without them: Outro App",
         ] {
             assert!(md.contains(needle), "missing {needle} in\n{md}");
         }

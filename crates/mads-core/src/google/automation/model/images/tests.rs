@@ -176,10 +176,7 @@ fn performance_max_assets_list_texts_themes_business_name_logo_and_pictures() {
 fn demand_gen_has_no_search_themes_and_app_has_no_logo_or_business_name() {
     let dg = image_campaign("DG", "dg", CampaignKind::DemandGen);
     let mut i = with_logo();
-    i.apps = vec![App {
-        store: AppStore::GooglePlay,
-        id: "com.vinellu.app".into(),
-    }];
+    i.apps = vec![App::installs(AppStore::GooglePlay, "com.vinellu.app")];
     let app = image_campaign("App", "app", CampaignKind::AppInstalls);
     let p = build(&i, vec![dg, app]);
     let of = |key: &str| -> Vec<&str> {
@@ -282,14 +279,8 @@ fn app_only_packages_copy_no_logo() {
 fn each_app_campaign_row_has_the_app_of_its_store() {
     let mut i = with_logo();
     i.apps = vec![
-        App {
-            store: AppStore::GooglePlay,
-            id: "com.vinellu.app".into(),
-        },
-        App {
-            store: AppStore::AppStore,
-            id: "987".into(),
-        },
+        App::installs(AppStore::GooglePlay, "com.vinellu.app"),
+        App::installs(AppStore::AppStore, "987"),
     ];
     let mut android = image_campaign("Android", "android", CampaignKind::AppInstalls);
     android.app_store = Some(AppStore::GooglePlay);
@@ -308,18 +299,12 @@ fn each_app_campaign_row_has_the_app_of_its_store() {
 fn app_id_comes_from_the_app_section_then_google_ads() {
     let app = || image_campaign("App", "app", CampaignKind::AppInstalls);
     let mut i = with_logo();
-    i.apps = vec![App {
-        store: AppStore::AppStore,
-        id: "987".into(),
-    }];
+    i.apps = vec![App::installs(AppStore::AppStore, "987")];
     let p = build(&i, vec![app()]);
     assert_eq!(p.image_campaigns[0].app_id, "987");
     assert_eq!(p.image_campaigns[0].app_store, "Apple App Store");
 
-    i.apps = vec![App {
-        store: AppStore::GooglePlay,
-        id: "com.vinellu.app".into(),
-    }];
+    i.apps = vec![App::installs(AppStore::GooglePlay, "com.vinellu.app")];
     let p = build(&i, vec![app()]);
     assert_eq!(p.image_campaigns[0].app_store, "Google Play");
 

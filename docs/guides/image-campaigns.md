@@ -37,6 +37,8 @@ id = "6751919708"
 
 The plan splits the app budget between the two by the cost per install of each store when the reports show it. A store with no history gets a test share of at most 30 percent of the app budget. See [Optimize a live account](optimize.md). Two campaigns for one store are refused (`E30`).
 
+An app optimizes for installs unless you set `optimize_for = "in_app_actions"` and a `conversion_action` on it. `mads optimize --app-events` can then judge each store by what an in-app action costs, so a store with cheap installs that rarely turn into accounts does not win budget. See [Business file](business-file.md#app) and [Optimize a live account](optimize.md#judge-app-campaigns-by-in-app-actions).
+
 For an image campaign the agent writes the texts of each asset group and one brief per picture. mads then draws the pictures, crops them to Google's sizes and writes the whole account, Search included, into one Google Ads Editor file.
 
 The agent never sees a picture. It writes briefs, and code turns them into files after the missions end.

@@ -133,6 +133,12 @@ pub struct OptimizeArgs {
     /// in-app actions they led to.
     #[arg(long, value_name = "CSV")]
     pub app_events: Option<PathBuf>,
+    /// Pause, in the import, each enabled campaign outside the run that spends without converting:
+    /// 100 clicks or more, or over 10 percent of the account cost, and no conversion while the
+    /// account converts. Without it campaigns outside the run are left as they are. A removed
+    /// campaign is never touched.
+    #[arg(long)]
+    pub pause_outside_run: bool,
     #[command(flatten)]
     pub run: RunArgs,
 }

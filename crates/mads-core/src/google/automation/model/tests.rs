@@ -695,3 +695,34 @@ fn an_automated_campaign_group_with_no_catalog_item_stays_as_fixed_rows() {
     );
     assert!(p.catalog.iter().all(|r| r.item != "How to taste"));
 }
+
+#[test]
+fn campaigns_outside_the_run_are_paused_in_s1_only_when_the_flag_named_them() {
+    let outside = |name: &str, status| crate::perf::OutsideCampaign {
+        name: name.into(),
+        live_status: Some(status),
+        ..Default::default()
+    };
+    let mut live = live();
+    live.performance.outside = vec![
+        outside("Fora de mads", LiveStatus::Enabled),
+        outside("Removida", LiveStatus::Removed),
+    ];
+    let rows = |live: &Live| {
+        let p = package(&input(), &new_plan(), Some(live)).expect("package");
+        p.campaigns
+            .iter()
+            .map(|c| (c.name.clone(), c.action))
+            .collect::<Vec<_>>()
+    };
+    let before = rows(&live);
+    assert!(before.iter().all(|(n, _)| n != "Fora de mads"), "no flag");
+    live.performance.pause_outside_run = vec!["Fora de mads".into(), "Removida".into()];
+    let after = rows(&live);
+    assert_eq!(after.len(), before.len() + 1, "{after:?}");
+    assert_eq!(
+        after.last().unwrap(),
+        &("Fora de mads".to_string(), StructAction::Pause)
+    );
+    assert!(after.iter().all(|(n, _)| n != "Removida"), "never removed");
+}

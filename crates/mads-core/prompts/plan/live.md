@@ -6,10 +6,11 @@ Continuity:
 
 - Keep the name of every campaign that continues and of its ad groups. Google Ads Editor matches by name, so a new name is a new group, and its keywords start without the Quality Score data the old ones had. To drop or rename a group that had impressions, add a line `Drop <group>: <reason>` to the campaign `rationale` (`E25` otherwise).
 - A campaign you leave out is paused at import, and one you keep comes enabled even if it is paused in Google Ads today. Keep a campaign only if it is worth spending on for the return, and leave out one that is not, for a reason in `performance`.
-- `ignored_campaigns` are campaigns of the account that this run does not manage. Do not plan them.
+- `ignored_campaigns` are campaigns of the account that this run does not manage. Do not plan them. When `outside_campaigns` is there, some of them spend without converting: that money is outside the plan, the budget you split does not include it, and it is no room to grow the campaigns of the run.
 - Split an ad group that mixes themes, merge ones that share the same searches.
 - Start each `rationale` with the numbers behind it: days, cost, clicks, conversions.
-- `bid_strategy` in `performance` is how a campaign bids in Google Ads today. When it differs from `live_account`, the advertiser changed it by hand and the import keeps it: say so in the `rationale`.
+- `bid_strategy` in `performance` is how a campaign bids in Google Ads today. When it differs from `live_account`, it was changed outside mads (by hand or by auto-applied recommendations) and the import keeps it: say so in the `rationale`.
+- `drift` lists what changed in Google Ads since the last run: budgets, bid strategies and statuses. The reports cannot tell a change by hand from an auto-applied recommendation. The budgets in `live_account` are the live ones, so plan from them and not from what the last run exported. Say in the `rationale` when the budget of a campaign was moved outside mads.
 
 The shares above (10 to 20 percent for `brand`, at least 20 percent for an image campaign) are where a new account starts. On a live account the numbers beat them, and a `budget_cap` beats everything: a campaign with one never gets more, even if its intent suggests a bigger share. Split the budget starting from the caps.
 

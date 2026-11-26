@@ -10,7 +10,10 @@ use crate::{
     google::{Account, CampaignKind, Cents},
     images::EDITOR_DIR,
     input::{App, ExportStatus, Input},
-    perf::{AppEvents, Live, Performance, ReportInput, attach_app_events, digest, read_table},
+    perf::{
+        AppEvents, Base, Live, Performance, ReportInput, attach_app_events, digest, drift_since,
+        read_table,
+    },
     run::{PLATFORM_DIR, RunDir},
     workspace::{MissionStatus, Workspace},
 };
@@ -58,6 +61,9 @@ pub struct Overrides {
     pub target_cpa_in_app: Option<Cents>,
     /// CSV of the installs and in-app actions the advertiser's own analytics counted.
     pub app_events: Option<PathBuf>,
+    /// Writes a `Paused` row for each enabled campaign outside the run that spends without
+    /// converting. Without it the campaigns outside the run are left as they are.
+    pub pause_outside_run: bool,
 }
 
 /// Creates the optimization run under `out` and returns its directory. Nothing is written when
@@ -92,11 +98,25 @@ pub fn prepare(
         attach_app_events(&mut performance, &account, events);
         performance.app_events_file = Some(file.clone());
     }
-    follow_live_budgets(&mut account, &performance);
     let mut ws = Workspace::new(old.input.clone());
     if let Some(daily) = overrides.daily_budget {
         ws.input.budget.daily = daily;
     }
+    // Before the budgets follow the live ones: drift compares them with what the base run exported.
+    let base = Base {
+        account: &old.account,
+        live: old.live.as_ref(),
+        export_status: old.input.export.status,
+    };
+    performance.drift = drift_since(&base, &performance, ws.input.budget.daily);
+    if overrides.pause_outside_run {
+        performance.pause_outside_run = performance
+            .outside_blind()
+            .into_iter()
+            .map(|o| o.name.clone())
+            .collect();
+    }
+    follow_live_budgets(&mut account, &performance);
     ws.input.budget.target_cpa = overrides.target_cpa.or(ws.input.budget.target_cpa);
     ws.input.budget.target_cpi = overrides.target_cpi.or(ws.input.budget.target_cpi);
     ws.input.budget.target_cpa_in_app = overrides
@@ -249,6 +269,7 @@ mod tests {
     use crate::{
         google::{BidStrategy, Campaign, Cents, Intent},
         input::{AppStore, ExportStatus},
+        perf::DriftKind,
         testutil,
         workspace::MissionState,
     };
@@ -619,6 +640,71 @@ mod tests {
             "the baseline names its store"
         );
         assert_eq!(store_of(&ws.account), want);
+    }
+
+    const OUTSIDE_REPORT: &str = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus da campanha,Campanha,Orçamento,Tipo de estratégia de lances,Custo,Cliques,Impr.,Conversões\nAtivada,Vinellu - Marca,\"30,00\",Maximizar conversões,\"10,00\",8,90,\"4,00\"\nAtivada,Antiga,\"50,00\",CPC manual,\"90,00\",150,3000,\"0,00\"\nPausada,Antiga pausada,\"50,00\",CPC manual,\"90,00\",150,3000,\"0,00\"\nRemovida,Antiga removida,\"50,00\",CPC manual,\"90,00\",150,3000,\"0,00\"\n";
+
+    #[test]
+    fn drift_is_measured_against_what_the_base_run_exported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run(tmp.path(), MissionStatus::Finished);
+        let perf = reports(tmp.path(), &[("c.csv", OUTSIDE_REPORT)]);
+        let overrides = Overrides {
+            daily_budget: Some(Cents(5000)),
+            ..Overrides::default()
+        };
+        let p = prepare(&base, &perf, &tmp.path().join("b"), &overrides).unwrap();
+        let drift = &p.performance.drift;
+        let budget = drift.campaigns.iter().any(|c| {
+            c.name == "Vinellu - Marca"
+                && matches!(&c.change, DriftKind::Budget { was, now } if *was == 20.0 && *now == 30.0)
+        });
+        assert!(budget, "{drift:?}");
+        let bids = drift
+            .campaigns
+            .iter()
+            .any(|c| matches!(&c.change, DriftKind::BidStrategy { was, .. } if was == "Manual CPC"));
+        assert!(bids, "{drift:?}");
+        // 30 and 50 are enabled and live: 160 percent of the 50 the new run is given.
+        assert_eq!(drift.account_budget_pct, Some(160.0));
+        let ws = Workspace::load(&p.run_dir.join("workspace.json")).unwrap();
+        assert_eq!(ws.account.campaigns[0].daily_budget, Cents(3000), "live");
+        assert_eq!(ws.live.unwrap().performance.drift, *drift);
+    }
+
+    #[test]
+    fn a_report_that_matches_the_base_run_has_no_drift() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run(tmp.path(), MissionStatus::Finished);
+        let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
+        let p = prepare(&base, &perf, &tmp.path().join("b"), &Overrides::default()).unwrap();
+        assert!(p.performance.drift.is_empty(), "{:?}", p.performance.drift);
+        let json = std::fs::read_to_string(p.run_dir.join("workspace.json")).unwrap();
+        assert!(!json.contains("\"drift\""), "an empty drift is not written");
+    }
+
+    #[test]
+    fn pause_outside_run_lists_only_the_campaigns_that_spend_without_converting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run(tmp.path(), MissionStatus::Finished);
+        let perf = reports(tmp.path(), &[("c.csv", OUTSIDE_REPORT)]);
+        let run = |name: &str, pause_outside_run: bool| {
+            let overrides = Overrides {
+                pause_outside_run,
+                ..Overrides::default()
+            };
+            let p = prepare(&base, &perf, &tmp.path().join(name), &overrides).unwrap();
+            Workspace::load(&p.run_dir.join("workspace.json"))
+                .unwrap()
+                .live
+                .unwrap()
+                .performance
+        };
+        let kept = run("a", false);
+        assert_eq!(kept.outside_blind().len(), 1, "still reported");
+        assert!(kept.pause_outside_run.is_empty(), "no flag, nothing to pause");
+        let paused = run("b", true);
+        assert_eq!(paused.pause_outside_run, ["Antiga"]);
     }
 
     #[test]

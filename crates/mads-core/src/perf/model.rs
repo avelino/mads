@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     app_events::AppPerf,
     conversions::ConversionActionPerf,
+    drift::Drift,
     networks::NetworkPerf,
     table::{ReportKind, Window},
 };
@@ -37,6 +38,16 @@ pub struct Performance {
     pub unknown_files: Vec<String>,
     /// Campaigns in the reports that are not in the run, such as older campaigns of the account.
     pub ignored_campaigns: Vec<String>,
+    /// The numbers of the campaigns in `ignored_campaigns`, when a campaigns report has them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outside: Vec<OutsideCampaign>,
+    /// Campaigns outside the run that `--pause-outside-run` pauses in the import. Empty without
+    /// the flag.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pause_outside_run: Vec<String>,
+    /// What changed in Google Ads since the base run exported its account.
+    #[serde(default, skip_serializing_if = "Drift::is_empty")]
+    pub drift: Drift,
     pub campaigns: Vec<CampaignPerf>,
     /// The reports cover different dates: totals of one and rows of another do not add up.
     #[serde(default)]
@@ -53,6 +64,21 @@ pub struct Performance {
     /// App campaigns whose store has no row in the app events file for the report window.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub app_events_missing: Vec<String>,
+}
+
+/// A campaign of the reports that the run does not manage. The plan does not touch it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct OutsideCampaign {
+    pub name: String,
+    pub live_status: Option<LiveStatus>,
+    pub budget: Option<f64>,
+    pub metrics: Metrics,
+    /// Its cost as a percent of the cost of every campaign in the reports.
+    pub cost_share_pct: Option<f64>,
+    /// Enabled and spending without converting, while the account converts. See
+    /// `OUTSIDE_COST_SHARE_PCT` and `THIN_CLICKS`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spends_blind: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -251,7 +277,8 @@ fn bid_family(name: &str) -> String {
 
 impl CampaignPerf {
     /// The campaign bids in Google Ads with another strategy than `label`, the one a run
-    /// exports: somebody changed it by hand. False when the reports do not say how it bids.
+    /// exports: somebody changed it outside mads, by hand or by auto-applied recommendations.
+    /// False when the reports do not say how it bids.
     pub fn bids_unlike(&self, label: &str) -> bool {
         !self.bid_strategy.is_empty() && bid_family(&self.bid_strategy) != bid_family(label)
     }
@@ -322,6 +349,7 @@ impl Performance {
         if let Some(idle) = self.idle_budget.filter(|i| *i > 0.0) {
             out.push(format!("budget unspent every day: {idle:.2}"));
         }
+        out.extend(self.outside_lines());
         out.extend(self.app_event_lines());
         out.extend(self.conversion_lines());
         out.extend(self.network_lines());

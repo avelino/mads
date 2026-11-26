@@ -13,9 +13,10 @@ use crate::{
     google::{AdGroup, Campaign, CampaignKind, Cents, Issue, Keyword, MatchType, normalize},
     input::Budget,
     perf::{
-        AdGroupPerf, CampaignPerf, DISPLAY_CTR_PCT, JUDGE_CONVERSIONS, KeywordPerf, Live, Metrics,
-        NO_ACTION_FOR_STORE, NO_RESULT_TARGETS, Performance, ReportKind, STALLED_DAYS, Signal,
-        THIN_CLICKS, THIN_DAYS, TermPerf, VsTarget, vs_target, vs_target_in_app,
+        AdGroupPerf, CampaignPerf, DISPLAY_CTR_PCT, DRIFT_SOURCE, Drift, JUDGE_CONVERSIONS,
+        KeywordPerf, Live, Metrics, NO_ACTION_FOR_STORE, NO_RESULT_TARGETS, Performance,
+        ReportKind, STALLED_DAYS, Signal, THIN_CLICKS, THIN_DAYS, TermPerf, VsTarget, vs_target,
+        vs_target_in_app,
     },
 };
 
@@ -91,7 +92,7 @@ fn live_rules(p: &Performance) -> String {
         format!(
             "budget_use_pct is the average daily cost over the daily budget. Under 100 the budget is not what limits the campaign, thin or not: cut it down to its real spend plus a tenth, which frees money without changing what it gets. Leave it higher only when this run fixes what kept it from spending (bids under the first page, no ads), and say so in the rationale. At 90 or more a converting campaign is limited by its budget: give it what the others leave unspent, in steps of about 20 percent per run, or up to 40 percent when it has {JUDGE_CONVERSIONS} conversions or more in the window, because its cost per conversion is proven."
         ),
-        "bid_strategy is how the campaign bids in Google Ads today. When it is not the strategy of live_account, the advertiser changed it by hand and the import keeps it: under an automatic strategy the ad group CPCs are not in use, so an avg_cpc under default_cpc says nothing about the bid.".into(),
+        "bid_strategy is how the campaign bids in Google Ads today. When it is not the strategy of live_account, it was changed outside mads (by hand or by auto-applied recommendations) and the import keeps it: under an automatic strategy the ad group CPCs are not in use, so an avg_cpc under default_cpc says nothing about the bid.".into(),
         "An ad group with not_in_run serves in Google Ads from an older import, next to the groups of this run, and the import pauses it. Its numbers are searches of this campaign: read them with the group of this run that covers the same theme, and reuse its exact name only if it should keep serving.".into(),
         "A policy limit (status reasons with 'política' or 'policy') is not lifted by a higher bid.".into(),
     ];
@@ -99,6 +100,8 @@ fn live_rules(p: &Performance) -> String {
         rules.push(APP_EVENTS_RULE.into());
     }
     rules.extend(report_rules(p));
+    rules.extend(outside_rules(p));
+    rules.extend(drift_rules(&p.drift));
     if let Some(idle) = p.idle_budget {
         rules.push(format!(
             "idle_budget: {idle:.2} a day of the budget goes unspent. Move it to campaigns that convert at their budget limit."
@@ -133,6 +136,36 @@ fn report_rules(p: &Performance) -> Vec<String> {
         rules.push(format!(
             "accidental_display_clicks: the Display CTR of this App campaign is above {DISPLAY_CTR_PCT} percent, a line mads draws and not a Google rule. Its clicks are likely accidental: treat its install count with caution and do not raise its budget on cost per install alone."
         ));
+    }
+    rules
+}
+
+/// The money of campaigns the run does not manage, when some of them spend without converting.
+fn outside_rules(p: &Performance) -> Vec<String> {
+    if p.outside_blind().is_empty() {
+        return Vec::new();
+    }
+    let fate = if p.pause_outside_run.is_empty() {
+        "This run leaves them running."
+    } else {
+        "The import pauses them (--pause-outside-run)."
+    };
+    vec![format!(
+        "outside_campaigns are enabled campaigns of the account that this run does not manage, with their share of the account cost, that spend without converting while the account converts. That money is outside the plan: the daily budget you split does not include it, and you do not plan these campaigns. {fate} Do not treat their spend as room to grow the campaigns of the run."
+    )]
+}
+
+/// What changed in Google Ads since the last run, when something did.
+fn drift_rules(d: &Drift) -> Vec<String> {
+    let mut rules = Vec::new();
+    if d.is_empty() {
+        return rules;
+    }
+    rules.push(format!(
+        "drift lists what is not as the last run exported it: {DRIFT_SOURCE}, and the reports cannot tell which. A campaign paused or removed there still comes enabled if you keep it, so keep it only if it is worth the money."
+    ));
+    if d.budgets_moved() {
+        rules.push("Budgets were changed outside mads: the daily_budget of live_account and the budget in performance are what the campaigns run with now, so plan from that live baseline and not from the budgets the last run exported. When the live budgets add up to more than the account budget (account_budget_pct), the account spends more than it is asked to: cut what does not spend before you move money to others.".into());
     }
     rules
 }
@@ -255,11 +288,24 @@ pub fn business_view(live: &Live, budget: &Budget) -> (Value, Value) {
     if let Some(rule) = target_rule(budget) {
         rules = format!("{rules} {rule}");
     }
-    let perf = json!({
+    let mut perf = json!({
         "window": p.window, "thin_rule": thin_rule(), "live_rules": rules,
         "idle_budget": p.idle_budget, "missing_reports": p.missing_reports,
         "ignored_campaigns": p.ignored_campaigns, "campaigns": campaigns,
     });
+    let blind = p.outside_blind();
+    if !blind.is_empty() {
+        perf["outside_campaigns"] = json!(blind
+            .iter()
+            .map(|o| json!({
+                "name": o.name, "cost_share_pct": o.cost_share_pct, "clicks": o.metrics.clicks,
+                "conversions": o.metrics.conversions, "paused_by_the_import": p.is_paused_outside(&o.name),
+            }))
+            .collect::<Vec<_>>());
+    }
+    if !p.drift.is_empty() {
+        perf["drift"] = json!(p.drift);
+    }
     (account, perf)
 }
 
@@ -660,6 +706,7 @@ mod tests {
             "At 90 or more",
             "up to 40 percent",
             "bid_strategy is how the campaign bids in Google Ads today",
+            "changed outside mads (by hand or by auto-applied recommendations)",
             "not_in_run",
         ] {
             assert!(rules.contains(needle), "missing {needle} in {rules}");
@@ -968,5 +1015,53 @@ mod tests {
         assert!(!rules.contains("cost per install is low"), "{rules}");
         assert!(!rules.contains("app_installs_seen"), "{rules}");
         assert_eq!(perf["campaigns"][0]["vs_target"], "within");
+    }
+
+    #[test]
+    fn the_plan_is_told_about_money_outside_the_run_and_about_drift() {
+        use crate::perf::{CampaignDrift, Drift, DriftKind, LiveStatus, OutsideCampaign};
+        let mut live = app_live(false);
+        let (_, perf) = business_view(&live, &targets(None, None));
+        let rules = perf["live_rules"].as_str().unwrap();
+        assert!(perf.get("outside_campaigns").is_none() && perf.get("drift").is_none());
+        assert!(!rules.contains("outside_campaigns") && !rules.contains("drift lists"));
+
+        live.performance.outside = vec![OutsideCampaign {
+            name: "Old".into(),
+            live_status: Some(LiveStatus::Enabled),
+            cost_share_pct: Some(40.0),
+            spends_blind: true,
+            ..Default::default()
+        }];
+        live.performance.drift = Drift {
+            campaigns: vec![CampaignDrift {
+                name: "Catalogo".into(),
+                change: DriftKind::Budget {
+                    was: 100.0,
+                    now: 150.0,
+                },
+            }],
+            account_budget_pct: Some(150.0),
+        };
+        let (_, perf) = business_view(&live, &targets(None, None));
+        let rules = perf["live_rules"].as_str().unwrap();
+        assert!(rules.contains("That money is outside the plan"), "{rules}");
+        assert!(rules.contains("This run leaves them running"), "{rules}");
+        assert!(
+            rules.contains("Budgets were changed outside mads (by hand or by auto-applied recommendations)"),
+            "{rules}"
+        );
+        assert!(rules.contains("live baseline"), "{rules}");
+        assert_eq!(perf["outside_campaigns"][0]["name"], "Old");
+        assert_eq!(perf["outside_campaigns"][0]["cost_share_pct"], 40.0);
+        assert_eq!(perf["outside_campaigns"][0]["paused_by_the_import"], false);
+        assert_eq!(perf["drift"]["campaigns"][0]["change"]["kind"], "budget");
+        assert_eq!(perf["drift"]["account_budget_pct"], 150.0);
+
+        live.performance.pause_outside_run = vec!["Old".into()];
+        let (_, perf) = business_view(&live, &targets(None, None));
+        let rules = perf["live_rules"].as_str().unwrap();
+        assert!(rules.contains("The import pauses them"), "{rules}");
+        assert_eq!(perf["outside_campaigns"][0]["paused_by_the_import"], true);
     }
 }

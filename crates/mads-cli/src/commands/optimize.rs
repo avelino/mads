@@ -2,7 +2,7 @@ use mads_core::{
     google::Cents,
     input::apps_from_specs,
     optimize::{Overrides, prepare},
-    perf::Performance,
+    perf::{DRIFT_SOURCE, Performance},
     run::saved_layout,
     workspace::Workspace,
 };
@@ -51,6 +51,7 @@ pub async fn run(args: OptimizeArgs, format: Format) -> anyhow::Result<i32> {
             target_cpi,
             target_cpa_in_app,
             app_events: args.app_events,
+            pause_outside_run: args.pause_outside_run,
         },
     )
     .map_err(|e| CliError {
@@ -112,6 +113,10 @@ fn summary(p: &Performance) -> String {
         ));
     }
     lines.extend(p.findings());
+    if !p.drift.is_empty() {
+        lines.push(format!("drift since the last run ({DRIFT_SOURCE}):"));
+        lines.extend(p.drift.lines().into_iter().map(|l| format!("  {l}")));
+    }
     lines.join("\n")
 }
 
@@ -119,7 +124,10 @@ fn summary(p: &Performance) -> String {
 mod tests {
     use mads_core::{
         input::AppStore,
-        perf::{AppPerf, CampaignPerf, NO_ACTION_FOR_STORE, Network, NetworkPerf, StoreEvents},
+        perf::{
+            AppPerf, CampaignDrift, CampaignPerf, Drift, DriftKind, LiveStatus,
+            NO_ACTION_FOR_STORE, Network, NetworkPerf, OutsideCampaign, StoreEvents,
+        },
     };
 
     use super::*;
@@ -200,5 +208,40 @@ mod tests {
             ..Default::default()
         };
         assert!(!summary(&p).contains("app events"));
+    }
+
+    #[test]
+    fn the_summary_names_the_drift_and_the_spend_outside_the_run() {
+        let p = Performance {
+            drift: Drift {
+                campaigns: vec![CampaignDrift {
+                    name: "App Android".into(),
+                    change: DriftKind::Budget {
+                        was: 100.0,
+                        now: 150.0,
+                    },
+                }],
+                account_budget_pct: Some(140.0),
+            },
+            outside: vec![OutsideCampaign {
+                name: "Old".into(),
+                live_status: Some(LiveStatus::Enabled),
+                cost_share_pct: Some(25.0),
+                spends_blind: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let text = summary(&p);
+        for needle in [
+            "drift since the last run (changed outside mads (by hand or by auto-applied recommendations)):",
+            "  App Android: daily budget is 50% higher than the last run exported",
+            "add up to 140% of the daily budget of this run",
+            "Old (25% of the account cost, 0 clicks)",
+            "pass --pause-outside-run to pause them",
+        ] {
+            assert!(text.contains(needle), "missing {needle} in\n{text}");
+        }
+        assert!(!summary(&Performance::default()).contains("drift"));
     }
 }

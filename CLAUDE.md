@@ -15,7 +15,7 @@ Run the whole flow offline with the hidden `replay` provider: see `crates/mads-c
 ## Architecture
 
 - `mads-core` never touches the network. It defines the traits (`ChatModel`, `Driver`, `Web`, `SiteFetch`, `ToolHost`) and `mads-providers` implements them. `mads-cli` depends on both.
-- A run is missions: `plan`, then one `campaign:<slug>` per campaign in parallel, then deterministic post-processing (cross negatives, validate, URL check, export). `mads init` is a separate single mission. `mads optimize` prepares a new run from a finished one plus Google Ads report CSVs (`src/perf`, `workspace.live`) and runs the same missions. Reports are told apart by their columns in `src/perf/table.rs`: search terms, keywords, campaigns, by day, ad groups, assets, conversion actions (`src/perf/conversions.rs`) and networks (`src/perf/networks.rs`). With `--app-events` it also reads the advertiser's analytics CSV (`src/perf/app_events.rs`) and gives each App campaign its in-app action numbers.
+- A run is missions: `plan`, then one `campaign:<slug>` per campaign in parallel, then deterministic post-processing (cross negatives, validate, URL check, export). `mads init` is a separate single mission. `mads optimize` prepares a new run from a finished one plus Google Ads report CSVs (`src/perf`, `workspace.live`) and runs the same missions. Reports are told apart by their columns in `src/perf/table.rs`: search terms, keywords, campaigns, by day, ad groups, assets, conversion actions (`src/perf/conversions.rs`) and networks (`src/perf/networks.rs`). With `--app-events` it also reads the advertiser's analytics CSV (`src/perf/app_events.rs`) and gives each App campaign its in-app action numbers. Campaigns outside the run are read too (`src/perf/outside.rs`) and the live account is compared with what the base run exported (`src/perf/drift.rs`): both become findings, a report section and `live_rules`.
 - Agents work only through typed tools (`crates/mads-core/src/tools`, `src/init/tools.rs`). API providers loop over `ChatModel`. Agent CLIs reach the same tools through a per-mission MCP server (`mads-providers/src/mcp.rs`).
 - Output per ad platform: `out/<run>/google-ads/` (five CSVs), plus `report.md`, `workspace.json`, `events.ndjson`, `transcripts/`.
 
@@ -30,6 +30,7 @@ Run the whole flow offline with the hidden `replay` provider: see `crates/mads-c
 ## Looks like a bug, is a decision
 
 - Only `manual_cpc` bidding is accepted. Maximize clicks and conversions return `UNSUPPORTED`.
+- Campaigns outside the run are left alone. Only `--pause-outside-run` writes a `Paused` row, for the enabled ones flagged as spending without converting, in the Editor file and in S1.
 - Campaign negatives are expanded into every ad group row of `4-negative-keywords.csv`.
 - Sitelinks, callouts and snippets are validated but not exported. M11 waits for real Google templates in `data/templates/`.
 - An app with `optimize_for = "in_app_actions"` writes `In-app actions`, `Conversion action` and `Target CPA` in the Editor file. Only `Installs` was checked against a real export, so those names are unverified and the file has the two extra columns only when such a campaign exists. The drive-folders layout ignores the goal.

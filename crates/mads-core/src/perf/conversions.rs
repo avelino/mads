@@ -226,10 +226,22 @@ mod tests {
 
     #[test]
     fn a_text_names_one_store_or_none() {
-        assert_eq!(named_store("App (Android) first open"), Some(AppStore::GooglePlay));
-        assert_eq!(named_store("Google Play installs"), Some(AppStore::GooglePlay));
-        assert_eq!(named_store("App (iOS) first open"), Some(AppStore::AppStore));
-        assert_eq!(named_store("Apple App Store download"), Some(AppStore::AppStore));
+        assert_eq!(
+            named_store("App (Android) first open"),
+            Some(AppStore::GooglePlay)
+        );
+        assert_eq!(
+            named_store("Google Play installs"),
+            Some(AppStore::GooglePlay)
+        );
+        assert_eq!(
+            named_store("App (iOS) first open"),
+            Some(AppStore::AppStore)
+        );
+        assert_eq!(
+            named_store("Apple App Store download"),
+            Some(AppStore::AppStore)
+        );
         assert_eq!(named_store("first open"), None);
         assert_eq!(named_store("Android and iOS"), None, "both is none");
         assert_eq!(named_store("Radios"), None, "ios must be a word");

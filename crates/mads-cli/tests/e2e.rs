@@ -960,7 +960,7 @@ fn a_required_image_format_without_an_image_model_is_a_usage_error() {
 
 const CAMPAIGN_REPORT: &str = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus da campanha,Campanha,Orçamento,Status,Motivos do status,Custo,Conversões,Impr.,Cliques\nAtivada,Vinellu - Catalogo,\"30,00\",Qualificado,,\"40,00\",\"0,00\",\"1.200\",35\nPausada,Vinellu - Marca,\"20,00\",Pausado,,\"0,00\",\"0,00\",0,0\nAtivada,Campanha antiga,\"10,00\",Qualificado,,\"5,00\",\"0,00\",50,3\nTotal: Conta,,,,,\"45,00\",\"0,00\",\"1.250\",38\n";
 
-const KEYWORD_REPORT: &str = "Relatório de palavras-chave da rede de pesquisa\n3 de outubro de 2026 - 5 de outubro de 2026\nPalavra-chave,Tipo de corresp.,Campanha,Grupo de anúncios,Motivos do status,CPC máx.,Impr.,Custo,Cliques,Conversões\n\"\"\"vinellu\"\"\",Correspondência de frase,Vinellu - Marca,marca,abaixo do lance de primeira página,\"1,50\",0,\"0,00\",0,\"0,00\"\n";
+const KEYWORD_REPORT: &str = "Relatório de palavras-chave da rede de pesquisa\n3 de outubro de 2026 - 5 de outubro de 2026\nPalavra-chave,Tipo de corresp.,Campanha,Grupo de anúncios,Motivos do status,CPC máx.,Impr.,Custo,Cliques,Conversões\n\"\"\"alamos review\"\"\",Correspondência de frase,Vinellu - Catalogo,alamos,,\"1,50\",0,\"0,00\",0,\"0,00\"\n\"\"\"vinellu\"\"\",Correspondência de frase,Vinellu - Marca,marca,abaixo do lance de primeira página,\"1,50\",0,\"0,00\",0,\"0,00\"\n";
 
 fn optimize_plan() -> Value {
     let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});

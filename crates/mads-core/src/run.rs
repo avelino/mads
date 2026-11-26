@@ -884,10 +884,9 @@ mod tests {
     async fn cross_negatives_land_in_the_exported_negatives_file() {
         let dir = tempfile::tempdir().unwrap();
         let (r, _) = run(cfg(&dir), full_script(), web(&[])).await;
-        let negatives = std::fs::read_to_string(
-            r.run_dir.join("google-ads/bulk/4-negative-keywords.csv"),
-        )
-        .unwrap();
+        let negatives =
+            std::fs::read_to_string(r.run_dir.join("google-ads/bulk/4-negative-keywords.csv"))
+                .unwrap();
         assert!(
             negatives.contains("Vinellu - Catalogo,alamos,vinellu,Phrase match"),
             "{negatives}"
@@ -907,7 +906,12 @@ mod tests {
         );
         let (first, events) = run(cfg(&dir), partial, web(&[])).await;
         assert_eq!(first.exit_code, 1);
-        assert!(!first.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
+        assert!(
+            !first
+                .run_dir
+                .join("google-ads/bulk/1-campaign.csv")
+                .exists()
+        );
         let report = std::fs::read_to_string(first.run_dir.join("report.md")).unwrap();
         assert!(
             report.contains("Incomplete")
@@ -925,7 +929,12 @@ mod tests {
             "plan and catalog were finished, so only marca needs a script"
         );
         assert_eq!(second.run_dir, first.run_dir);
-        assert!(second.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
+        assert!(
+            second
+                .run_dir
+                .join("google-ads/bulk/1-campaign.csv")
+                .exists()
+        );
     }
 
     #[tokio::test]
@@ -1111,7 +1120,12 @@ mod tests {
             b1.is_file(),
             "no --layout keeps drive-folders from run.json"
         );
-        assert!(!first.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
+        assert!(
+            !first
+                .run_dir
+                .join("google-ads/bulk/1-campaign.csv")
+                .exists()
+        );
 
         let bulk = export_run(
             &first.run_dir,
@@ -1125,7 +1139,12 @@ mod tests {
         .unwrap();
         assert_eq!(bulk.exit_code, 0);
         assert!(!b1.exists(), "an explicit --layout wins over run.json");
-        assert!(first.run_dir.join("google-ads/bulk/1-campaign.csv").is_file());
+        assert!(
+            first
+                .run_dir
+                .join("google-ads/bulk/1-campaign.csv")
+                .is_file()
+        );
     }
 
     #[tokio::test]
@@ -1174,7 +1193,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (first, _) = run(cfg(&dir), full_script(), web(&[])).await;
         assert_eq!(first.exit_code, 0);
-        assert!(first.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
+        assert!(
+            first
+                .run_dir
+                .join("google-ads/bulk/1-campaign.csv")
+                .exists()
+        );
         let ws_path = first.run_dir.join("workspace.json");
         let mut ws = Workspace::load(&ws_path).unwrap();
         ws.account.campaigns[0].daily_budget = crate::money::Cents(100);

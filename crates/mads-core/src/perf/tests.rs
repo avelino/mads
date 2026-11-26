@@ -141,9 +141,21 @@ fn keywords_keep_broad_and_the_status_of_the_keyword_itself() {
     assert_eq!(
         seen,
         [
-            ("malbec", Some(ReportedMatch::Broad), Some(LiveStatus::Enabled)),
-            ("malbec", Some(ReportedMatch::Phrase), Some(LiveStatus::Paused)),
-            ("malbec", Some(ReportedMatch::Exact), Some(LiveStatus::Removed)),
+            (
+                "malbec",
+                Some(ReportedMatch::Broad),
+                Some(LiveStatus::Enabled)
+            ),
+            (
+                "malbec",
+                Some(ReportedMatch::Phrase),
+                Some(LiveStatus::Paused)
+            ),
+            (
+                "malbec",
+                Some(ReportedMatch::Exact),
+                Some(LiveStatus::Removed)
+            ),
             ("syrah", None, Some(LiveStatus::Enabled)),
         ],
         "the serving status in the Status column is not the keyword status"
@@ -157,7 +169,10 @@ fn a_keywords_report_without_a_status_column_leaves_the_status_empty() {
     let files: Vec<ReportInput> = vec![("kw.csv".into(), read_table(text.as_bytes()))];
     let p = digest(&files, &account());
     let k = &p.campaigns[0].ad_groups[0].keywords[0];
-    assert_eq!((k.match_type, k.live_status), (Some(ReportedMatch::Broad), None));
+    assert_eq!(
+        (k.match_type, k.live_status),
+        (Some(ReportedMatch::Broad), None)
+    );
 }
 
 #[test]

@@ -153,7 +153,11 @@ impl Performance {
             let nets: Vec<String> = c.networks.iter().map(describe).collect();
             out.push(format!("networks of {}: {}", c.name, nets.join("; ")));
         }
-        for c in self.campaigns.iter().filter(|c| c.accidental_display_clicks) {
+        for c in self
+            .campaigns
+            .iter()
+            .filter(|c| c.accidental_display_clicks)
+        {
             let ctr = display_ctr(c).unwrap_or_default();
             out.push(format!(
                 "Display CTR of {} is {ctr}%, above {DISPLAY_CTR_PCT}%: likely accidental clicks, so treat its installs with caution and do not raise its budget on cost per install alone",
@@ -239,11 +243,18 @@ mod tests {
     #[test]
     fn display_ctr_is_flagged_above_the_line_and_not_at_it() {
         let flagged = |clicks: u64, impressions: u64, app: bool| {
-            summarize(&[row(Network::Display, impressions, clicks, 10.0, 1.0)], app).1
+            summarize(
+                &[row(Network::Display, impressions, clicks, 10.0, 1.0)],
+                app,
+            )
+            .1
         };
         assert!(!flagged(150, 1000, true), "15.0 is at the line");
         assert!(flagged(151, 1000, true), "15.1 is above it");
-        assert!(!flagged(151, 1000, false), "only App campaigns carry the flag");
+        assert!(
+            !flagged(151, 1000, false),
+            "only App campaigns carry the flag"
+        );
     }
 
     #[test]
@@ -252,7 +263,13 @@ mod tests {
         let (_, flag) = summarize(&[row(Network::Display, few + 1, few, 1.0, 0.0)], true);
         assert!(!flag, "{few} clicks are noise");
         let (_, flag) = summarize(
-            &[row(Network::Display, DISPLAY_MIN_CLICKS + 1, DISPLAY_MIN_CLICKS, 1.0, 0.0)],
+            &[row(
+                Network::Display,
+                DISPLAY_MIN_CLICKS + 1,
+                DISPLAY_MIN_CLICKS,
+                1.0,
+                0.0,
+            )],
             true,
         );
         assert!(flag);

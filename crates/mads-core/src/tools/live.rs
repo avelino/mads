@@ -896,7 +896,10 @@ mod tests {
         assert_eq!(v["accidental_display_clicks"], true);
         assert_eq!(v["networks"][1]["network"], "display");
         assert_eq!(v["networks"][1]["ctr_pct"], 22.5);
-        assert!(v["networks"][1].get("conversions_share_pct").is_none(), "no nulls: {v}");
+        assert!(
+            v["networks"][1].get("conversions_share_pct").is_none(),
+            "no nulls: {v}"
+        );
         let rules = perf["live_rules"].as_str().unwrap();
         for needle in [
             "treat its install count with caution",
@@ -907,7 +910,12 @@ mod tests {
             assert!(rules.contains(needle), "missing {needle} in {rules}");
         }
         let (_, brief) = brief_view(&live, "Catalogo");
-        assert!(brief["live_rules"].as_str().unwrap().contains("accidental_display_clicks"));
+        assert!(
+            brief["live_rules"]
+                .as_str()
+                .unwrap()
+                .contains("accidental_display_clicks")
+        );
     }
 
     #[test]
@@ -922,7 +930,10 @@ mod tests {
         assert_eq!(v["untracked_reason"], NO_ACTION_FOR_STORE);
         assert_eq!(v["off_goal_actions"][0], "Purchase");
         let rules = perf["live_rules"].as_str().unwrap();
-        assert!(rules.contains("only an Android download action exists"), "{rules}");
+        assert!(
+            rules.contains("only an Android download action exists"),
+            "{rules}"
+        );
         assert!(rules.contains("off_goal_actions"), "{rules}");
     }
 
@@ -940,7 +951,11 @@ mod tests {
             assert!(v.get(key).is_none(), "{key} in {v}");
         }
         let rules = perf["live_rules"].as_str().unwrap();
-        for word in ["untracked_reason", "off_goal_actions", "accidental_display_clicks"] {
+        for word in [
+            "untracked_reason",
+            "off_goal_actions",
+            "accidental_display_clicks",
+        ] {
             assert!(!rules.contains(word), "{word} in {rules}");
         }
     }

@@ -119,9 +119,7 @@ fn summary(p: &Performance) -> String {
 mod tests {
     use mads_core::{
         input::AppStore,
-        perf::{
-            AppPerf, CampaignPerf, NO_ACTION_FOR_STORE, Network, NetworkPerf, StoreEvents,
-        },
+        perf::{AppPerf, CampaignPerf, NO_ACTION_FOR_STORE, Network, NetworkPerf, StoreEvents},
     };
 
     use super::*;
@@ -186,7 +184,10 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("App iOS"), "{text}");
-        assert!(text.contains("Display CTR of App Android is 22.5%"), "{text}");
+        assert!(
+            text.contains("Display CTR of App Android is 22.5%"),
+            "{text}"
+        );
     }
 
     #[test]

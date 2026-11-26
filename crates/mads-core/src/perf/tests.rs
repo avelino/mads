@@ -659,7 +659,12 @@ fn search_and_demand_gen_campaigns_counting_what_is_not_installs_are_named() {
     let p = digest_apps(&app_campaigns(600), Some(ACTIONS_PT), &app_account());
     let busca = p.campaign("Busca").unwrap();
     assert_eq!(busca.off_goal_actions, ["Compra no site", "Contato"]);
-    assert!(p.campaign("App Android").unwrap().off_goal_actions.is_empty());
+    assert!(
+        p.campaign("App Android")
+            .unwrap()
+            .off_goal_actions
+            .is_empty()
+    );
     let f = p.findings();
     assert!(
         f.iter().any(|l| {
@@ -707,7 +712,11 @@ fn the_network_report_gives_each_campaign_its_shares_and_ctr() {
     assert_eq!(p.reports[0].kind, ReportKind::Networks);
     let nets = &p.campaign("App Android").unwrap().networks;
     assert_eq!(nets.len(), 2);
-    assert_eq!(nets[0].network, Network::Search, "a tie goes by network order");
+    assert_eq!(
+        nets[0].network,
+        Network::Search,
+        "a tie goes by network order"
+    );
     assert_eq!(nets[0].cost_share_pct, Some(50.0));
     assert_eq!(nets[0].conversions_share_pct, Some(75.0));
     assert_eq!(nets[0].ctr_pct, Some(4.0));
@@ -724,11 +733,20 @@ fn the_network_report_gives_each_campaign_its_shares_and_ctr() {
 #[test]
 fn display_ctr_on_an_app_campaign_is_flagged_above_the_line_and_not_at_it() {
     let at = digest_networks(&networks_pt(750), &app_account());
-    assert!(!at.campaign("App Android").unwrap().accidental_display_clicks);
+    assert!(
+        !at.campaign("App Android")
+            .unwrap()
+            .accidental_display_clicks
+    );
     assert!(at.findings().iter().all(|l| !l.starts_with("Display CTR")));
 
     let above = digest_networks(&networks_pt(751), &app_account());
-    assert!(above.campaign("App Android").unwrap().accidental_display_clicks);
+    assert!(
+        above
+            .campaign("App Android")
+            .unwrap()
+            .accidental_display_clicks
+    );
     let f = above.findings();
     assert!(
         f.iter().any(|l| {

@@ -521,7 +521,10 @@ mod tests {
         c.untracked = true;
         c.untracked_reason = Some(NO_ACTION_FOR_STORE.into());
         c.off_goal_actions = vec!["Purchase".into()];
-        c.networks = vec![net(Network::Search, 40.0, 4.0), net(Network::Display, 60.0, 22.5)];
+        c.networks = vec![
+            net(Network::Search, 40.0, 4.0),
+            net(Network::Display, 60.0, 22.5),
+        ];
         c.accidental_display_clicks = true;
         let mut md = String::new();
         performance(&mut md, &live);

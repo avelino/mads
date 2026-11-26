@@ -528,8 +528,14 @@ mod tests {
     #[test]
     fn manual_cpc_stays_when_live_matches_or_is_absent() {
         assert_eq!(campaign_row(None)[8], "Manual CPC");
-        assert_eq!(campaign_row(Some(&live_with("Manual CPC")))[8], "Manual CPC");
-        assert_eq!(campaign_row(Some(&live_with("CPC manual")))[8], "Manual CPC");
+        assert_eq!(
+            campaign_row(Some(&live_with("Manual CPC")))[8],
+            "Manual CPC"
+        );
+        assert_eq!(
+            campaign_row(Some(&live_with("CPC manual")))[8],
+            "Manual CPC"
+        );
         assert_eq!(
             campaign_row(Some(&live_with("")))[8],
             "Manual CPC",

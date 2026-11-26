@@ -300,12 +300,7 @@ pub(crate) fn gone_keywords<'a>(
         .collect()
 }
 
-fn dropped_in<'a>(
-    live: &'a Live,
-    old: &'a Campaign,
-    c: &'a Campaign,
-    out: &mut Vec<Dropped<'a>>,
-) {
+fn dropped_in<'a>(live: &'a Live, old: &'a Campaign, c: &'a Campaign, out: &mut Vec<Dropped<'a>>) {
     for g in &old.ad_groups {
         let Some(kept) = c.ad_groups.iter().find(|n| same_name(&n.name, &g.name)) else {
             out.push(Dropped::AdGroup {
@@ -1250,9 +1245,13 @@ mod tests {
     /// keeps `malbec` as Phrase and Exact and drops `merlot`.
     fn kept_group_setup() -> (Account, Live) {
         let mut old = search("Catalogo", &[("tintos", &["malbec", "merlot"])]);
-        old.ad_groups[0].keywords.push(keyword("malbec", MatchType::Exact));
+        old.ad_groups[0]
+            .keywords
+            .push(keyword("malbec", MatchType::Exact));
         let mut new = search("Catalogo", &[("tintos", &["malbec"])]);
-        new.ad_groups[0].keywords.push(keyword("malbec", MatchType::Exact));
+        new.ad_groups[0]
+            .keywords
+            .push(keyword("malbec", MatchType::Exact));
         let base = live(vec![old], &[("Catalogo", LiveStatus::Enabled)]);
         let new = Account {
             brand_kit: None,
@@ -1266,7 +1265,11 @@ mod tests {
         let (new, mut base) = kept_group_setup();
         base.performance.campaigns[0].ad_groups = vec![AdGroupPerf {
             name: "tintos".into(),
-            keywords: vec![kperf("malbec", ReportedMatch::Broad, Some(LiveStatus::Enabled))],
+            keywords: vec![kperf(
+                "malbec",
+                ReportedMatch::Broad,
+                Some(LiveStatus::Enabled),
+            )],
             ..Default::default()
         }];
         assert_eq!(
@@ -1341,7 +1344,11 @@ mod tests {
         with_keyword_report(
             &mut base,
             "tintos",
-            vec![kperf("rioja", ReportedMatch::Broad, Some(LiveStatus::Enabled))],
+            vec![kperf(
+                "rioja",
+                ReportedMatch::Broad,
+                Some(LiveStatus::Enabled),
+            )],
         );
         let found: Vec<(&str, ReportedMatch)> = dropped_items(&base, &new)
             .into_iter()

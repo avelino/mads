@@ -175,7 +175,8 @@ fn ignored(row: &Row, col: &str) -> bool {
 #[test]
 fn each_app_campaign_writes_the_store_of_its_own_app() {
     let mut inp = input();
-    inp.apps.push(App::installs(AppStore::AppStore, "6751919708"));
+    inp.apps
+        .push(App::installs(AppStore::AppStore, "6751919708"));
     let mut android = app_campaign();
     android.app_store = Some(AppStore::GooglePlay);
     let mut ios = app_campaign();

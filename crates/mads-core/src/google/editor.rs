@@ -739,9 +739,7 @@ mod tests {
         assert_eq!(get("App campaign package name"), Some("com.example.app"));
         assert_eq!(get("Bid Strategy Type"), Some("Maximize conversions"));
         assert!(header.starts_with(&editor_columns().join("\t")));
-        assert!(
-            header.contains("Conversion action") && header.contains("Target CPA")
-        );
+        assert!(header.contains("Conversion action") && header.contains("Target CPA"));
         let others = rows.iter().filter(|r| !r.contains_key("Campaign Type"));
         assert!(others.clone().all(|r| !r.contains_key("Conversion action")));
         assert!(others.clone().all(|r| !r.contains_key("Target CPA")));

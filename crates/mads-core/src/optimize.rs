@@ -215,8 +215,8 @@ fn read_reports(dir: &Path) -> Result<Vec<ReportInput>, OptimizeError> {
 /// The app events file and its name.
 fn read_events(path: &Path) -> Result<(String, AppEvents), OptimizeError> {
     let shown = path.display().to_string();
-    let bytes = std::fs::read(path)
-        .map_err(|e| OptimizeError::AppEvents(shown.clone(), e.to_string()))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| OptimizeError::AppEvents(shown.clone(), e.to_string()))?;
     let events = AppEvents::parse(&bytes).map_err(|e| OptimizeError::AppEvents(shown, e))?;
     let name = path
         .file_name()
@@ -442,7 +442,7 @@ mod tests {
         let base = base_run(root, MissionStatus::Finished);
         let path = base.join("workspace.json");
         let mut old = Workspace::load(&path).unwrap();
-        old.input.apps = vec![App::installs(AppStore::GooglePlay, "com.vinellu.app")];
+        old.input.apps = vec![App::installs(AppStore::GooglePlay, "com.example.app")];
         let mut app = old.account.campaigns[0].clone();
         (app.name, app.slug) = ("Vinellu - App".into(), "vinellu-app".into());
         app.kind = crate::google::CampaignKind::AppInstalls;
@@ -486,9 +486,7 @@ mod tests {
         assert!(p.performance.app_events_missing.is_empty());
         assert!(p.performance.campaigns.iter().all(|c| c.app.is_none()));
         let json = std::fs::read_to_string(p.run_dir.join("workspace.json")).unwrap();
-        assert!(
-            !json.contains("app_events") && !json.contains("target_cpa_in_app")
-        );
+        assert!(!json.contains("app_events") && !json.contains("target_cpa_in_app"));
     }
 
     #[test]
@@ -543,7 +541,7 @@ mod tests {
                 .input
                 .apps
         };
-        let same = run("a", "com.vinellu.app");
+        let same = run("a", "com.example.app");
         assert_eq!(same[0].optimize_for, crate::input::AppGoal::InAppActions);
         assert_eq!(same[0].conversion_action, "Sign up");
         assert_eq!(same[1].optimize_for, crate::input::AppGoal::Installs);

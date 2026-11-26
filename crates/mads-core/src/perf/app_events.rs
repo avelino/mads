@@ -181,7 +181,7 @@ pub fn attach(p: &mut Performance, account: &Account, events: &AppEvents) {
 fn best_records(text: &str) -> Vec<Vec<String>> {
     let mut best: Vec<Vec<String>> = Vec::new();
     let mut best_hits = 0;
-    for delimiter in [b';', b',', b'\t'] {
+    for delimiter in *b";,\t" {
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(false)
             .flexible(true)
@@ -367,8 +367,8 @@ mod tests {
         let err = AppEvents::parse(format!("{head}2026-10-03,google_play,many,1\n").as_bytes())
             .unwrap_err();
         assert_eq!(err, "line 2: 'many' is not a number");
-        let err = AppEvents::parse(format!("{head}03/10/2026,google_play,1,1\n").as_bytes())
-            .unwrap_err();
+        let err =
+            AppEvents::parse(format!("{head}03/10/2026,google_play,1,1\n").as_bytes()).unwrap_err();
         assert!(
             err.starts_with("line 2: '03/10/2026' is not a date"),
             "{err}"
@@ -429,7 +429,11 @@ mod tests {
             ],
             ..Default::default()
         };
-        attach(&mut p, &account, &AppEvents::parse(COMMA.as_bytes()).unwrap());
+        attach(
+            &mut p,
+            &account,
+            &AppEvents::parse(COMMA.as_bytes()).unwrap(),
+        );
         let android = p.campaigns[0].app.as_ref().unwrap();
         assert_eq!(android.store, AppStore::GooglePlay);
         assert_eq!(android.app_installs_seen, 2000.0);
@@ -457,7 +461,11 @@ mod tests {
             campaigns: vec![perf_of("App A", 100.0, 10.0), perf_of("app b", 200.0, 20.0)],
             ..Default::default()
         };
-        attach(&mut p, &account, &AppEvents::parse(COMMA.as_bytes()).unwrap());
+        attach(
+            &mut p,
+            &account,
+            &AppEvents::parse(COMMA.as_bytes()).unwrap(),
+        );
         for c in &p.campaigns {
             let app = c.app.as_ref().unwrap();
             assert_eq!(app.store_cost, 300.0);
@@ -477,7 +485,11 @@ mod tests {
             campaigns: vec![perf_of("App iOS", 20.0, 40.0)],
             ..Default::default()
         };
-        attach(&mut p, &account, &AppEvents::parse(text.as_bytes()).unwrap());
+        attach(
+            &mut p,
+            &account,
+            &AppEvents::parse(text.as_bytes()).unwrap(),
+        );
         assert_eq!(p.campaigns[0].app, None);
         assert_eq!(p.app_events_missing, ["App iOS"]);
     }

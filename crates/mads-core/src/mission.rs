@@ -22,8 +22,8 @@ pub fn campaign_id(slug: &str) -> String {
 /// it would be read at each step of the mission and bring nothing.
 pub fn plan_prompt(input: &Input, live: bool) -> String {
     let b = &input.budget;
-    let targets = live
-        && (b.target_cpa.is_some() || b.target_cpi.is_some() || b.target_cpa_in_app.is_some());
+    let targets =
+        live && (b.target_cpa.is_some() || b.target_cpi.is_some() || b.target_cpa_in_app.is_some());
     let sections = [
         (true, PLAN_CORE),
         (input.focus.is_some(), PLAN_FOCUS),
@@ -360,9 +360,7 @@ mod tests {
         let mut input = testutil::input();
         input.budget.target_cpa_in_app = Some(Cents(1250));
         let prompt = plan_prompt(&input, true);
-        assert!(
-            prompt.contains("vs_target") && prompt.contains("target_cpa_in_app")
-        );
+        assert!(prompt.contains("vs_target") && prompt.contains("target_cpa_in_app"));
         assert!(!plan_prompt(&input, false).contains("vs_target"));
     }
 

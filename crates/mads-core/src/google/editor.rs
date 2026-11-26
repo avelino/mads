@@ -1122,6 +1122,9 @@ mod tests {
             "Pausada".into(),
             "Catalogo".into(),
         ];
-        assert_eq!(others(&base), [("Antiga".to_string(), "Paused".to_string())]);
+        assert_eq!(
+            others(&base),
+            [("Antiga".to_string(), "Paused".to_string())]
+        );
     }
 }

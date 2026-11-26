@@ -124,7 +124,7 @@ The reports are not sent to the agents as they are. One search terms export can 
 - **Real spend.** `avg_daily_cost` is the cost per day and `budget_use_pct` is that cost over the daily budget. With the by-day report the days count from the first day with impressions (`days_running`), so a campaign that started mid-window is not diluted. Under 100 the budget is not what limits the campaign. `idle_budget` sums what the enabled campaigns leave unspent every day.
 - **Ad groups.** Impressions, clicks, cost, conversions, value and the status per ad group. They win over the sum of the group's keywords. Without a campaigns report, campaign totals are summed from them.
 - **Groups of older imports.** An enabled ad group of a campaign of the run that the run does not have. An earlier import left it serving next to the groups of this run, on the same searches. The agents see it marked `not_in_run`, and the import pauses it.
-- **Bidding changed by hand.** When the bid strategy type of the report is not the one the run exported, you changed it in Google Ads. The agents are told, and the import keeps it.
+- **Bidding changed outside mads.** When the bid strategy type of the report is not the one the run exported, it was changed in Google Ads, by hand or by auto-applied recommendations. The reports cannot tell which. The agents are told, and the import keeps it.
 - **Keywords.** The same numbers, the max CPC, the Quality Score and the bid estimates when the export has them, and three signals read from the [keyword status](https://support.google.com/google-ads/answer/2453978?hl=en) reasons: `below_first_page` (the keyword is active but not reaching the first page of results, below the [first page bid estimate](https://support.google.com/google-ads/answer/105665?hl=en)), `rarely_shown` (Google rarely shows it because of a low Quality Score) and `low_quality`. A Quality Score of 4 or less also counts as `low_quality`.
 - **Search terms.** The 30 most expensive terms of each ad group, each marked `keyword`, `negative`, `excluded` or `new`. Every group also gets the total cost of its terms with zero conversions. When a campaigns report is there, `hidden_terms_cost` is the campaign cost Google does not show by term: the report [leaves out terms with too little query activity](https://support.google.com/google-ads/answer/2472708?hl=en), for privacy.
 - **Thin campaigns.** Under 14 days running (or in the date range without day rows) or under 100 clicks, and under 30 conversions. The agents are told to fix structure only there: bids under the first page, low quality, missing ads, mixed groups. They do not cut or reward anything because of its results. Its budget is another matter: money a thin campaign does not spend can go to a campaign that converts.
@@ -136,7 +136,40 @@ The reports are not sent to the agents as they are. One search terms export can 
 
 `mads optimize` prints these findings before the missions start, and `report.md` repeats them under Performance data.
 
-Campaigns in the reports that are not part of the run, such as older campaigns of the account, are listed as not in this run and left alone.
+Campaigns in the reports that are not part of the run, such as older campaigns of the account, are listed as not in this run and left alone. Their numbers are still read. See [Spend outside the run](#spend-outside-the-run).
+
+## Spend outside the run
+
+An older campaign nobody planned can spend a large part of the account and convert nothing. mads reads the campaigns and campaigns by day reports for every campaign outside the run and flags one when all of this holds:
+
+- It is enabled. Paused and removed campaigns are never flagged.
+- It has no conversion, and some campaign of the account converts. Without any conversion in the account, tracking is probably missing and the numbers say nothing.
+- It has 100 clicks or more, the same bar as an untracked campaign, or it spent more than 10 percent of the cost of every campaign in the reports. Both numbers are lines mads draws, not Google rules. At exactly 10 percent it is not flagged.
+
+`mads optimize` prints one finding with the share of the account cost and the clicks of each one, and `report.md` repeats it under Performance data. The plan is told that this money is outside the plan: the daily budget it splits does not include it, and it must not treat that spend as room to grow other campaigns.
+
+By default nothing is exported for these campaigns. Pass `--pause-outside-run` to write a `Paused` row for exactly the flagged ones in the Editor file, and in S1 of the automation package under `--layout drive-folders`.
+
+```bash
+mads optimize out/<run-id> --reports perf/2026-10-17 --pause-outside-run --provider anthropic --model <model-id>
+```
+
+The flag never pauses a campaign that is not flagged. A removed campaign never gets a row, and neither does a campaign of the run. Read the finding before you import. The `Changes` section of `report.md` lists each campaign the flag pauses.
+
+## Drift since the last run
+
+The account can change after you import a run. Google Ads can apply recommendations on its own, and people edit budgets. The reports cannot tell which, so mads calls it a change made outside mads (by hand or by auto-applied recommendations). It compares the campaigns report with what the base run exported and lists the differences:
+
+| Drift | When it is flagged |
+|---|---|
+| Daily budget | The live budget differs from the exported one by more than 20 percent, up or down. At exactly 20 percent it is not flagged. |
+| Bid strategy | The strategy type of the report is not the one the run exported. |
+| Paused or removed | A campaign the base run exported enabled is paused or removed in the account. A campaign exported paused because of `export.status` is not flagged while it stays paused. |
+| Enabled again | A campaign the base run dropped, so it exported it paused, is enabled in the account. |
+
+mads also adds up the daily budgets of every enabled campaign of the account, in the run or not, and compares the total with the daily budget of the new run (`--daily-budget`, or the base run's budget without it). It warns when the total is more than 20 percent above it.
+
+`mads optimize` prints a "drift since the last run" section before the missions start, with shares and no amounts. `report.md` has the same section. The plan is told that the budgets were changed outside mads, so the baseline it reads is the live one. The base run is not changed.
 
 ## What the agents see
 
@@ -147,6 +180,8 @@ Each campaign mission gets `live` and `performance` in `get_brief` as one line p
 A stalled or untracked campaign gets no more daily budget than it ran with, and an untracked one no more than its average daily cost rounded up: the plan is refused with `E27`. These flags win over thin. Cutting is always allowed, and the budget it frees goes to a campaign that converts at its budget limit.
 
 The prompt asks the plan to cut any campaign that spends under its budget down to its real spend plus a tenth, thin or not, unless this run fixes what kept it from spending. A converting campaign that uses 90 percent or more of its budget takes what is freed, about 20 percent more per run, or up to 40 percent when it had 30 conversions or more in the date range. This part is a prompt rule, not a check in code. An untracked campaign also keeps its bids: `upsert_ad_group` refuses a higher `default_cpc` with `E28`.
+
+When the reports show spend outside the run, `get_business` also has `outside_campaigns`. When they show drift, it has `drift`, and `live_rules` says the budgets were changed outside mads, so the plan starts from the live ones.
 
 Image and app campaigns get the same fields. A picture whose image id, ratio and prompt stay is reused from the old run and costs nothing. Before this check a reused id lost its file, and one optimize run drew 10 unchanged pictures again.
 
@@ -160,7 +195,8 @@ What the file does to the live account:
 - A campaign, ad group, asset group or keyword that the new run dropped comes as a row with status `Paused`. An import changes what the file lists: Editor reads a [status column with Enabled, Paused or Removed](https://support.google.com/google-ads/editor/answer/57747?hl=en), and [new statuses for existing items come through CSV import](https://support.google.com/google-ads/editor/answer/53082?hl=en). An item the file does not name keeps serving. mads writes these rows only for campaigns the reports show in the account and not removed: a row for a campaign that was never imported would create it.
 - An enabled ad group of an older import, in a campaign the run keeps, comes as a row with status `Paused` too. The ad groups report must have the Ad group status column for mads to see it.
 - An App campaign whose app has `optimize_for = "in_app_actions"` comes with `Campaign optimization` set to `In-app actions`, the conversion action and, when `target_cpa_in_app` is set, `Target CPA`. Check these columns in the Editor preview. They are not verified against a real export (see [Business file](business-file.md#app)).
-- A bid strategy you changed in Google Ads stays. The campaign row comes with an empty `Bid Strategy Type`, and Editor changes nothing for an empty cell. The ad group CPCs of the run only count under Manual CPC.
+- A campaign outside the run that `--pause-outside-run` flagged comes as a row with status `Paused`. Nothing else outside the run gets a row.
+- A bid strategy changed outside mads stays. The campaign row comes with an empty `Bid Strategy Type`, and Editor changes nothing for an empty cell. The ad group CPCs of the run only count under Manual CPC.
 - A responsive search ad with new texts comes in as another ad in the group, and the old one stays enabled. Check it in the Editor preview and pause the old ad by hand.
 - A negative the new run dropped stays in Google Ads. Remove it by hand.
 
@@ -174,7 +210,7 @@ The `Changes` section of `report.md` lists each of these per campaign, so you kn
 mads optimize out/<run-id> --reports perf/2026-10-17 --provider anthropic --model <model-id> --layout drive-folders
 ```
 
-S1 edits the campaigns that are live and leaves their status as it is. New campaigns come in paused, and S2 enables only those. Campaigns the new run dropped come in S1 as `Paused`. S3 and S4 do the same for fixed ad groups and keywords. An item dropped from a live automated campaign stays in `Catalog` as inactive, so the daily track pauses its ad group.
+S1 edits the campaigns that are live and leaves their status as it is. New campaigns come in paused, and S2 enables only those. Campaigns the new run dropped come in S1 as `Paused`. So do the campaigns `--pause-outside-run` flagged. S3 and S4 do the same for fixed ad groups and keywords. An item dropped from a live automated campaign stays in `Catalog` as inactive, so the daily track pauses its ad group.
 
 `setupImageCampaigns` updates the budget of a live image campaign and changes nothing else in it. A new image campaign is created paused. One the new run dropped is paused. See [Over a live account](../howto/google-ads-editor-drive-folders.md#over-a-live-account).
 

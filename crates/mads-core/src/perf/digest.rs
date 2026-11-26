@@ -6,6 +6,7 @@ use super::{
     conversions,
     model::*,
     networks::{self, Network},
+    outside::{self, OutsideRows},
     table::ReportKind,
     table::{AD_GROUP, ASSET, CAMPAIGN, DAY, KEYWORD, MATCH, NETWORK, Row, SEARCH_TERM, Table},
 };
@@ -89,6 +90,8 @@ pub fn digest(files: &[ReportInput], account: &Account) -> Performance {
         let c = &mut p.campaigns[*i];
         (c.networks, c.accidental_display_clicks) = networks::summarize(rows, app);
     }
+    let rows = pass.outside.into_values().map(|o| o.perf).collect();
+    p.outside = outside::summarize(rows, &p.campaigns);
     p.idle_budget = idle_budget(&p.campaigns);
     p.missing_reports = missing_reports(&p.reports);
     p
@@ -165,6 +168,41 @@ struct Pass {
     actions_read: bool,
     /// Rows of the network report per campaign, added up per network at the end.
     networks: BTreeMap<usize, Vec<(Network, Metrics)>>,
+    /// What the campaign and by-day reports say of each campaign outside the run, by name.
+    outside: BTreeMap<String, OutsideRows>,
+}
+
+impl Pass {
+    /// The totals and status of a campaign outside the run. Only the campaign reports are read:
+    /// nothing else of it reaches the agents.
+    fn outside_row(&mut self, kind: ReportKind, name: &str, row: &Row) {
+        if !matches!(kind, ReportKind::Campaigns | ReportKind::CampaignsByDay) {
+            return;
+        }
+        let o = self
+            .outside
+            .entry(normalize(name))
+            .or_insert_with(|| OutsideRows {
+                perf: CampaignPerf {
+                    name: name.to_string(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+        if kind == ReportKind::Campaigns {
+            campaign_row(&mut o.perf, row);
+            o.has_totals = true;
+            return;
+        }
+        if !o.has_totals {
+            o.perf.metrics.add(&metrics(row));
+        }
+        let day = row.text(DAY);
+        if !o.has_totals && !day.is_empty() && o.latest_day <= day {
+            status(&mut o.perf, row);
+            o.latest_day = day;
+        }
+    }
 }
 
 fn mean(values: &[f64]) -> Option<f64> {
@@ -182,6 +220,7 @@ fn read(p: &mut Performance, pass: &mut Pass, t: &Table, account: &Account) {
             .position(|c| normalize(&c.name) == normalize(&name))
         else {
             if !name.is_empty() {
+                pass.outside_row(t.kind, &name, &row);
                 pass.ignored.insert(name);
             }
             continue;

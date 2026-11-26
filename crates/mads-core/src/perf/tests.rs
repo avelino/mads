@@ -785,3 +785,54 @@ fn a_single_network_gets_no_line_of_its_own() {
     assert_eq!(p.campaign("Busca").unwrap().networks.len(), 1);
     assert!(p.findings().iter().all(|l| !l.starts_with("networks of")));
 }
+
+const OUTSIDE_REPORT: &str = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus da campanha,Campanha,Orçamento,Custo,Conversões,Impr.,Cliques\nAtivada,\"Catálogo: uvas\",\"70,00\",\"100,00\",\"5,00\",\"5.000\",200\nAtivada,Antiga sem medir,\"40,00\",\"60,00\",\"0,00\",\"3.000\",150\nPausada,Antiga pausada,\"40,00\",\"60,00\",\"0,00\",\"3.000\",150\nRemovida,Antiga removida,\"40,00\",\"60,00\",\"0,00\",\"3.000\",150\nTotal: Conta,,,,,,\n";
+
+#[test]
+fn campaigns_outside_the_run_keep_their_numbers_and_the_blind_ones_are_flagged() {
+    let files = vec![("c.csv".to_string(), read_table(OUTSIDE_REPORT.as_bytes()))];
+    let p = digest(&files, &account());
+    assert_eq!(p.ignored_campaigns.len(), 3);
+    assert_eq!(p.outside.len(), 3);
+    let by = |name: &str| p.outside.iter().find(|o| o.name == name).unwrap();
+    let blind = by("Antiga sem medir");
+    assert!(blind.spends_blind);
+    assert_eq!(blind.live_status, Some(LiveStatus::Enabled));
+    assert_eq!(blind.budget, Some(40.0));
+    assert_eq!(blind.metrics.clicks, 150);
+    assert_eq!(blind.cost_share_pct, Some(21.43));
+    assert!(!by("Antiga pausada").spends_blind);
+    assert!(!by("Antiga removida").spends_blind);
+    assert_eq!(p.outside_blind().len(), 1);
+    assert!(
+        p.findings()
+            .iter()
+            .any(|l| l.contains("Antiga sem medir (21.43% of the account cost, 150 clicks)")),
+        "{:?}",
+        p.findings()
+    );
+}
+
+#[test]
+fn a_campaign_outside_the_run_is_read_from_day_rows_too() {
+    let csv = "Campaign report\nOct 1, 2026 - Oct 3, 2026\nDay,Campaign status,Campaign,Budget,Cost,Conversions,Impr.,Clicks\n2026-10-01,Enabled,Old,40.00,10.00,0.00,500,60\n2026-10-02,Paused,Old,40.00,10.00,0.00,500,60\n2026-10-01,Enabled,\"Catálogo: uvas\",70.00,50.00,4.00,900,80\n";
+    let files = vec![("d.csv".to_string(), read_table(csv.as_bytes()))];
+    let p = digest(&files, &account());
+    let old = &p.outside[0];
+    assert_eq!(old.name, "Old");
+    assert_eq!(old.metrics.clicks, 120);
+    assert_eq!(old.live_status, Some(LiveStatus::Paused), "latest day wins");
+    assert!(!old.spends_blind, "paused now");
+}
+
+#[test]
+fn without_a_campaigns_report_nothing_is_known_of_the_campaigns_outside() {
+    let p = digest_all_without_campaigns();
+    assert_eq!(p.ignored_campaigns, Vec::<String>::new());
+    assert!(p.outside.is_empty());
+}
+
+fn digest_all_without_campaigns() -> Performance {
+    let files = vec![("palavras.csv".to_string(), read_table(KEYWORDS.as_bytes()))];
+    digest(&files, &account())
+}

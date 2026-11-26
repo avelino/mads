@@ -6,7 +6,9 @@ use super::{
     CampaignRow, CatalogRow, DESCRIPTIONS, FixedRow, HEADLINES, Package, StructAction, catalog_row,
     headline_1, is_automated, match_label,
 };
-use crate::google::editor::{Dropped, baseline_campaign, dropped_items, is_live, same_name};
+use crate::google::editor::{
+    Dropped, baseline_campaign, dropped_items, is_live, outside_to_pause, same_name,
+};
 use crate::google::{Account, AdGroup, Campaign, CampaignKind, Keyword};
 use crate::input::Input;
 use crate::perf::Live;
@@ -99,13 +101,16 @@ pub(super) fn dropped(live: &Live, account: &Account, input: &Input, p: &mut Pac
             | Dropped::AssetGroup { .. } => {}
         }
     }
+    for name in outside_to_pause(live, account) {
+        p.campaigns.push(paused_campaign(live, name));
+    }
 }
 
 /// Only the key and the name: the row pauses the campaign and changes nothing else.
 fn paused_campaign(live: &Live, name: &str) -> CampaignRow {
     let key = baseline_campaign(live, name)
         .map(|c| c.slug.clone())
-        .unwrap_or_default();
+        .unwrap_or_else(|| crate::input::slugify(name));
     CampaignRow {
         key,
         name: name.into(),

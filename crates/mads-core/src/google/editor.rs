@@ -182,6 +182,26 @@ pub(crate) fn dropped_items<'a>(live: &'a Live, new: &'a Account) -> Vec<Dropped
     out
 }
 
+/// Campaigns outside the run that `--pause-outside-run` pauses. The run named them, and they are
+/// still enabled in the reports and not in the new account: nothing else gets a row, and a
+/// removed campaign never does.
+pub(crate) fn outside_to_pause<'a>(live: &'a Live, new: &Account) -> Vec<&'a str> {
+    let p = &live.performance;
+    let enabled_outside = |name: &str| {
+        p.outside
+            .iter()
+            .any(|o| same_name(&o.name, name) && o.live_status == Some(LiveStatus::Enabled))
+    };
+    p.pause_outside_run
+        .iter()
+        .filter(|n| {
+            let in_run = new.campaigns.iter().any(|c| same_name(&c.name, n.as_str()));
+            !in_run && enabled_outside(n.as_str())
+        })
+        .map(String::as_str)
+        .collect()
+}
+
 /// Ad groups the reports show enabled in a campaign that the run being optimized does not have:
 /// an older import left them serving next to this run's groups, competing for the same searches.
 pub(crate) fn stray_groups<'a>(live: &'a Live, old: &Campaign) -> Vec<&'a str> {
@@ -272,7 +292,7 @@ impl Ctx<'_> {
         let Some(live) = self.live else {
             return Vec::new();
         };
-        dropped_items(live, new)
+        let mut rows: Vec<Row> = dropped_items(live, new)
             .into_iter()
             .map(|d| match d {
                 Dropped::Campaign { name } => Row::default()
@@ -302,7 +322,13 @@ impl Ctx<'_> {
                     .set("Ad Group", name)
                     .set("Ad Group Status", PAUSED),
             })
-            .collect()
+            .collect();
+        rows.extend(outside_to_pause(live, new).into_iter().map(|name| {
+            Row::default()
+                .set("Campaign", name)
+                .set("Campaign Status", PAUSED)
+        }));
+        rows
     }
 
     fn in_group(&self, c: &Campaign, group: &str) -> Row {
@@ -1055,5 +1081,47 @@ mod tests {
             ["Paused"],
             "new campaigns follow export.status"
         );
+    }
+
+    #[test]
+    fn campaigns_outside_the_run_are_paused_only_when_the_flag_named_them() {
+        let catalogo = || search("Catalogo", &[("tintos", &["malbec"])]);
+        let new = Account {
+            brand_kit: None,
+            campaigns: vec![catalogo()],
+        };
+        let mut base = live(vec![catalogo()], &[("catalogo", LiveStatus::Enabled)]);
+        let outside = |name: &str, status| crate::perf::OutsideCampaign {
+            name: name.into(),
+            live_status: Some(status),
+            ..Default::default()
+        };
+        base.performance.outside = vec![
+            outside("Antiga", LiveStatus::Enabled),
+            outside("Removida", LiveStatus::Removed),
+            outside("Pausada", LiveStatus::Paused),
+            outside("Outra", LiveStatus::Enabled),
+        ];
+        let others = |base: &Live| -> Vec<(String, String)> {
+            let file = export_editor_live(&crate::testutil::input(), &new, Some(base)).unwrap();
+            read_editor(&file.bytes)
+                .unwrap()
+                .into_iter()
+                .filter(|r| r.get("Campaign").map(String::as_str) != Some("Catalogo"))
+                .map(|r| {
+                    let get = |k: &str| r.get(k).cloned().unwrap_or_default();
+                    (get("Campaign"), get("Campaign Status"))
+                })
+                .collect()
+        };
+        assert!(others(&base).is_empty(), "no flag, no row");
+        // The run never names a removed or paused campaign, and one of the run is not outside it.
+        base.performance.pause_outside_run = vec![
+            "Antiga".into(),
+            "Removida".into(),
+            "Pausada".into(),
+            "Catalogo".into(),
+        ];
+        assert_eq!(others(&base), [("Antiga".to_string(), "Paused".to_string())]);
     }
 }

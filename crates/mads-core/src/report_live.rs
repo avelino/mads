@@ -3,8 +3,8 @@
 use std::fmt::Write as _;
 
 use crate::{
-    google::{Account, AdGroup, Campaign, Dropped, Keyword, normalize, stray_in},
-    perf::{JUDGE_CONVERSIONS, Live, LiveStatus, THIN_CLICKS, THIN_DAYS},
+    google::{Account, AdGroup, Campaign, Dropped, Keyword, normalize, outside_to_pause, stray_in},
+    perf::{DRIFT_SOURCE, Drift, JUDGE_CONVERSIONS, Live, LiveStatus, THIN_CLICKS, THIN_DAYS},
 };
 
 const LISTED: usize = 10;
@@ -32,11 +32,17 @@ pub(crate) fn performance(md: &mut String, live: &Live) {
     if p.mixed_windows {
         md.push_str("The reports cover different dates, so their numbers do not add up: the cost hidden from search terms is left out. Export them again for the same dates.\n\n");
     }
-    if !p.ignored_campaigns.is_empty() {
+    let left: Vec<&str> = p
+        .ignored_campaigns
+        .iter()
+        .filter(|n| !p.is_paused_outside(n))
+        .map(String::as_str)
+        .collect();
+    if !left.is_empty() {
         let _ = writeln!(
             md,
             "Not part of this run, left as they are: {}.\n",
-            p.ignored_campaigns.join(", ")
+            left.join(", ")
         );
     }
     let thin: Vec<&str> = p
@@ -73,6 +79,22 @@ pub(crate) fn performance(md: &mut String, live: &Live) {
         }
         md.push('\n');
     }
+    drift(md, &p.drift);
+}
+
+/// What changed in Google Ads since the base run exported its account.
+fn drift(md: &mut String, d: &Drift) {
+    if d.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        md,
+        "## Drift since the last run\n\nThe live account differs from what the last run exported. These were {DRIFT_SOURCE}: the reports cannot tell which. The budgets in this run start from the live ones.\n"
+    );
+    for line in d.lines() {
+        let _ = writeln!(md, "- {line}");
+    }
+    md.push('\n');
 }
 
 /// What the new account changes in the live one. The reasons are in Budget and bids.
@@ -95,6 +117,12 @@ pub(crate) fn changes(md: &mut String, live: &Live, account: &Account, comma: bo
             md,
             "**{}**: dropped, paused by the Editor import.\n",
             o.name
+        );
+    }
+    for name in outside_to_pause(live, account) {
+        let _ = writeln!(
+            md,
+            "**{name}**: outside this run, paused by the import (`--pause-outside-run`).\n"
         );
     }
 }
@@ -566,5 +594,48 @@ mod tests {
         ] {
             assert!(md.contains(needle), "missing {needle} in\n{md}");
         }
+    }
+
+    #[test]
+    fn drift_and_what_is_paused_outside_the_run_are_in_the_report() {
+        let (mut live, new) = fixture();
+        let mut md = String::new();
+        performance(&mut md, &live);
+        assert!(!md.contains("Drift since the last run"), "{md}");
+        assert!(md.contains("left as they are: Rotulos antigo"), "{md}");
+        live.performance.drift = Drift {
+            campaigns: vec![crate::perf::CampaignDrift {
+                name: "Catalogo".into(),
+                change: crate::perf::DriftKind::Budget {
+                    was: 100.0,
+                    now: 150.0,
+                },
+            }],
+            account_budget_pct: None,
+        };
+        live.performance.outside = vec![crate::perf::OutsideCampaign {
+            name: "Rotulos antigo".into(),
+            live_status: Some(LiveStatus::Enabled),
+            spends_blind: true,
+            ..Default::default()
+        }];
+        live.performance.pause_outside_run = vec!["Rotulos antigo".into()];
+        let mut md = String::new();
+        performance(&mut md, &live);
+        for needle in [
+            "## Drift since the last run",
+            "changed outside mads (by hand or by auto-applied recommendations)",
+            "Catalogo: daily budget is 50% higher than the last run exported",
+            "paused by the import (--pause-outside-run): Rotulos antigo",
+        ] {
+            assert!(md.contains(needle), "missing {needle} in\n{md}");
+        }
+        assert!(!md.contains("left as they are"), "{md}");
+        let mut md = String::new();
+        changes(&mut md, &live, &new, false);
+        assert!(
+            md.contains("**Rotulos antigo**: outside this run, paused by the import"),
+            "{md}"
+        );
     }
 }

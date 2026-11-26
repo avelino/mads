@@ -710,10 +710,10 @@ mod tests {
 
     fn app_input(logo: bool) -> Input {
         let mut i = input(logo);
-        i.apps = vec![crate::input::App {
-            store: crate::input::AppStore::GooglePlay,
-            id: "com.vinellu.app".into(),
-        }];
+        i.apps = vec![crate::input::App::installs(
+            crate::input::AppStore::GooglePlay,
+            "com.vinellu.app",
+        )];
         i
     }
 
@@ -729,10 +729,10 @@ mod tests {
 
     fn both_apps_input() -> Input {
         let mut i = app_input(false);
-        i.apps.push(crate::input::App {
-            store: crate::input::AppStore::AppStore,
-            id: "6751919708".into(),
-        });
+        i.apps.push(crate::input::App::installs(
+            crate::input::AppStore::AppStore,
+            "6751919708",
+        ));
         i
     }
 

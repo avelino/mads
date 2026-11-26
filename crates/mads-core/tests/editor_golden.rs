@@ -28,7 +28,7 @@ fn input() -> Input {
             avoid: vec![],
             pages: Vec::<Page>::new(),
         },
-        budget: Budget { daily: Cents(64000), currency: "BRL".into(), max_cpc: None, target_cpa: None, target_cpi: None },
+        budget: Budget { daily: Cents(64000), currency: "BRL".into(), max_cpc: None, target_cpa: None, target_cpi: None, target_cpa_in_app: None },
         export: ExportConfig {
             status: ExportStatus::Enabled,
             url_suffix: "utm_source=google&utm_medium=cpc&utm_campaign=rotulos&utm_content={adgroupid}&utm_term={keyword}".into(),
@@ -42,7 +42,7 @@ fn input() -> Input {
         design: String::new(),
         focus: None,
         strategy: None,
-        apps: vec![App { store: AppStore::GooglePlay, id: "com.vinellu.app".into() }],
+        apps: vec![App::installs(AppStore::GooglePlay, "com.vinellu.app")],
         google_ads: Default::default(),
     }
 }
@@ -175,10 +175,7 @@ fn ignored(row: &Row, col: &str) -> bool {
 #[test]
 fn each_app_campaign_writes_the_store_of_its_own_app() {
     let mut inp = input();
-    inp.apps.push(App {
-        store: AppStore::AppStore,
-        id: "6751919708".into(),
-    });
+    inp.apps.push(App::installs(AppStore::AppStore, "6751919708"));
     let mut android = app_campaign();
     android.app_store = Some(AppStore::GooglePlay);
     let mut ios = app_campaign();

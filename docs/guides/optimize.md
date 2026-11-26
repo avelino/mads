@@ -14,13 +14,13 @@ To change how much the account spends per day, pass `--daily-budget`. The plan m
 mads optimize out/<run-id> --reports perf/2026-10-17 --daily-budget 500 --provider anthropic --model <model-id>
 ```
 
-`optimize` starts from the input saved in the base run, not from `business.toml`. A change you made to the file after that run, such as a new app, does not reach it. `--daily-budget`, `--app`, `--status`, `--target-cpa` and `--target-cpi` are the ones you can change here. To add the iOS app to an account that ran with Android only:
+`optimize` starts from the input saved in the base run, not from `business.toml`. A change you made to the file after that run, such as a new app, does not reach it. `--daily-budget`, `--app`, `--status`, `--target-cpa`, `--target-cpi`, `--target-cps` and `--app-events` are the ones you can change here. To add the iOS app to an account that ran with Android only:
 
 ```bash
 mads optimize out/<run-id> --reports perf/2026-10-17 --app google_play=com.example.app --app app_store=6751919708 --provider anthropic --model <model-id>
 ```
 
-The live App campaign keeps its store (`E31` refuses moving it), the other store comes in as a new campaign, and the plan splits the app budget by the cost per install of each. See [Android and iOS](image-campaigns.md#android-and-ios).
+The live App campaign keeps its store (`E31` refuses moving it), the other store comes in as a new campaign, and the plan splits the app budget by the cost per install of each. An app that stays, with the same store and id, keeps its `optimize_for` and `conversion_action`. See [Android and iOS](image-campaigns.md#android-and-ios).
 
 New campaigns leave `Paused` when the base run was generated with `export.status = "Paused"`, even if `business.toml` says `Enabled` now. Pass `--status enabled` to export the ones that are not in the account yet as enabled. A campaign that is already in the account comes enabled when the plan keeps it, even if it is paused there: the plan keeps what is worth the money and leaves out what is not.
 
@@ -34,6 +34,7 @@ daily = 850
 currency = "BRL"
 target_cpa = 40.0   # the most you pay for one conversion
 target_cpi = 2.5    # the most you pay for one app install
+target_cpa_in_app = 12.0   # the most you pay for one in-app action, such as a sign-up
 ```
 
 Each campaign that ran gets a `vs_target` in what the plan reads:
@@ -42,9 +43,55 @@ Each campaign that ran gets a `vs_target` in what the plan reads:
 - `over`: each conversion cost more than the target.
 - `no_result`: the campaign spent twice the target and converted nothing. The factor is a line mads draws, not a Google rule.
 
-A campaign marked `over` or `no_result` gets no more daily budget than it ran with, thin or not (`E27`), and the plan leaves it out unless something broken explains the result. A `within` campaign that its budget limits is where the freed money goes. App campaigns are judged by `target_cpi` only, and every other campaign by `target_cpa`. A campaign without a target for its kind, or with too little spend to say, has no `vs_target`.
+A campaign marked `over` or `no_result` gets no more daily budget than it ran with, thin or not (`E27`), and the plan leaves it out unless something broken explains the result. A `within` campaign that its budget limits is where the freed money goes. App campaigns are judged by `target_cpi`, or by `target_cpa_in_app` when the campaign has app events (see [Judge App campaigns by in-app actions](#judge-app-campaigns-by-in-app-actions)). Every other campaign is judged by `target_cpa`. A campaign without a target for its kind, or with too little spend to say, has no `vs_target`.
 
-`optimize` reads the input saved in the base run, so a target you add to `business.toml` later does not reach it. Pass `--target-cpa` and `--target-cpi` to set them in the new run. `mads init --force` keeps both keys in the file, like `max_cpc`.
+`optimize` reads the input saved in the base run, so a target you add to `business.toml` later does not reach it. Pass `--target-cpa`, `--target-cpi` and `--target-cps` (cost per sign-up, or per any in-app action) to set them in the new run. `mads init --force` keeps both keys in the file, like `max_cpc`.
+
+## Judge App campaigns by in-app actions
+
+An install is not always the result you pay for. An App campaign can hit `target_cpi` while each install that becomes an account costs many times more. Google's install count can also be higher than the installs your app sees, so the cost per install the store reports is a weak signal on its own.
+
+Give mads the counts from your product analytics and it judges each App campaign by what an in-app action costs.
+
+```bash
+mads optimize out/<run-id> --reports perf/2026-10-17 --app-events perf/app-events.csv --target-cps 12 --provider anthropic --model <model-id>
+```
+
+`--target-cps` sets `budget.target_cpa_in_app` in the new run, the way `--target-cpi` sets `target_cpi`. `--app-events` is a CSV you export from your own analytics. Keep it out of the reports folder, or mads lists it there as skipped.
+
+| Column | What it holds |
+|---|---|
+| `date` | `YYYY-MM-DD`. A timestamp that starts with the date works too. |
+| `store` | `google_play` or `app_store`. |
+| `installs` | Installs your app counted that day for that store. |
+| `in_app_actions` | In-app actions, such as sign-ups, counted that day for that store. |
+
+The header names are English, in any letter case and any order. A comma, a semicolon or a tab separates the columns. Numbers can be `1020`, `1,020`, `1.020`, `1,020.50` or `1.020,50`. A file with a missing column, an unknown store, or a date or number mads cannot read stops the run before anything is written, and the message names the line.
+
+```text
+date,store,installs,in_app_actions
+2026-10-03,google_play,120,9
+2026-10-03,app_store,80,4
+```
+
+mads sums the rows that fall inside the date range of the reports, per store, and attaches the sums to each App campaign of that store. The plan reads these fields in the `app` block of the campaign.
+
+| Field | What it says |
+|---|---|
+| `app_installs_seen` | Installs your analytics counted in the date range. |
+| `in_app_actions` | In-app actions counted in the date range. |
+| `install_to_action_pct` | In-app actions as a percent of installs seen. |
+| `cost_per_in_app_action` | Cost of the store's App campaigns over `in_app_actions`. |
+| `store_vs_app_install_ratio` | Google conversions over `app_installs_seen`. Well above 1 means Google counts installs your app never sees. |
+| `store_cost` | Cost of the store's App campaigns in the date range. |
+
+The numbers are per store. The file does not say which campaign an install came from, so two App campaigns of one store carry the same numbers and one shared cost.
+
+With `target_cpa_in_app` set, an App campaign that has these numbers gets its `vs_target` from the cost per in-app action. That wins over `target_cpi`. `no_result` means the store's App campaigns spent twice the target and your app counted no action. The `E27` cap works as it does for any other verdict. A campaign whose store has no row in the file for the date range is judged by `target_cpi` as before, and mads lists it as judged without app events.
+
+The plan is also told that a store whose installs rarely become in-app actions should not get more budget just because its cost per install is low. `mads optimize` prints one line per App campaign before the missions start, and `report.md` repeats it under Performance data.
+
+To make an app optimize for an in-app action in the next import, set `optimize_for` and `conversion_action` on the app. See [Business file](business-file.md#app).
 
 ## Export the reports
 
@@ -108,6 +155,7 @@ What the file does to the live account:
 - A campaign that is live keeps its status from the campaigns report. A new campaign follows `export.status`. So does a campaign the reports show as removed: Google Ads keeps removed campaigns out of reach, and the import treats it as a new one.
 - A campaign, ad group, asset group or keyword that the new run dropped comes as a row with status `Paused`. An import changes what the file lists: Editor reads a [status column with Enabled, Paused or Removed](https://support.google.com/google-ads/editor/answer/57747?hl=en), and [new statuses for existing items come through CSV import](https://support.google.com/google-ads/editor/answer/53082?hl=en). An item the file does not name keeps serving. mads writes these rows only for campaigns the reports show in the account and not removed: a row for a campaign that was never imported would create it.
 - An enabled ad group of an older import, in a campaign the run keeps, comes as a row with status `Paused` too. The ad groups report must have the Ad group status column for mads to see it.
+- An App campaign whose app has `optimize_for = "in_app_actions"` comes with `Campaign optimization` set to `In-app actions`, the conversion action and, when `target_cpa_in_app` is set, `Target CPA`. Check these columns in the Editor preview. They are not verified against a real export (see [Business file](business-file.md#app)).
 - A bid strategy you changed in Google Ads stays. The campaign row comes with an empty `Bid Strategy Type`, and Editor changes nothing for an empty cell. The ad group CPCs of the run only count under Manual CPC.
 - A responsive search ad with new texts comes in as another ad in the group, and the old one stays enabled. Check it in the Editor preview and pause the old ad by hand.
 - A negative the new run dropped stays in Google Ads. Remove it by hand.

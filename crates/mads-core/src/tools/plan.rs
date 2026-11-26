@@ -177,15 +177,19 @@ pub async fn call(t: &MissionTools, name: &str, args: Value) -> ToolOutput {
 async fn get_business(t: &MissionTools) -> ToolOutput {
     let ws = t.ws.lock().await;
     let b = &ws.input.budget;
+    let mut budget = json!({
+        "daily": cents_to_f64(b.daily),
+        "currency": b.currency,
+        "max_cpc": b.max_cpc.map(cents_to_f64),
+        "target_cpa": b.target_cpa.map(cents_to_f64),
+        "target_cpi": b.target_cpi.map(cents_to_f64),
+    });
+    if let Some(target) = b.target_cpa_in_app {
+        budget["target_cpa_in_app"] = json!(cents_to_f64(target));
+    }
     let mut result = json!({
         "business": ws.input.business,
-        "budget": {
-            "daily": cents_to_f64(b.daily),
-            "currency": b.currency,
-            "max_cpc": b.max_cpc.map(cents_to_f64),
-            "target_cpa": b.target_cpa.map(cents_to_f64),
-            "target_cpi": b.target_cpi.map(cents_to_f64),
-        },
+        "budget": budget,
         "catalog_size": ws.input.catalog.len(),
         "catalog_photos": ws.input.catalog.iter().filter(|c| c.image.is_some()).count(),
         "image_campaigns": image_availability(t, &ws),

@@ -10,7 +10,7 @@ use crate::{
     google::{Account, CampaignKind, Cents},
     images::EDITOR_DIR,
     input::{App, ExportStatus, Input},
-    perf::{Live, Performance, ReportInput, digest, read_table},
+    perf::{AppEvents, Live, Performance, ReportInput, attach_app_events, digest, read_table},
     run::{PLATFORM_DIR, RunDir},
     workspace::{MissionStatus, Workspace},
 };
@@ -29,6 +29,8 @@ pub enum OptimizeError {
         "no Google Ads report in {dir}: export search terms, keywords or campaigns as CSV ({details})"
     )]
     NoReports { dir: String, details: String },
+    #[error("cannot read app events {0}: {1}")]
+    AppEvents(String, String),
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -52,6 +54,10 @@ pub struct Overrides {
     pub target_cpa: Option<Cents>,
     /// Replaces the most the advertiser pays for one app install.
     pub target_cpi: Option<Cents>,
+    /// Replaces the most the advertiser pays for one in-app action.
+    pub target_cpa_in_app: Option<Cents>,
+    /// CSV of the installs and in-app actions the advertiser's own analytics counted.
+    pub app_events: Option<PathBuf>,
 }
 
 /// Creates the optimization run under `out` and returns its directory. Nothing is written when
@@ -67,7 +73,12 @@ pub fn prepare(
         .map_err(|e| OptimizeError::Base(shown.clone(), e.to_string()))?;
     unfinished(&old)?;
     let files = read_reports(reports)?;
-    let performance = digest(&files, &old.account);
+    let events = overrides
+        .app_events
+        .as_deref()
+        .map(read_events)
+        .transpose()?;
+    let mut performance = digest(&files, &old.account);
 
     let run = RunDir::create(out)?;
     copy_dir(&base.join("input"), &run.root().join("input"))?;
@@ -76,6 +87,10 @@ pub fn prepare(
 
     let mut account = old.account.clone();
     name_app_stores(&mut account, &old.input);
+    if let Some((file, events)) = &events {
+        attach_app_events(&mut performance, &account, events);
+        performance.app_events_file = Some(file.clone());
+    }
     follow_live_budgets(&mut account, &performance);
     let mut ws = Workspace::new(old.input.clone());
     if let Some(daily) = overrides.daily_budget {
@@ -83,11 +98,14 @@ pub fn prepare(
     }
     ws.input.budget.target_cpa = overrides.target_cpa.or(ws.input.budget.target_cpa);
     ws.input.budget.target_cpi = overrides.target_cpi.or(ws.input.budget.target_cpi);
+    ws.input.budget.target_cpa_in_app = overrides
+        .target_cpa_in_app
+        .or(ws.input.budget.target_cpa_in_app);
     if let Some(status) = overrides.export_status {
         ws.input.export.status = status;
     }
     if let Some(apps) = &overrides.apps {
-        ws.input.apps = apps.clone();
+        ws.input.apps = keep_goals(apps.clone(), &old.input.apps);
     }
     ws.input.logo = old.input.logo.as_deref().map(|logo| {
         Path::new(logo).strip_prefix(base).map_or_else(
@@ -105,6 +123,18 @@ pub fn prepare(
         run_dir: run.root().to_path_buf(),
         performance,
     })
+}
+
+/// `--app` gives a store and an id and says nothing of what the app optimizes for: an app that
+/// stays, same store and same id, keeps the goal it had.
+fn keep_goals(mut apps: Vec<App>, old: &[App]) -> Vec<App> {
+    for app in &mut apps {
+        if let Some(was) = old.iter().find(|o| o.store == app.store && o.id == app.id) {
+            app.optimize_for = was.optimize_for;
+            app.conversion_action = was.conversion_action.clone();
+        }
+    }
+    apps
 }
 
 /// A run made with one app leaves `app_store` empty on its App campaigns. The new run can have two
@@ -180,6 +210,18 @@ fn read_reports(dir: &Path) -> Result<Vec<ReportInput>, OptimizeError> {
         });
     }
     Ok(files)
+}
+
+/// The app events file and its name.
+fn read_events(path: &Path) -> Result<(String, AppEvents), OptimizeError> {
+    let shown = path.display().to_string();
+    let bytes = std::fs::read(path)
+        .map_err(|e| OptimizeError::AppEvents(shown.clone(), e.to_string()))?;
+    let events = AppEvents::parse(&bytes).map_err(|e| OptimizeError::AppEvents(shown, e))?;
+    let name = path
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    Ok((name, events))
 }
 
 /// Copies a folder tree. A missing source copies nothing.
@@ -332,14 +374,8 @@ mod tests {
         let base = base_run(tmp.path(), MissionStatus::Finished);
         let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
         let apps = vec![
-            App {
-                store: AppStore::GooglePlay,
-                id: "com.vinellu.app".into(),
-            },
-            App {
-                store: AppStore::AppStore,
-                id: "6751919708".into(),
-            },
+            App::installs(AppStore::GooglePlay, "com.vinellu.app"),
+            App::installs(AppStore::AppStore, "6751919708"),
         ];
         let overrides = Overrides {
             apps: Some(apps.clone()),
@@ -377,6 +413,143 @@ mod tests {
         let kept = prepare(&base, &perf, &tmp.path().join("c"), &Overrides::default()).unwrap();
         let kept = Workspace::load(&kept.run_dir.join("workspace.json")).unwrap();
         assert_eq!(kept.input.budget.target_cpa, None, "no flag, none appears");
+    }
+
+    #[test]
+    fn a_new_in_app_target_replaces_the_target_of_the_new_run_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run(tmp.path(), MissionStatus::Finished);
+        let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
+        let overrides = Overrides {
+            target_cpa_in_app: Some(Cents(1250)),
+            ..Overrides::default()
+        };
+        let p = prepare(&base, &perf, &tmp.path().join("b"), &overrides).unwrap();
+        let ws = Workspace::load(&p.run_dir.join("workspace.json")).unwrap();
+        assert_eq!(ws.input.budget.target_cpa_in_app, Some(Cents(1250)));
+        let old = Workspace::load(&base.join("workspace.json")).unwrap();
+        assert_eq!(old.input.budget.target_cpa_in_app, None);
+        let kept = prepare(&base, &perf, &tmp.path().join("c"), &Overrides::default()).unwrap();
+        let kept = Workspace::load(&kept.run_dir.join("workspace.json")).unwrap();
+        assert_eq!(kept.input.budget.target_cpa_in_app, None, "no flag, none");
+    }
+
+    const APP_REPORT: &str = "Relatório de campanha\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus da campanha,Campanha,Custo,Cliques,Impr.,Conversões\nAtivada,Vinellu - Marca,\"10,00\",8,90,\"0,00\"\nAtivada,Vinellu - App,\"300,00\",500,9000,\"2.400,00\"\n";
+    const EVENTS: &str = "date,store,installs,in_app_actions\n2026-10-02,google_play,999,99\n2026-10-03,google_play,1000,50\n2026-10-05,google_play,1000,50\n";
+
+    /// A base run whose account has a Google Play App campaign next to the Search one.
+    fn base_run_with_app(root: &Path) -> PathBuf {
+        let base = base_run(root, MissionStatus::Finished);
+        let path = base.join("workspace.json");
+        let mut old = Workspace::load(&path).unwrap();
+        old.input.apps = vec![App::installs(AppStore::GooglePlay, "com.vinellu.app")];
+        let mut app = old.account.campaigns[0].clone();
+        (app.name, app.slug) = ("Vinellu - App".into(), "vinellu-app".into());
+        app.kind = crate::google::CampaignKind::AppInstalls;
+        app.app_store = None;
+        old.account.campaigns.push(app);
+        old.save(&path).unwrap();
+        base
+    }
+
+    #[test]
+    fn app_events_reach_the_app_campaigns_of_their_store() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run_with_app(tmp.path());
+        let perf = reports(tmp.path(), &[("c.csv", APP_REPORT)]);
+        let events = tmp.path().join("events.csv");
+        std::fs::write(&events, EVENTS).unwrap();
+        let overrides = Overrides {
+            app_events: Some(events),
+            ..Overrides::default()
+        };
+        let p = prepare(&base, &perf, &tmp.path().join("b"), &overrides).unwrap();
+        assert_eq!(p.performance.app_events_file.as_deref(), Some("events.csv"));
+        let ws = Workspace::load(&p.run_dir.join("workspace.json")).unwrap();
+        let live = ws.live.unwrap();
+        let app = live.performance.campaign("Vinellu - App").unwrap();
+        let app = app.app.as_ref().expect("app events");
+        assert_eq!((app.app_installs_seen, app.in_app_actions), (2000.0, 100.0));
+        assert_eq!(app.cost_per_in_app_action, Some(3.0));
+        assert_eq!(app.store_vs_app_install_ratio, Some(1.2));
+        let marca = live.performance.campaign("Vinellu - Marca").unwrap();
+        assert!(marca.app.is_none());
+    }
+
+    #[test]
+    fn without_app_events_the_performance_has_no_app_numbers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run_with_app(tmp.path());
+        let perf = reports(tmp.path(), &[("c.csv", APP_REPORT)]);
+        let p = prepare(&base, &perf, &tmp.path().join("b"), &Overrides::default()).unwrap();
+        assert_eq!(p.performance.app_events_file, None);
+        assert!(p.performance.app_events_missing.is_empty());
+        assert!(p.performance.campaigns.iter().all(|c| c.app.is_none()));
+        let json = std::fs::read_to_string(p.run_dir.join("workspace.json")).unwrap();
+        assert!(
+            !json.contains("app_events") && !json.contains("target_cpa_in_app")
+        );
+    }
+
+    #[test]
+    fn an_unreadable_app_events_file_stops_before_anything_is_written() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run_with_app(tmp.path());
+        let perf = reports(tmp.path(), &[("c.csv", APP_REPORT)]);
+        let run = |path: PathBuf| {
+            let overrides = Overrides {
+                app_events: Some(path),
+                ..Overrides::default()
+            };
+            prepare(&base, &perf, &tmp.path().join("new"), &overrides)
+                .err()
+                .unwrap()
+                .to_string()
+        };
+        let err = run(tmp.path().join("nope.csv"));
+        assert!(err.starts_with("cannot read app events"), "{err}");
+        let bad = tmp.path().join("bad.csv");
+        let text = "date,store,installs,in_app_actions\n2026-10-03,huawei,1,1\n";
+        std::fs::write(&bad, text).unwrap();
+        let err = run(bad);
+        assert!(err.contains("unknown store 'huawei'"), "{err}");
+        assert!(!tmp.path().join("new").exists(), "nothing is written");
+    }
+
+    #[test]
+    fn the_app_flag_keeps_the_goal_of_an_app_that_stays() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = base_run_with_app(tmp.path());
+        let path = base.join("workspace.json");
+        let mut old = Workspace::load(&path).unwrap();
+        old.input.apps[0].optimize_for = crate::input::AppGoal::InAppActions;
+        old.input.apps[0].conversion_action = "Sign up".into();
+        old.save(&path).unwrap();
+        let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
+        let apps = |play: &str| {
+            Some(vec![
+                App::installs(AppStore::GooglePlay, play),
+                App::installs(AppStore::AppStore, "6751919708"),
+            ])
+        };
+        let run = |name: &str, play: &str| {
+            let overrides = Overrides {
+                apps: apps(play),
+                ..Overrides::default()
+            };
+            let p = prepare(&base, &perf, &tmp.path().join(name), &overrides).unwrap();
+            Workspace::load(&p.run_dir.join("workspace.json"))
+                .unwrap()
+                .input
+                .apps
+        };
+        let same = run("a", "com.vinellu.app");
+        assert_eq!(same[0].optimize_for, crate::input::AppGoal::InAppActions);
+        assert_eq!(same[0].conversion_action, "Sign up");
+        assert_eq!(same[1].optimize_for, crate::input::AppGoal::Installs);
+        let other = run("b", "com.other.app");
+        assert_eq!(other[0].optimize_for, crate::input::AppGoal::Installs);
+        assert_eq!(other[0].conversion_action, "");
     }
 
     #[test]
@@ -419,10 +592,7 @@ mod tests {
         let base = base_run(tmp.path(), MissionStatus::Finished);
         let path = base.join("workspace.json");
         let mut old = Workspace::load(&path).unwrap();
-        old.input.apps = vec![App {
-            store: AppStore::GooglePlay,
-            id: "com.vinellu.app".into(),
-        }];
+        old.input.apps = vec![App::installs(AppStore::GooglePlay, "com.vinellu.app")];
         let mut app = old.account.campaigns[0].clone();
         (app.name, app.slug) = ("Vinellu - App".into(), "vinellu-app".into());
         app.kind = crate::google::CampaignKind::AppInstalls;
@@ -432,14 +602,8 @@ mod tests {
         let perf = reports(tmp.path(), &[("c.csv", REPORT)]);
         let overrides = Overrides {
             apps: Some(vec![
-                App {
-                    store: AppStore::GooglePlay,
-                    id: "com.vinellu.app".into(),
-                },
-                App {
-                    store: AppStore::AppStore,
-                    id: "6751919708".into(),
-                },
+                App::installs(AppStore::GooglePlay, "com.vinellu.app"),
+                App::installs(AppStore::AppStore, "6751919708"),
             ]),
             ..Overrides::default()
         };

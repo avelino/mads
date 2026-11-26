@@ -13,8 +13,9 @@ use crate::{
     google::{AdGroup, Campaign, CampaignKind, Cents, Issue, Keyword, MatchType, normalize},
     input::Budget,
     perf::{
-        AdGroupPerf, JUDGE_CONVERSIONS, KeywordPerf, Live, Metrics, NO_RESULT_TARGETS, Performance,
-        ReportKind, STALLED_DAYS, Signal, THIN_CLICKS, THIN_DAYS, TermPerf, VsTarget, vs_target,
+        AdGroupPerf, CampaignPerf, JUDGE_CONVERSIONS, KeywordPerf, Live, Metrics,
+        NO_RESULT_TARGETS, Performance, ReportKind, STALLED_DAYS, Signal, THIN_CLICKS, THIN_DAYS,
+        TermPerf, VsTarget, vs_target, vs_target_in_app,
     },
 };
 
@@ -94,6 +95,9 @@ fn live_rules(p: &Performance) -> String {
         "An ad group with not_in_run serves in Google Ads from an older import, next to the groups of this run, and the import pauses it. Its numbers are searches of this campaign: read them with the group of this run that covers the same theme, and reuse its exact name only if it should keep serving.".into(),
         "A policy limit (status reasons with 'política' or 'policy') is not lifted by a higher bid.".into(),
     ];
+    if p.campaigns.iter().any(|c| c.app.is_some()) {
+        rules.push(APP_EVENTS_RULE.into());
+    }
     if let Some(idle) = p.idle_budget {
         rules.push(format!(
             "idle_budget: {idle:.2} a day of the budget goes unspent. Move it to campaigns that convert at their budget limit."
@@ -108,6 +112,8 @@ fn live_rules(p: &Performance) -> String {
     }
     rules.join(" ")
 }
+
+const APP_EVENTS_RULE: &str = "app_installs_seen is what the advertiser's own analytics counted for the store of an App campaign, in_app_actions what those installs led to, install_to_action_pct their share and cost_per_in_app_action what each action cost. store_vs_app_install_ratio is Google's conversions over the installs the app saw: well above 1 means Google counts installs the app never sees, so the cost per install the store reports is a weak signal. A store whose installs rarely become in-app actions should not get more budget just because its cost per install is low: weigh its App campaign by cost_per_in_app_action.";
 
 /// What the advertiser accepts to pay for a result of this kind of campaign, in currency units.
 /// An install is not a conversion on the site, so App campaigns have their own target.
@@ -129,7 +135,20 @@ pub(super) fn verdict_of(live: &Live, b: &Budget, name: &str) -> Option<VsTarget
         .iter()
         .find(|c| normalize(&c.name) == normalize(name))?
         .kind;
-    vs_target(live.performance.campaign(name)?, target_for(kind, b)?)
+    let perf = live.performance.campaign(name)?;
+    if let Some(target) = in_app_target(kind, b, perf) {
+        return vs_target_in_app(perf, target);
+    }
+    vs_target(perf, target_for(kind, b)?)
+}
+
+/// The target per in-app action, for an App campaign that has app events to count them with. It
+/// wins over `target_cpi`: an install that never becomes an action is not a result.
+fn in_app_target(kind: CampaignKind, b: &Budget, perf: &CampaignPerf) -> Option<f64> {
+    if kind != CampaignKind::AppInstalls || perf.app.is_none() {
+        return None;
+    }
+    b.target_cpa_in_app.map(cents_to_f64)
 }
 
 const CAP_RULE: &str = "budget_cap is the most daily budget that campaign may get (E27). Split the account budget with the caps in mind: a capped campaign takes less than the share its intent would suggest, and the rest goes to the others. A cap wins over any share suggested for an intent.";
@@ -166,17 +185,17 @@ pub(super) fn budget_cap(live: &Live, b: &Budget, name: &str) -> Option<(&'stati
         Some(VsTarget::Over | VsTarget::NoResult)
     )
     .then_some((
-        "over its target: each conversion costs more than budget.target_cpa or target_cpi, or it spent twice that with none",
+        "over its target: each conversion costs more than budget.target_cpa, target_cpi or target_cpa_in_app, or it spent twice that with none",
         ran,
     ))
 }
 
 fn target_rule(b: &Budget) -> Option<String> {
-    if b.target_cpa.is_none() && b.target_cpi.is_none() {
+    if b.target_cpa.is_none() && b.target_cpi.is_none() && b.target_cpa_in_app.is_none() {
         return None;
     }
     Some(format!(
-        "vs_target compares what each conversion cost with the target in `budget` (target_cpa for campaigns, target_cpi for App campaigns): within is at or under it, over is above it, no_result is {NO_RESULT_TARGETS} targets spent with no conversion. An over or no_result campaign gets no more budget than it ran with (E27), thin or not. Give the money freed to a within campaign that its budget limits. A campaign with no vs_target has no target for its kind or not enough numbers yet."
+        "vs_target compares what each conversion cost with the target in `budget` (target_cpa for campaigns, target_cpi for App campaigns, and target_cpa_in_app for an App campaign with app events, where each in-app action is the result and it wins over target_cpi): within is at or under it, over is above it, no_result is {NO_RESULT_TARGETS} targets spent with no conversion. An over or no_result campaign gets no more budget than it ran with (E27), thin or not. Give the money freed to a within campaign that its budget limits. A campaign with no vs_target has no target for its kind or not enough numbers yet."
     ))
 }
 
@@ -501,9 +520,10 @@ mod tests {
     use super::*;
     use crate::{
         google::{Account, AdGroup, BidStrategy, Campaign, Cents, Intent, Keyword, MatchType, Rsa},
+        input::AppStore,
         perf::{
-            AdGroupPerf, CampaignPerf, KeywordPerf, Metrics, Performance, Signal, TermPerf,
-            TermState,
+            AdGroupPerf, AppPerf, CampaignPerf, KeywordPerf, Metrics, Performance, Signal,
+            StoreEvents, TermPerf, TermState,
         },
     };
 
@@ -723,5 +743,119 @@ mod tests {
         assert!(kw.get("quality_score").is_none(), "no nulls: {kw}");
         assert!(kw["metrics"].get("conversions").is_none(), "no zeros: {kw}");
         assert_eq!(kw["metrics"]["clicks"], 2);
+    }
+
+    /// An App campaign with cheap installs that rarely turn into an account: 300 spent, Google
+    /// counts 2400 conversions, the app saw 2000 installs and 100 actions.
+    fn app_live(with_events: bool) -> Live {
+        let mut live = big();
+        live.baseline.campaigns[0].kind = CampaignKind::AppInstalls;
+        let c = &mut live.performance.campaigns[0];
+        c.thin = false;
+        c.metrics.cost = 300.0;
+        c.metrics.conversions = 2400.0;
+        if with_events {
+            let seen = StoreEvents {
+                installs: 2000.0,
+                in_app_actions: 100.0,
+            };
+            c.app = Some(AppPerf::new(AppStore::GooglePlay, seen, 300.0, 2400.0));
+        }
+        live
+    }
+
+    fn targets(cpi: Option<u64>, in_app: Option<u64>) -> Budget {
+        let mut b = crate::testutil::input().budget;
+        b.target_cpi = cpi.map(Cents);
+        b.target_cpa_in_app = in_app.map(Cents);
+        b
+    }
+
+    fn verdict(live: &Live, b: &Budget) -> Option<VsTarget> {
+        verdict_of(live, b, "Catalogo")
+    }
+
+    #[test]
+    fn the_in_app_target_wins_over_the_install_target() {
+        let live = app_live(true);
+        // 0.125 per Google conversion is within a target of 0.20 per install.
+        assert_eq!(
+            verdict(&live, &targets(Some(20), None)),
+            Some(VsTarget::Within)
+        );
+        // 3.00 per in-app action is over a target of 2.00, installs target or not.
+        assert_eq!(
+            verdict(&live, &targets(Some(20), Some(200))),
+            Some(VsTarget::Over)
+        );
+        assert_eq!(
+            verdict(&live, &targets(None, Some(200))),
+            Some(VsTarget::Over)
+        );
+        // Once an in-app target judges, the install target is not what decides.
+        assert_eq!(
+            verdict(&live, &targets(Some(1), Some(300))),
+            Some(VsTarget::Within)
+        );
+    }
+
+    #[test]
+    fn without_app_events_the_install_target_still_judges() {
+        let live = app_live(false);
+        assert_eq!(
+            verdict(&live, &targets(Some(20), Some(200))),
+            Some(VsTarget::Within)
+        );
+        assert_eq!(verdict(&live, &targets(None, Some(200))), None);
+        assert_eq!(verdict(&live, &targets(None, None)), None);
+    }
+
+    #[test]
+    fn the_in_app_target_does_not_judge_other_campaigns() {
+        let mut live = app_live(true);
+        live.baseline.campaigns[0].kind = CampaignKind::Search;
+        let mut b = targets(None, Some(200));
+        assert_eq!(verdict(&live, &b), None);
+        b.target_cpa = Some(Cents(10_000));
+        assert_eq!(verdict(&live, &b), Some(VsTarget::Within));
+    }
+
+    #[test]
+    fn an_app_campaign_over_its_in_app_target_gets_no_more_budget() {
+        let live = app_live(true);
+        let over = targets(Some(20), Some(200));
+        let (why, cap) = budget_cap(&live, &over, "Catalogo").unwrap();
+        assert!(why.contains("target_cpa_in_app"), "{why}");
+        assert_eq!(cap, Cents(7000), "no more than it ran with");
+        let on_installs = targets(Some(20), None);
+        assert!(budget_cap(&live, &on_installs, "Catalogo").is_none());
+    }
+
+    #[test]
+    fn the_plan_reads_the_app_numbers_and_the_rule_about_cheap_installs() {
+        let (_, perf) = business_view(&app_live(true), &targets(None, Some(200)));
+        let c = &perf["campaigns"][0];
+        assert_eq!(c["app"]["app_installs_seen"], 2000.0);
+        assert_eq!(c["app"]["in_app_actions"], 100.0);
+        assert_eq!(c["app"]["install_to_action_pct"], 5.0);
+        assert_eq!(c["app"]["cost_per_in_app_action"], 3.0);
+        assert_eq!(c["app"]["store_vs_app_install_ratio"], 1.2);
+        assert_eq!(c["vs_target"], "over");
+        let rules = perf["live_rules"].as_str().unwrap();
+        assert!(
+            rules.contains("should not get more budget just because its cost per install is low"),
+            "{rules}"
+        );
+        assert!(rules.contains("target_cpa_in_app"), "{rules}");
+    }
+
+    #[test]
+    fn a_run_without_app_events_shows_nothing_new_to_the_plan() {
+        let (_, perf) = business_view(&app_live(false), &targets(Some(20), None));
+        assert!(perf["campaigns"][0].get("app").is_none());
+        let rules = perf["live_rules"].as_str().unwrap();
+        assert!(!rules.contains("cost per install is low"), "{rules}");
+        assert!(!rules.contains("app_installs_seen"), "{rules}");
+        assert_eq!(perf["campaigns"][0]["vs_target"], "within");
     }
 }

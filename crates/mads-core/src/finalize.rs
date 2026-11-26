@@ -245,6 +245,7 @@ mod tests {
                 max_cpc: None,
                 target_cpa: None,
                 target_cpi: None,
+                target_cpa_in_app: None,
             },
             export: ExportConfig {
                 status: ExportStatus::Paused,

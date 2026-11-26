@@ -134,6 +134,27 @@ max_cpc = 3.0
 - `daily` is the account budget. The campaign budgets must add up to it exactly, at most 2 decimals. A campaign needs at least 1.00.
 - `currency` is three uppercase letters. It is for the report only. mads does not write it to the CSV, because Google Ads uses your account currency.
 - `max_cpc` is optional. When set, any CPC above it fails with `E11`.
+- `target_cpa`, `target_cpi` and `target_cpa_in_app` are optional. They are what `mads optimize` holds campaigns to: a conversion, an app install and an in-app action. See [Optimize a live account](optimize.md#set-a-target).
+
+## App
+
+An App campaign promotes the app you list. It optimizes for installs unless you say otherwise.
+
+```toml
+[[app]]
+store = "google_play"
+id = "com.example.app"
+optimize_for = "in_app_actions"
+conversion_action = "Sign up"
+```
+
+- `optimize_for` is `installs` (the default) or `in_app_actions`.
+- `conversion_action` is the name of the in-app conversion action in Google Ads. It is required with `in_app_actions` and refused with `installs`.
+- Add `target_cpa_in_app` to `[budget]` to write a target cost per in-app action.
+
+An `in_app_actions` app changes the Editor file. The App campaign row gets `Campaign optimization` = `In-app actions`, `Conversion action` with your name, and `Target CPA` when `target_cpa_in_app` is set. These columns exist only in a file that has such a campaign, so an installs account writes the same file as before. `Campaign optimization` with `Installs` was checked against a real Editor export. The value `In-app actions` and the columns `Conversion action` and `Target CPA` were not, and no Google page lists them for this goal. Open the Editor preview before you post the changes. The `--layout drive-folders` package does not write the goal yet.
+
+`mads optimize` can judge the campaign by cost per in-app action. See [Judge App campaigns by in-app actions](optimize.md#judge-app-campaigns-by-in-app-actions).
 
 ## Export
 

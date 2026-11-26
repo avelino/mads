@@ -42,6 +42,7 @@ At most 20 pages (`business.pages: at most 20 pages`).
 | `max_cpc` | number | no | none | Greater than 0, at most 2 decimals |
 | `target_cpa` | number | no | none | The most you pay for one conversion. Greater than 0, at most 2 decimals. `mads optimize` compares each campaign with it. See [Optimize a live account](../guides/optimize.md#set-a-target). |
 | `target_cpi` | number | no | none | The same for one app install, used for App campaigns. Same validation. An App campaign is not judged by `target_cpa`. |
+| `target_cpa_in_app` | number | no | none | The most you pay for one in-app action, such as a sign-up. Same validation. With app events (`mads optimize --app-events`) it judges App campaigns in place of `target_cpi`. It is also written as `Target CPA` for an app that optimizes for `in_app_actions`. |
 
 ## [export]
 
@@ -98,8 +99,12 @@ Image campaigns (Performance Max and Demand Gen) need it. Without `[brand]` the 
 |---|---|---|---|
 | `store` | string | yes | `google_play` or `app_store`. |
 | `id` | string | yes | The package name on Google Play (`com.example.app`), the numeric id on the App Store. |
+| `optimize_for` | string | no | `installs` (the default) or `in_app_actions`. Any other value is a parse error. |
+| `conversion_action` | string | with `in_app_actions` | The name of the in-app conversion action in Google Ads, trimmed. Empty with `in_app_actions` fails with the key `app.conversion_action`, and so does a value with `installs`. |
 
 `app_installs` campaigns need it (`E24`). Their ads link to the store page.
+
+With `optimize_for = "in_app_actions"` the Editor file writes `Campaign optimization` as `In-app actions`, the `Conversion action` column and, when `budget.target_cpa_in_app` is set, `Target CPA`. Those two columns, and the value, are not verified against a real Google Ads Editor export. The columns are in the file only when some App campaign uses this goal, so the file of an installs account does not change. The drive-folder package does not write the goal. See [Business file](../guides/business-file.md#app).
 
 An app on each store takes one `[[app]]` table per store, at most one per store. Each App campaign promotes one of them, and the plan names the store of every campaign.
 

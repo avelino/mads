@@ -123,6 +123,16 @@ pub struct OptimizeArgs {
     /// The most you pay for one app install, in the account currency. App campaigns are judged by it.
     #[arg(long)]
     pub target_cpi: Option<f64>,
+    /// The most you pay for one in-app action such as a sign-up, in the account currency. With
+    /// --app-events, App campaigns are judged by it instead of --target-cpi. Without it the base
+    /// run's target stays, and without one there is none.
+    #[arg(long)]
+    pub target_cps: Option<f64>,
+    /// CSV your product analytics exports, with the columns date, store (google_play or app_store),
+    /// installs and in_app_actions. It gives each App campaign the installs the app saw and the
+    /// in-app actions they led to.
+    #[arg(long, value_name = "CSV")]
+    pub app_events: Option<PathBuf>,
     #[command(flatten)]
     pub run: RunArgs,
 }
@@ -402,6 +412,32 @@ mod tests {
             panic!("expected optimize")
         };
         assert_eq!((o.target_cpa, o.target_cpi), (Some(40.0), Some(2.5)));
+    }
+
+    #[test]
+    fn optimize_takes_the_in_app_target_and_the_app_events_file() {
+        let cli = Cli::try_parse_from([
+            "mads",
+            "optimize",
+            "out/x",
+            "--reports",
+            "perf",
+            "--target-cps",
+            "12.5",
+            "--app-events",
+            "events.csv",
+        ])
+        .unwrap();
+        let Command::Optimize(o) = cli.command else {
+            panic!("expected optimize")
+        };
+        assert_eq!(o.target_cps, Some(12.5));
+        assert_eq!(o.app_events, Some(std::path::PathBuf::from("events.csv")));
+        let cli = Cli::try_parse_from(["mads", "optimize", "out/x", "--reports", "perf"]).unwrap();
+        let Command::Optimize(o) = cli.command else {
+            panic!("expected optimize")
+        };
+        assert_eq!((o.target_cps, o.app_events), (None, None));
     }
 
     #[test]

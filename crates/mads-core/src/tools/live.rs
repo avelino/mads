@@ -1048,7 +1048,7 @@ mod tests {
         assert!(rules.contains("That money is outside the plan"), "{rules}");
         assert!(rules.contains("This run leaves them running"), "{rules}");
         assert!(
-            rules.contains("Budgets were changed outside mads (by hand or by auto-applied recommendations)"),
+            rules.contains("Budgets were changed outside mads: the daily_budget"),
             "{rules}"
         );
         assert!(rules.contains("live baseline"), "{rules}");

@@ -103,12 +103,12 @@ pub fn prepare(
         ws.input.budget.daily = daily;
     }
     // Before the budgets follow the live ones: drift compares them with what the base run exported.
-    let base = Base {
+    let exported = Base {
         account: &old.account,
         live: old.live.as_ref(),
         export_status: old.input.export.status,
     };
-    performance.drift = drift_since(&base, &performance, ws.input.budget.daily);
+    performance.drift = drift_since(&exported, &performance, ws.input.budget.daily);
     if overrides.pause_outside_run {
         performance.pause_outside_run = performance
             .outside_blind()
@@ -660,10 +660,9 @@ mod tests {
                 && matches!(&c.change, DriftKind::Budget { was, now } if *was == 20.0 && *now == 30.0)
         });
         assert!(budget, "{drift:?}");
-        let bids = drift
-            .campaigns
-            .iter()
-            .any(|c| matches!(&c.change, DriftKind::BidStrategy { was, .. } if was == "Manual CPC"));
+        let bids = drift.campaigns.iter().any(
+            |c| matches!(&c.change, DriftKind::BidStrategy { was, .. } if was == "Manual CPC"),
+        );
         assert!(bids, "{drift:?}");
         // 30 and 50 are enabled and live: 160 percent of the 50 the new run is given.
         assert_eq!(drift.account_budget_pct, Some(160.0));
@@ -702,7 +701,10 @@ mod tests {
         };
         let kept = run("a", false);
         assert_eq!(kept.outside_blind().len(), 1, "still reported");
-        assert!(kept.pause_outside_run.is_empty(), "no flag, nothing to pause");
+        assert!(
+            kept.pause_outside_run.is_empty(),
+            "no flag, nothing to pause"
+        );
         let paused = run("b", true);
         assert_eq!(paused.pause_outside_run, ["Antiga"]);
     }

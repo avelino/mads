@@ -196,10 +196,44 @@ pub enum Signal {
     LowQuality,
 }
 
+/// A keyword match type as Google Ads reports it. `MatchType` holds only what a plan can write:
+/// Broad is in the account when auto-applied recommendations or a hand edit add it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportedMatch {
+    Broad,
+    Phrase,
+    Exact,
+}
+
+impl ReportedMatch {
+    /// The Criterion Type Editor writes for a keyword of this match type.
+    pub fn label(self) -> &'static str {
+        match self {
+            ReportedMatch::Broad => "Broad",
+            ReportedMatch::Phrase => "Phrase",
+            ReportedMatch::Exact => "Exact",
+        }
+    }
+}
+
+impl From<MatchType> for ReportedMatch {
+    fn from(m: MatchType) -> Self {
+        match m {
+            MatchType::Phrase => ReportedMatch::Phrase,
+            MatchType::Exact => ReportedMatch::Exact,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeywordPerf {
     pub text: String,
-    pub match_type: Option<MatchType>,
+    /// None when the report names a match type mads does not know.
+    pub match_type: Option<ReportedMatch>,
+    /// Status of the keyword in Google Ads. Only a keyword report with a status column knows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_status: Option<LiveStatus>,
     pub status_reasons: String,
     pub signals: Vec<Signal>,
     pub max_cpc: Option<f64>,

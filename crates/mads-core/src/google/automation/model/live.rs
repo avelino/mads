@@ -4,7 +4,7 @@
 use super::images::is_image_campaign;
 use super::{
     CampaignRow, CatalogRow, DESCRIPTIONS, FixedRow, HEADLINES, Package, StructAction, catalog_row,
-    headline_1, is_automated, match_label,
+    headline_1, is_automated,
 };
 use crate::google::editor::{
     Dropped, baseline_campaign, dropped_items, is_live, outside_to_pause, same_name,
@@ -92,7 +92,7 @@ pub(super) fn dropped(live: &Live, account: &Account, input: &Input, p: &mut Pac
                     campaign,
                     &group.name,
                     text,
-                    match_label(match_type),
+                    match_type.label(),
                 ));
             }
             Dropped::Campaign { .. }

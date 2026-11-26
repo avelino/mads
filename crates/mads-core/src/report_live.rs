@@ -3,7 +3,10 @@
 use std::fmt::Write as _;
 
 use crate::{
-    google::{Account, AdGroup, Campaign, Dropped, Keyword, normalize, outside_to_pause, stray_in},
+    google::{
+        Account, AdGroup, Campaign, Dropped, Keyword, gone_keywords, normalize, outside_to_pause,
+        stray_in,
+    },
     perf::{DRIFT_SOURCE, Drift, JUDGE_CONVERSIONS, Live, LiveStatus, THIN_CLICKS, THIN_DAYS},
 };
 
@@ -172,7 +175,7 @@ fn campaign(md: &mut String, live: &Live, o: &Campaign, c: &Campaign, comma: boo
     for g in &c.ad_groups {
         match o.ad_groups.iter().find(|x| same(&x.name, &g.name)) {
             None => lines.push(format!("new ad group {}", g.name)),
-            Some(x) => lines.extend(group(x, g, comma)),
+            Some(x) => lines.extend(group(x, g, comma, &paused_keywords(live, o, x, g))),
         }
     }
     for x in o
@@ -229,7 +232,16 @@ fn asset_groups(o: &Campaign, c: &Campaign) -> Vec<String> {
     out
 }
 
-fn group(o: &AdGroup, g: &AdGroup, comma: bool) -> Vec<String> {
+/// The keywords the import pauses in a kept ad group, as `text (match)`: the same ones
+/// `dropped_items` hands to the exporters.
+fn paused_keywords(live: &Live, old: &Campaign, o: &AdGroup, g: &AdGroup) -> Vec<String> {
+    gone_keywords(live, old, o, g)
+        .into_iter()
+        .map(|(text, m)| format!("`{text}` ({})", m.label()).to_lowercase())
+        .collect()
+}
+
+fn group(o: &AdGroup, g: &AdGroup, comma: bool, gone: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     if o.default_cpc != g.default_cpc {
         out.push(format!(
@@ -239,7 +251,7 @@ fn group(o: &AdGroup, g: &AdGroup, comma: bool) -> Vec<String> {
             g.default_cpc.format_cpc(comma)
         ));
     }
-    let (added, gone) = diff(&o.keywords, &g.keywords);
+    let (added, _) = diff(&o.keywords, &g.keywords);
     if !added.is_empty() {
         out.push(format!("{}: keywords added {}", g.name, list(&added)));
     }
@@ -247,7 +259,7 @@ fn group(o: &AdGroup, g: &AdGroup, comma: bool) -> Vec<String> {
         out.push(format!(
             "{}: keywords paused by the import {}",
             g.name,
-            list(&gone)
+            list(gone)
         ));
     }
     out.extend(negatives(&g.name, &o.negatives, &g.negatives));
@@ -304,7 +316,10 @@ mod tests {
     use super::*;
     use crate::{
         google::{BidStrategy, Cents, Intent, MatchType, Rsa},
-        perf::{CampaignPerf, Performance, ReportFile, ReportKind, Window},
+        perf::{
+            AdGroupPerf, CampaignPerf, KeywordPerf, Performance, ReportFile, ReportKind,
+            ReportedMatch, Window,
+        },
     };
 
     fn kw(t: &str, m: MatchType) -> Keyword {
@@ -594,6 +609,44 @@ mod tests {
         ] {
             assert!(md.contains(needle), "missing {needle} in\n{md}");
         }
+    }
+
+    #[test]
+    fn the_paused_keywords_follow_the_keywords_report_when_there_is_one() {
+        let (mut live, new) = fixture();
+        let listed = |text: &str, m: ReportedMatch| KeywordPerf {
+            text: text.into(),
+            match_type: Some(m),
+            live_status: Some(LiveStatus::Enabled),
+            status_reasons: String::new(),
+            signals: Vec::new(),
+            max_cpc: None,
+            quality_score: None,
+            first_page_bid: None,
+            top_of_page_bid: None,
+            metrics: Default::default(),
+        };
+        live.performance.reports.push(ReportFile {
+            file: "palavras.csv".into(),
+            kind: ReportKind::Keywords,
+            rows: 2,
+            window: None,
+        });
+        live.performance.campaigns[0].ad_groups = vec![AdGroupPerf {
+            name: "tintos".into(),
+            keywords: vec![
+                listed("rioja", ReportedMatch::Broad),
+                listed("malbec", ReportedMatch::Exact),
+            ],
+            ..Default::default()
+        }];
+        let mut md = String::new();
+        changes(&mut md, &live, &new, false);
+        assert!(
+            md.contains("tintos: keywords paused by the import `rioja` (broad)"),
+            "{md}"
+        );
+        assert!(!md.contains("`malbec` (phrase)"), "{md}");
     }
 
     #[test]

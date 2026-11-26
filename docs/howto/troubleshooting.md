@@ -273,7 +273,7 @@ To skip the URL check on the first run, pass `--skip-url-check`. The report then
 mads export out/<run-id>
 ```
 
-Run it again after you fix the page. It does not call a model. A failed export removes the CSV files an earlier export wrote to `google-ads/`, so the folder never holds files that do not match the report.
+Run it again after you fix the page. It does not call a model. A failed export removes the CSV files an earlier export wrote to `google-ads/`, `google-ads/bulk/` and `google-ads/editor/`, so the folder never holds files that do not match the report.
 
 ## No pictures were generated
 

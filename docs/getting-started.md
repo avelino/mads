@@ -119,7 +119,7 @@ On a terminal you see one spinner per running mission. In a pipe or a log you se
 12:28:50 [run] cross-negatives: brand and competitor terms
 12:28:50 [run] validate: checking limits and policies
 12:28:52 [run] export: writing CSV files
-12:28:52 [out] out/20261001-122850-b51417/google-ads/1-campaign.csv
+12:28:52 [out] out/20261001-122850-b51417/google-ads/bulk/1-campaign.csv
 12:28:52 [out] out/20261001-122850-b51417/report.md
 ```
 
@@ -138,7 +138,7 @@ The command exits `0` when the files are written. See [Troubleshooting](howto/tr
 ## Read the result
 
 ```bash
-ls out/*/google-ads
+ls out/*/google-ads/bulk
 ```
 
 ```text
@@ -153,7 +153,9 @@ Open `out/<run-id>/report.md` first. It lists the budget split, every CPC with i
 
 ## Upload
 
-In Google Ads open Tools, Bulk actions, Uploads. Upload the five files in numeric order, preview, then apply. Campaigns arrive paused. Review them before you enable anything.
+In Google Ads open Tools, Bulk actions, Uploads. Upload the five files of `google-ads/bulk/` in numeric order, preview, then apply. Campaigns arrive paused. Review them before you enable anything.
+
+The files in `bulk/` are for this web upload only. Do not import them into Google Ads Editor. Editor takes `google-ads/editor/account.csv` instead, see [Import into Google Ads Editor](guides/import-google-ads-editor.md).
 
 ## Next
 

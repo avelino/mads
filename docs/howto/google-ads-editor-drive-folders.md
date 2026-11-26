@@ -2,7 +2,7 @@
 
 This page shows how to write the ads automation package, set it up once in Google Drive and Google Ads, create the image campaigns by script, and run the daily routine.
 
-`mads generate`, `mads export` and `mads optimize` take `--layout drive-folders`. It writes a folder of spreadsheets and a Google Ads script instead of files 1 to 5 and `editor/account.csv`. Without the flag, `export` and `--resume` keep the layout the run was written with, and `optimize` keeps the layout of its base run.
+`mads generate`, `mads export` and `mads optimize` take `--layout drive-folders`. It writes a folder of spreadsheets and a Google Ads script instead of `bulk/` and `editor/account.csv`. Without the flag, `export` and `--resume` keep the layout the run was written with, and `optimize` keeps the layout of its base run.
 
 ```bash
 mads generate business.toml --provider anthropic --model <model-id> --layout drive-folders
@@ -70,7 +70,7 @@ Every tab has a title on row 1, a sentence on row 2, a note on row 3, the header
 
 Cells you must fill before going live have a yellow fill. The `Pending` tab of `README.xlsx` lists each one.
 
-A successful `bulk` export removes the `automation/` folder. A successful `drive-folders` export removes files 1 to 5 and `editor/account.csv`. Pictures in `editor/images/` stay, and `Images/` holds a copy of each. A failed export (exit `3`) removes both sets.
+A successful `bulk` export removes the `automation/` folder. A successful `drive-folders` export removes `bulk/` and `editor/account.csv`. Pictures in `editor/images/` stay, and `Images/` holds a copy of each. A failed export (exit `3`) removes both sets.
 
 ## One-time setup
 
@@ -145,6 +145,8 @@ A run from `mads optimize` writes the same package, but the structural rows chan
 | S2 | No row | `Edit`, `Enabled` | No row |
 | S3 | `Edit`, status blank | `Add`, `Enabled` | `Edit`, `Paused` |
 | S4 | `Edit`, Status blank | `Add`, `Paused` | `Edit`, `Paused` |
+
+The keyword rows follow the same rules as the Editor file. With a keywords report, S4 pauses the enabled keywords the report lists that the new run does not carry, a broad keyword included (match type `Broad`), and skips keywords the report does not list. Without the report it pauses the keywords the base run had and the new run dropped. Keywords of automated campaigns have no row.
 
 `S5` and `S6` write a row only where the first fixed keyword of an ad group is new. Automated campaigns need no structural row.
 

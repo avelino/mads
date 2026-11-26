@@ -16,7 +16,7 @@ use super::{
 use crate::{
     input::{App, AppGoal, Input},
     money::Cents,
-    perf::{Live, LiveStatus},
+    perf::{Live, LiveStatus, ReportKind, ReportedMatch},
 };
 
 /// Path of the file under the platform directory.
@@ -146,12 +146,13 @@ pub(crate) enum Dropped<'a> {
         campaign: &'a Campaign,
         name: &'a str,
     },
-    /// A keyword of a kept ad group.
+    /// A keyword of a kept ad group, with the match type the account has it in: a plan holds only
+    /// Phrase and Exact, the account may also hold Broad.
     Keyword {
         campaign: &'a Campaign,
         group: &'a AdGroup,
         text: &'a str,
-        match_type: MatchType,
+        match_type: ReportedMatch,
     },
     /// An asset group of a kept campaign.
     AssetGroup {
@@ -174,7 +175,7 @@ pub(crate) fn dropped_items<'a>(live: &'a Live, new: &'a Account) -> Vec<Dropped
         match new.campaigns.iter().find(|c| same_name(&c.name, &old.name)) {
             None => out.push(Dropped::Campaign { name: &old.name }),
             Some(c) => {
-                dropped_in(old, c, &mut out);
+                dropped_in(live, old, c, &mut out);
                 out.extend(stray_in(live, old, c));
             }
         }
@@ -236,7 +237,75 @@ pub(crate) fn stray_in<'a>(live: &'a Live, old: &Campaign, c: &'a Campaign) -> V
         .collect()
 }
 
-fn dropped_in<'a>(old: &'a Campaign, c: &'a Campaign, out: &mut Vec<Dropped<'a>>) {
+/// The reports hold a keyword report: what it lists is the account's keywords, not the baseline.
+fn has_keyword_report(live: &Live) -> bool {
+    live.performance
+        .reports
+        .iter()
+        .any(|r| r.kind == ReportKind::Keywords)
+}
+
+/// The keywords the live account serves in the ad group `g` of the baseline. With a keyword report
+/// they are the enabled ones it lists, of every match type, Broad included: the baseline lacks
+/// what auto-applied recommendations added, and lists what an import already paused or removed.
+/// Without one, the baseline's keywords stand in. The baseline's spelling wins when both have it.
+fn live_keywords<'a>(
+    live: &'a Live,
+    old: &'a Campaign,
+    g: &'a AdGroup,
+) -> Vec<(&'a str, ReportedMatch)> {
+    if !has_keyword_report(live) {
+        return g
+            .keywords
+            .iter()
+            .map(|k| (k.text.as_str(), k.match_type.into()))
+            .collect();
+    }
+    let reported = live
+        .performance
+        .campaign(&old.name)
+        .and_then(|p| p.ad_groups.iter().find(|a| same_name(&a.name, &g.name)));
+    let spelled = |text: &'a str, m: ReportedMatch| {
+        g.keywords
+            .iter()
+            .find(|b| ReportedMatch::from(b.match_type) == m && same_name(&b.text, text))
+            .map_or(text, |b| b.text.as_str())
+    };
+    reported
+        .into_iter()
+        .flat_map(|a| &a.keywords)
+        .filter(|k| matches!(k.live_status, None | Some(LiveStatus::Enabled)))
+        .filter_map(|k| Some((spelled(&k.text, k.match_type?), k.match_type?)))
+        .collect()
+}
+
+/// Live keywords of a kept ad group that the new plan does not carry with the same text and match
+/// type, once each.
+pub(crate) fn gone_keywords<'a>(
+    live: &'a Live,
+    old: &'a Campaign,
+    g: &'a AdGroup,
+    kept: &AdGroup,
+) -> Vec<(&'a str, ReportedMatch)> {
+    let planned = |text: &str, m: ReportedMatch| {
+        kept.keywords
+            .iter()
+            .any(|n| ReportedMatch::from(n.match_type) == m && same_name(&n.text, text))
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    live_keywords(live, old, g)
+        .into_iter()
+        .filter(|&(text, m)| !planned(text, m))
+        .filter(|&(text, m)| seen.insert((normalize(text), m.label())))
+        .collect()
+}
+
+fn dropped_in<'a>(
+    live: &'a Live,
+    old: &'a Campaign,
+    c: &'a Campaign,
+    out: &mut Vec<Dropped<'a>>,
+) {
     for g in &old.ad_groups {
         let Some(kept) = c.ad_groups.iter().find(|n| same_name(&n.name, &g.name)) else {
             out.push(Dropped::AdGroup {
@@ -245,18 +314,16 @@ fn dropped_in<'a>(old: &'a Campaign, c: &'a Campaign, out: &mut Vec<Dropped<'a>>
             });
             continue;
         };
-        let gone = g.keywords.iter().filter(|k| {
-            !kept
-                .keywords
-                .iter()
-                .any(|n| n.match_type == k.match_type && same_name(&n.text, &k.text))
-        });
-        out.extend(gone.map(|k| Dropped::Keyword {
-            campaign: c,
-            group: kept,
-            text: &k.text,
-            match_type: k.match_type,
-        }));
+        out.extend(
+            gone_keywords(live, old, g, kept)
+                .into_iter()
+                .map(|(text, match_type)| Dropped::Keyword {
+                    campaign: c,
+                    group: kept,
+                    text,
+                    match_type,
+                }),
+        );
     }
     for g in &old.asset_groups {
         if !c.asset_groups.iter().any(|n| same_name(&n.name, &g.name)) {
@@ -308,7 +375,7 @@ impl Ctx<'_> {
                     text,
                     match_type,
                 } => self
-                    .keyword(campaign, group, text, criterion(match_type, false))
+                    .keyword(campaign, group, text, match_type.label())
                     .set("Status", PAUSED),
                 Dropped::AssetGroup { campaign, name }
                     if campaign.kind == CampaignKind::PerformanceMax =>
@@ -630,7 +697,7 @@ pub fn read_editor(bytes: &[u8]) -> Result<Vec<BTreeMap<String, String>>, String
 mod tests {
     use super::*;
     use crate::google::{AdGroup, BidStrategy, Intent};
-    use crate::perf::{Live, LiveStatus};
+    use crate::perf::{AdGroupPerf, KeywordPerf, Live, LiveStatus, ReportFile};
 
     fn demand_gen() -> Campaign {
         Campaign {
@@ -1126,5 +1193,165 @@ mod tests {
             others(&base),
             [("Antiga".to_string(), "Paused".to_string())]
         );
+    }
+
+    fn kperf(text: &str, m: ReportedMatch, status: Option<LiveStatus>) -> KeywordPerf {
+        KeywordPerf {
+            text: text.into(),
+            match_type: Some(m),
+            live_status: status,
+            status_reasons: String::new(),
+            signals: vec![],
+            max_cpc: None,
+            quality_score: None,
+            first_page_bid: None,
+            top_of_page_bid: None,
+            metrics: Default::default(),
+        }
+    }
+
+    /// The reports of `base` hold a keyword report listing `keywords` in the first campaign.
+    fn with_keyword_report(base: &mut Live, group: &str, keywords: Vec<KeywordPerf>) {
+        base.performance.reports.push(ReportFile {
+            file: "keywords.csv".into(),
+            kind: ReportKind::Keywords,
+            rows: keywords.len(),
+            window: None,
+        });
+        base.performance.campaigns[0].ad_groups = vec![AdGroupPerf {
+            name: group.into(),
+            keywords,
+            ..Default::default()
+        }];
+    }
+
+    fn keyword(text: &str, match_type: MatchType) -> super::super::Keyword {
+        super::super::Keyword {
+            text: text.into(),
+            match_type,
+        }
+    }
+
+    /// `(keyword, criterion type)` of every keyword row the import pauses, sorted.
+    fn paused_keywords(new: &Account, base: &Live) -> Vec<(String, String)> {
+        let file = export_editor_live(&crate::testutil::input(), new, Some(base)).unwrap();
+        let get = |r: &BTreeMap<String, String>, k: &str| r.get(k).cloned().unwrap_or_default();
+        let mut out: Vec<(String, String)> = read_editor(&file.bytes)
+            .unwrap()
+            .iter()
+            .filter(|r| !get(r, "Keyword").is_empty() && get(r, "Status") == "Paused")
+            .map(|r| (get(r, "Keyword"), get(r, "Criterion Type")))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// `Catalogo` / `tintos` of the baseline holds `malbec` and `merlot` as Phrase. The new plan
+    /// keeps `malbec` as Phrase and Exact and drops `merlot`.
+    fn kept_group_setup() -> (Account, Live) {
+        let mut old = search("Catalogo", &[("tintos", &["malbec", "merlot"])]);
+        old.ad_groups[0].keywords.push(keyword("malbec", MatchType::Exact));
+        let mut new = search("Catalogo", &[("tintos", &["malbec"])]);
+        new.ad_groups[0].keywords.push(keyword("malbec", MatchType::Exact));
+        let base = live(vec![old], &[("Catalogo", LiveStatus::Enabled)]);
+        let new = Account {
+            brand_kit: None,
+            campaigns: vec![new],
+        };
+        (new, base)
+    }
+
+    #[test]
+    fn without_a_keyword_report_the_baseline_decides_and_broad_is_not_seen() {
+        let (new, mut base) = kept_group_setup();
+        base.performance.campaigns[0].ad_groups = vec![AdGroupPerf {
+            name: "tintos".into(),
+            keywords: vec![kperf("malbec", ReportedMatch::Broad, Some(LiveStatus::Enabled))],
+            ..Default::default()
+        }];
+        assert_eq!(
+            paused_keywords(&new, &base),
+            [("merlot".to_string(), "Phrase".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_broad_keyword_the_plan_cannot_keep_is_paused_and_planned_ones_are_not() {
+        let (new, mut base) = kept_group_setup();
+        with_keyword_report(
+            &mut base,
+            "tintos",
+            vec![
+                kperf("malbec", ReportedMatch::Phrase, Some(LiveStatus::Enabled)),
+                kperf("malbec", ReportedMatch::Exact, Some(LiveStatus::Enabled)),
+                kperf("malbec", ReportedMatch::Broad, Some(LiveStatus::Enabled)),
+                kperf("syrah tinto", ReportedMatch::Broad, None),
+            ],
+        );
+        assert_eq!(
+            paused_keywords(&new, &base),
+            [
+                ("malbec".to_string(), "Broad".to_string()),
+                ("syrah tinto".to_string(), "Broad".to_string()),
+            ],
+            "the planned Phrase and Exact of malbec stay enabled"
+        );
+    }
+
+    #[test]
+    fn a_keyword_absent_from_the_keyword_report_is_not_paused() {
+        let (new, mut base) = kept_group_setup();
+        with_keyword_report(
+            &mut base,
+            "tintos",
+            vec![
+                kperf("malbec", ReportedMatch::Phrase, Some(LiveStatus::Enabled)),
+                kperf("malbec", ReportedMatch::Exact, Some(LiveStatus::Enabled)),
+            ],
+        );
+        assert!(
+            paused_keywords(&new, &base).is_empty(),
+            "merlot is gone live already: a Paused row would make Editor report a post error"
+        );
+    }
+
+    #[test]
+    fn a_dropped_keyword_still_enabled_in_the_report_is_paused_once() {
+        let (new, mut base) = kept_group_setup();
+        with_keyword_report(
+            &mut base,
+            "tintos",
+            vec![
+                kperf("Merlot", ReportedMatch::Phrase, Some(LiveStatus::Enabled)),
+                kperf("merlot", ReportedMatch::Phrase, Some(LiveStatus::Enabled)),
+                kperf("merlot", ReportedMatch::Exact, Some(LiveStatus::Paused)),
+                kperf("tannat", ReportedMatch::Exact, Some(LiveStatus::Removed)),
+            ],
+        );
+        assert_eq!(
+            paused_keywords(&new, &base),
+            [("merlot".to_string(), "Phrase".to_string())],
+            "the baseline spelling is used, a paused or removed keyword gets no row"
+        );
+    }
+
+    #[test]
+    fn dropped_items_names_broad_as_the_match_type_to_pause() {
+        let (new, mut base) = kept_group_setup();
+        with_keyword_report(
+            &mut base,
+            "tintos",
+            vec![kperf("rioja", ReportedMatch::Broad, Some(LiveStatus::Enabled))],
+        );
+        let found: Vec<(&str, ReportedMatch)> = dropped_items(&base, &new)
+            .into_iter()
+            .filter_map(|d| match d {
+                Dropped::Keyword {
+                    text, match_type, ..
+                } => Some((text, match_type)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(found, [("rioja", ReportedMatch::Broad)]);
     }
 }

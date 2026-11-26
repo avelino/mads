@@ -1,5 +1,10 @@
 use super::{Account, AdGroup, BidStrategy, Campaign, Keyword, MatchType, merge_rsa, normalize};
 use crate::input::Input;
+use crate::perf::Live;
+
+/// Directory of the web bulk upload files under the platform directory. Editor never imports
+/// them: `editor/account.csv` already holds the same Search campaigns.
+pub const BULK_DIR: &str = "bulk";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CsvFile {
@@ -113,6 +118,16 @@ fn bid_label(c: &Campaign) -> Result<&'static str, ExportError> {
     }
 }
 
+/// The Bid strategy type cell. Empty when the live account bids unlike the plan: the strategy was
+/// changed in Google Ads, and a bulk upload that names one would overwrite it.
+fn bid_cell(c: &Campaign, live: Option<&Live>) -> Result<&'static str, ExportError> {
+    let label = bid_label(c)?;
+    let by_hand = live
+        .and_then(|l| l.performance.campaign(&c.name))
+        .is_some_and(|p| p.bids_unlike(label));
+    Ok(if by_hand { "" } else { label })
+}
+
 fn match_label(m: MatchType) -> &'static str {
     match m {
         MatchType::Phrase => "Phrase match",
@@ -131,9 +146,14 @@ pub(crate) fn effective_negatives<'a>(c: &'a Campaign, ag: &'a AdGroup) -> Vec<&
         .collect()
 }
 
-/// Files 1 to 5 of the Google Ads bulk upload set, in upload order. Search campaigns only:
-/// without one there is no file.
-pub fn export_csvs(input: &Input, account: &Account) -> Result<Vec<CsvFile>, ExportError> {
+/// Files 1 to 5 of the Google Ads bulk upload set, in upload order, under `bulk/`. Search
+/// campaigns only: without one there is no file. `live` is the account as Google Ads has it, so a
+/// bid strategy changed there is left out of the campaign file.
+pub fn export_csvs(
+    input: &Input,
+    account: &Account,
+    live: Option<&Live>,
+) -> Result<Vec<CsvFile>, ExportError> {
     if !account.campaigns.iter().any(|c| !c.kind.has_images()) {
         return Ok(Vec::new());
     }
@@ -171,7 +191,7 @@ pub fn export_csvs(input: &Input, account: &Account) -> Result<Vec<CsvFile>, Exp
             "Google search",
             &budget,
             "Daily",
-            bid_label(c)?,
+            bid_cell(c, live)?,
             language,
             &location,
             &suffix,
@@ -214,11 +234,11 @@ pub fn export_csvs(input: &Input, account: &Account) -> Result<Vec<CsvFile>, Exp
         }
     }
     Ok(vec![
-        campaigns.finish("1-campaign.csv")?,
-        groups.finish("2-ad-groups.csv")?,
-        keywords.finish("3-keywords.csv")?,
-        negatives.finish("4-negative-keywords.csv")?,
-        ads.finish("5-responsive-search-ads.csv")?,
+        campaigns.finish("bulk/1-campaign.csv")?,
+        groups.finish("bulk/2-ad-groups.csv")?,
+        keywords.finish("bulk/3-keywords.csv")?,
+        negatives.finish("bulk/4-negative-keywords.csv")?,
+        ads.finish("bulk/5-responsive-search-ads.csv")?,
     ])
 }
 
@@ -356,8 +376,8 @@ mod tests {
 
     #[test]
     fn campaign_row_uses_config_and_replaces_slug_placeholder() {
-        let files = export_csvs(&input(), &account()).unwrap();
-        let rows: Vec<&str> = file(&files, "1-campaign.csv").split("\r\n").collect();
+        let files = export_csvs(&input(), &account(), None).unwrap();
+        let rows: Vec<&str> = file(&files, "bulk/1-campaign.csv").split("\r\n").collect();
         assert_eq!(
             rows[1],
             "Campaign,Add,Enabled,Acme - Brand,Search,Google search,37.50,Daily,Manual CPC,en,United States,utm_campaign=acme-brand&utm_term={keyword},Yes"
@@ -371,8 +391,8 @@ mod tests {
             "Belo Horizonte,State of Minas Gerais,Brazil".into(),
             "Sao Paulo,State of Sao Paulo,Brazil".into(),
         ];
-        let files = export_csvs(&input, &account()).unwrap();
-        let rows: Vec<&str> = file(&files, "1-campaign.csv").split("\r\n").collect();
+        let files = export_csvs(&input, &account(), None).unwrap();
+        let rows: Vec<&str> = file(&files, "bulk/1-campaign.csv").split("\r\n").collect();
         assert!(
             rows[1].contains(
                 ",\"Belo Horizonte,State of Minas Gerais,Brazil;Sao Paulo,State of Sao Paulo,Brazil\","
@@ -384,7 +404,7 @@ mod tests {
 
     #[test]
     fn every_record_ends_with_crlf_and_there_is_no_bom() {
-        let files = export_csvs(&input(), &account()).unwrap();
+        let files = export_csvs(&input(), &account(), None).unwrap();
         for f in &files {
             assert!(f.bytes.ends_with(b"\r\n"), "{}", f.name);
             assert!(!f.bytes.starts_with(&[0xEF, 0xBB, 0xBF]), "{}", f.name);
@@ -400,8 +420,8 @@ mod tests {
 
     #[test]
     fn campaign_negatives_are_expanded_into_ad_group_rows_without_duplicates() {
-        let files = export_csvs(&input(), &account()).unwrap();
-        let text = file(&files, "4-negative-keywords.csv");
+        let files = export_csvs(&input(), &account(), None).unwrap();
+        let text = file(&files, "bulk/4-negative-keywords.csv");
         let rows: Vec<&str> = text.trim_end().split("\r\n").skip(1).collect();
         assert_eq!(
             rows,
@@ -414,8 +434,8 @@ mod tests {
 
     #[test]
     fn rsa_row_merges_brand_kit_and_leaves_unused_cells_empty() {
-        let files = export_csvs(&input(), &account()).unwrap();
-        let text = file(&files, "5-responsive-search-ads.csv");
+        let files = export_csvs(&input(), &account(), None).unwrap();
+        let text = file(&files, "bulk/5-responsive-search-ads.csv");
         let row = text.split("\r\n").nth(1).unwrap();
         assert!(
             row.starts_with("Ad,Add,Enabled,Acme - Brand,g1,Responsive search ad,"),
@@ -428,12 +448,12 @@ mod tests {
 
     #[test]
     fn cpc_uses_decimal_setting() {
-        let files = export_csvs(&input(), &account()).unwrap();
-        assert!(file(&files, "2-ad-groups.csv").contains("Standard,1.50"));
+        let files = export_csvs(&input(), &account(), None).unwrap();
+        assert!(file(&files, "bulk/2-ad-groups.csv").contains("Standard,1.50"));
         let mut inp = input();
         inp.export.decimal_comma = true;
-        let files = export_csvs(&inp, &account()).unwrap();
-        assert!(file(&files, "2-ad-groups.csv").contains("Standard,\"1,50\""));
+        let files = export_csvs(&inp, &account(), None).unwrap();
+        assert!(file(&files, "bulk/2-ad-groups.csv").contains("Standard,\"1,50\""));
     }
 
     #[test]
@@ -441,7 +461,7 @@ mod tests {
         let mut a = account();
         a.brand_kit = None;
         assert_eq!(
-            export_csvs(&input(), &a).unwrap_err(),
+            export_csvs(&input(), &a, None).unwrap_err(),
             ExportError::MissingBrandKit
         );
     }
@@ -451,13 +471,69 @@ mod tests {
         let mut a = account();
         a.campaigns[0].bid_strategy = BidStrategy::MaximizeConversions;
         assert!(matches!(
-            export_csvs(&input(), &a).unwrap_err(),
+            export_csvs(&input(), &a, None).unwrap_err(),
             ExportError::PendingTemplate(_)
         ));
         a.campaigns[0].bid_strategy = BidStrategy::MaximizeClicks { max_cpc: None };
         assert!(matches!(
-            export_csvs(&input(), &a).unwrap_err(),
+            export_csvs(&input(), &a, None).unwrap_err(),
             ExportError::PendingTemplate(_)
         ));
+    }
+
+    fn live_with(strategy: &str) -> Live {
+        let mut performance = crate::perf::Performance::default();
+        performance.campaigns.push(crate::perf::CampaignPerf {
+            name: "Acme - Brand".into(),
+            bid_strategy: strategy.into(),
+            ..Default::default()
+        });
+        Live {
+            baseline: account(),
+            performance,
+        }
+    }
+
+    fn campaign_row(live: Option<&Live>) -> Vec<String> {
+        let files = export_csvs(&input(), &account(), live).unwrap();
+        let line = file(&files, "bulk/1-campaign.csv")
+            .split("\r\n")
+            .nth(1)
+            .unwrap()
+            .to_string();
+        line.split(',').map(String::from).collect()
+    }
+
+    #[test]
+    fn files_are_named_under_the_bulk_folder() {
+        let files = export_csvs(&input(), &account(), None).unwrap();
+        assert_eq!(files.len(), 5);
+        for f in &files {
+            assert!(f.name.starts_with("bulk/"), "{}", f.name);
+        }
+        assert_eq!(BULK_DIR, "bulk");
+    }
+
+    #[test]
+    fn a_bid_strategy_changed_in_google_ads_is_left_empty() {
+        let live = live_with("Maximize conversions");
+        let row = campaign_row(Some(&live));
+        assert_eq!(row[8], "", "{row:?}");
+        let plain = campaign_row(None);
+        let mut expected = plain.clone();
+        expected[8] = String::new();
+        assert_eq!(row, expected, "no other column changes");
+    }
+
+    #[test]
+    fn manual_cpc_stays_when_live_matches_or_is_absent() {
+        assert_eq!(campaign_row(None)[8], "Manual CPC");
+        assert_eq!(campaign_row(Some(&live_with("Manual CPC")))[8], "Manual CPC");
+        assert_eq!(campaign_row(Some(&live_with("CPC manual")))[8], "Manual CPC");
+        assert_eq!(
+            campaign_row(Some(&live_with("")))[8],
+            "Manual CPC",
+            "a report without the strategy column says nothing"
+        );
     }
 }

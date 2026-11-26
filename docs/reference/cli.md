@@ -83,7 +83,7 @@ Builds the account and writes the run directory.
 | `--image-provider <IMAGE_PROVIDER>` | `MADS_IMAGE_PROVIDER` | `auto` | Image model for Performance Max and Demand Gen: `auto`, `gemini`, `openai` or `none`. `auto` picks gemini when `GEMINI_API_KEY` is set, then openai when `OPENAI_API_KEY` is set, else none. An unknown name exits `2`. |
 | `--image-model <IMAGE_MODEL>` | `MADS_IMAGE_MODEL` | | Image model name. Defaults `gemini-2.5-flash-image` and `gpt-image-2`. |
 | `--max-images <MAX_IMAGES>` | | `40` | New pictures allowed in one run. See [Image campaigns](../guides/image-campaigns.md). |
-| `--layout <LAYOUT>` | | the run's layout, else `bulk` | File set to write. `bulk` is files 1 to 5 plus `editor/account.csv`. `drive-folders` is the ads automation package in `google-ads/automation/`, saved locally: Google Sheets workbooks for the Search campaigns and a Google Ads script that also creates the Performance Max, Demand Gen and App campaigns. `run.json` keeps the layout, so `--resume` without the flag writes the same set. See [Ads automation package](../howto/google-ads-editor-drive-folders.md). |
+| `--layout <LAYOUT>` | | the run's layout, else `bulk` | File set to write. `bulk` is files 1 to 5 in `google-ads/bulk/` plus `editor/account.csv`. `drive-folders` is the ads automation package in `google-ads/automation/`, saved locally: Google Sheets workbooks for the Search campaigns and a Google Ads script that also creates the Performance Max, Demand Gen and App campaigns. `run.json` keeps the layout, so `--resume` without the flag writes the same set. See [Ads automation package](../howto/google-ads-editor-drive-folders.md). |
 
 Agent flags:
 
@@ -153,9 +153,9 @@ Reruns cross negatives, validation, the URL check and the CSV export on `workspa
 | `<RUN_DIR>` | | Run directory with a finished run. Required. |
 | `--skip-url-check` | off | Skip the URL check. |
 | `--max-ad-groups <MAX_AD_GROUPS>` | `50` | Ad groups allowed in the whole account. |
-| `--layout <LAYOUT>` | the run's layout, else `bulk` | Same values as `generate`. `drive-folders` writes the automation package and does not write files 1 to 5 or `editor/account.csv`. Without the flag, `export` reads the layout from `run.json`. A run from `mads optimize` writes `Edit` rows for what is live, see [Over a live account](../howto/google-ads-editor-drive-folders.md#over-a-live-account). |
+| `--layout <LAYOUT>` | the run's layout, else `bulk` | Same values as `generate`. `drive-folders` writes the automation package and does not write `bulk/` or `editor/account.csv`. Without the flag, `export` reads the layout from `run.json`. A run from `mads optimize` writes `Edit` rows for what is live, see [Over a live account](../howto/google-ads-editor-drive-folders.md#over-a-live-account). |
 
-`export` fails with exit code `1` when the directory does not exist or a mission is unfinished. A failed export (exit `3`) removes the CSV files an earlier export left in `google-ads/`, and the `google-ads/automation/` folder. A successful export of one layout also removes the other layout's files, so the folder matches the report. Pictures in `editor/images/` stay.
+`export` fails with exit code `1` when the directory does not exist or a mission is unfinished. A failed export (exit `3`) removes the CSV files an earlier export left in `google-ads/`, `google-ads/bulk/` and `google-ads/editor/`, and the `google-ads/automation/` folder. A successful export of one layout also removes the other layout's files, so the folder matches the report. Pictures in `editor/images/` stay.
 
 ## mads providers
 

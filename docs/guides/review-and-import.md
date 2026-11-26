@@ -8,7 +8,7 @@ The report is in the run directory next to `google-ads/`. It always has these se
 
 ### Header and status
 
-The first line is the business name. The second line is the run id, the date, the provider and the model. A status line follows, one of three.
+A successful run with the default layout opens with a notice: import only `google-ads/editor/account.csv` into Google Ads Editor, and do not import the web bulk CSVs. Then comes the business name. The next line is the run id, the date, the provider and the model. A status line follows, one of three.
 
 | Status line | Exit code | What it means |
 |---|---|---|
@@ -60,7 +60,7 @@ What to check once the campaigns serve, and what to export for the next run.
 
 ## Review the CSVs
 
-Open the files in `google-ads/`. Check the things the validator cannot judge.
+Open the files in `google-ads/bulk/`. Check the things the validator cannot judge.
 
 - **Claims.** Does every headline come from facts you gave? mads blocks `avoid` terms and `!`. It does not fact-check.
 - **Tone and language.** Read the ads in your language.
@@ -72,18 +72,20 @@ You can edit the CSVs by hand before uploading. If you change many things, chang
 
 ## Upload in Google Ads
 
-This section is the web bulk upload of files 1 to 5. For `editor/account.csv`, see [Import into Google Ads Editor](import-google-ads-editor.md).
+This section is the web bulk upload of the files in `google-ads/bulk/`. Do not import them into Google Ads Editor. For `editor/account.csv`, see [Import into Google Ads Editor](import-google-ads-editor.md).
 
 1. Open Google Ads and go to Tools, Bulk actions, Uploads.
 2. Upload the files in numeric order, one at a time. Rows reference their parents by name, so the campaign file goes first.
 3. For each file, look at the preview. Google lists what it will add and flags rows it cannot accept.
 4. Fix anything flagged, then apply.
 
-The order is `1-campaign.csv`, `2-ad-groups.csv`, `3-keywords.csv`, `4-negative-keywords.csv`, `5-responsive-search-ads.csv`.
+The order is `bulk/1-campaign.csv`, `bulk/2-ad-groups.csv`, `bulk/3-keywords.csv`, `bulk/4-negative-keywords.csv`, `bulk/5-responsive-search-ads.csv`.
+
+When the run comes from [`mads optimize`](optimize.md), the `Bid strategy type` cell of `1-campaign.csv` is empty for a campaign that bids in Google Ads with another strategy than the plan. The upload then leaves the strategy as it is.
 
 ## Ads automation package
 
-`mads generate --layout drive-folders` and `mads export --layout drive-folders` write `google-ads/automation/<Business> Ads Automation/` instead of files 1 to 5 and `editor/account.csv`. The files stay on disk. You upload the folder to Google Drive, link it with `daily-sync.js`, and paste the Search output tabs in Google Ads Editor. mads does not upload anything.
+`mads generate --layout drive-folders` and `mads export --layout drive-folders` write `google-ads/automation/<Business> Ads Automation/` instead of `bulk/` and `editor/account.csv`. The files stay on disk. You upload the folder to Google Drive, link it with `daily-sync.js`, and paste the Search output tabs in Google Ads Editor. mads does not upload anything.
 
 Performance Max, Demand Gen and App campaigns need no Editor in this layout. Run `setupImageCampaigns` from `daily-sync.js` in Preview, read the log, then run it. It creates them paused, with their pictures from the package's `Images/` folder.
 
@@ -107,4 +109,4 @@ Sitelinks, callouts and structured snippets are validated but not exported. Add 
 
 When `business.toml` lists a restricted category, Google may refuse some keywords or ads at upload, such as `Alcohol sale: Your creative promotes the online sale of alcohol.` The `Restricted categories` section of `report.md` has the exception text to paste. See [Restricted categories](restricted-categories.md#when-google-refuses-a-keyword-or-an-ad).
 
-Performance Max, Demand Gen and App campaigns are not in files 1 to 5. `google-ads/editor/account.csv` holds the whole account, Search included, for Google Ads Editor, and you attach the pictures there by hand. Import that file or files 1 to 5, never both. See [Image campaigns](image-campaigns.md#import).
+Performance Max, Demand Gen and App campaigns are not in files 1 to 5. `google-ads/editor/account.csv` holds the whole account, Search included, for Google Ads Editor, and you attach the pictures there by hand. Import that file or the files in `google-ads/bulk/`, never both. See [Image campaigns](image-campaigns.md#import).

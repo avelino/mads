@@ -130,7 +130,7 @@ Then the missions run. This is an excerpt from a run with `--format plain`.
 12:28:51 [url] 200 https://vinellu.com/app
 12:28:52 [url] 200 https://vinellu.com/w/uMm7sBLgDV/malbec
 12:28:52 [run] export: writing CSV files
-12:28:52 [out] out/20261001-122850-b51417/google-ads/1-campaign.csv
+12:28:52 [out] out/20261001-122850-b51417/google-ads/bulk/1-campaign.csv
 12:28:52 [out] out/20261001-122850-b51417/report.md
 ```
 
@@ -167,9 +167,15 @@ workspace.json
 
 ## 4. Read report.md
 
-Open `out/<run-id>/report.md`. It starts with the status.
+Open `out/<run-id>/report.md`. It starts with a notice about which file goes into Google Ads Editor, then the status.
 
 ```markdown
+> Import only `google-ads/editor/account.csv` into Google Ads Editor. Do not import the web bulk CSVs (`google-ads/bulk/`) into Editor.
+
+# mads report: Vinellu
+
+20261001-122850-b51417 | 2026-10-01 | provider anthropic | model default
+
 > Ready to import. Review the files in `google-ads/` before uploading.
 ```
 
@@ -216,7 +222,7 @@ The URL check lists each URL with its status. The usage table lists tokens per m
 
 ## 5. Review the CSVs
 
-Open the files in `out/<run-id>/google-ads/`. They are plain text. Look at keywords first.
+Open the files in `out/<run-id>/google-ads/bulk/`. They are plain text. Look at keywords first.
 
 ```csv
 Row Type,Action,Keyword status,Campaign,Ad group,Keyword,Type
@@ -243,7 +249,7 @@ Negative keyword,Add,Enabled,Ad group,Vinellu - Rotulos,rotulo-alamos,vivino,Phr
 
 `vinellu` and `vivino` are the cross negatives. They sit in every ad group of the campaign, because campaign-level negatives are exported expanded into each ad group for now.
 
-Last, the ads. Open `5-responsive-search-ads.csv`. Headlines 1 to 5 are specific to the ad group. Headlines 6 to 15 are the same brand kit in every ad. Empty cells at the end mean the ad has fewer than 15 headlines.
+Last, the ads. Open `bulk/5-responsive-search-ads.csv`. Headlines 1 to 5 are specific to the ad group. Headlines 6 to 15 are the same brand kit in every ad. Empty cells at the end mean the ad has fewer than 15 headlines.
 
 Read every headline and description out loud. Check these things.
 
@@ -257,11 +263,13 @@ If something is wrong, you can edit the CSV directly, or fix the input and run `
 ## 6. Import into Google Ads
 
 1. Open Google Ads and go to Tools, Bulk actions, Uploads.
-2. Upload `1-campaign.csv` and preview the changes.
+2. Upload `bulk/1-campaign.csv` and preview the changes.
 3. Fix anything Google flags, then apply.
 4. Repeat for `2-ad-groups.csv`, `3-keywords.csv`, `4-negative-keywords.csv` and `5-responsive-search-ads.csv`, in that order.
 
 Rows reference their parents by name, so campaigns go first and ads go last.
+
+These five files are for the web upload. Do not import them into Google Ads Editor. Editor takes `google-ads/editor/account.csv` alone.
 
 The campaigns arrive with status `Paused`. The ad groups, keywords and ads are `Enabled`, but nothing serves while the campaign is paused.
 

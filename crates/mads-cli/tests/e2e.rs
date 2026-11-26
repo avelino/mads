@@ -236,8 +236,17 @@ fn generate_with_json_format_streams_valid_events_and_writes_the_run_dir() {
         "4-negative-keywords.csv",
         "5-responsive-search-ads.csv",
     ] {
-        assert!(run.join("google-ads").join(f).exists(), "{f}");
+        assert!(run.join("google-ads/bulk").join(f).exists(), "{f}");
+        assert!(
+            !run.join("google-ads").join(f).exists(),
+            "{f} must not also sit in the google-ads root"
+        );
     }
+    let report = fs::read_to_string(run.join("report.md")).unwrap();
+    assert!(
+        report.starts_with("> Import only `google-ads/editor/account.csv` into Google Ads Editor."),
+        "{report}"
+    );
     for f in [
         "report.md",
         "workspace.json",
@@ -343,7 +352,7 @@ fn unreachable_urls_exit_3_and_export_can_skip_the_check() {
     let p = Project::new("http://127.0.0.1:1");
     p.generate(&p.full_script(), &["--format", "plain"]).code(3);
     let run = p.run_dir();
-    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    assert!(!run.join("google-ads/bulk/1-campaign.csv").exists());
     assert!(
         fs::read_to_string(run.join("report.md"))
             .unwrap()
@@ -355,7 +364,7 @@ fn unreachable_urls_exit_3_and_export_can_skip_the_check() {
         .arg("--skip-url-check")
         .assert()
         .success();
-    assert!(run.join("google-ads/1-campaign.csv").exists());
+    assert!(run.join("google-ads/bulk/1-campaign.csv").exists());
 }
 
 #[test]
@@ -379,7 +388,7 @@ fn a_failed_mission_exits_1_and_resume_finishes_the_run() {
         .arg("--skip-url-check")
         .assert()
         .success();
-    assert!(run.join("google-ads/1-campaign.csv").exists());
+    assert!(run.join("google-ads/bulk/1-campaign.csv").exists());
 }
 
 #[test]
@@ -851,10 +860,10 @@ fn generate_with_images_writes_the_editor_csv_and_the_pictures() {
         "the logo is part of the run"
     );
     assert!(
-        run.join("google-ads/1-campaign.csv").is_file(),
+        run.join("google-ads/bulk/1-campaign.csv").is_file(),
         "search campaigns keep files 1 to 5"
     );
-    let campaigns = fs::read_to_string(run.join("google-ads/1-campaign.csv")).unwrap();
+    let campaigns = fs::read_to_string(run.join("google-ads/bulk/1-campaign.csv")).unwrap();
     assert!(
         !campaigns.contains("Feed"),
         "image campaigns stay out of the bulk files"
@@ -1152,7 +1161,7 @@ const PACKAGE: &str = "google-ads/automation/Vinellu Ads Automation";
 fn assert_drive_run(run: &Path) {
     let feed = run.join(PACKAGE).join("0. Feed.xlsx");
     assert!(feed.is_file(), "{}", feed.display());
-    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    assert!(!run.join("google-ads/bulk/1-campaign.csv").exists());
     let json: Value =
         serde_json::from_str(&fs::read_to_string(run.join("run.json")).unwrap()).unwrap();
     assert_eq!(json["layout"], "drive-folders", "{json}");
@@ -1226,7 +1235,7 @@ fn generate_with_drive_folders_writes_the_automation_package_locally() {
         !dir.join("Structure/S8. App Extension.xlsx").exists(),
         "no app id, no S8"
     );
-    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    assert!(!run.join("google-ads/bulk/1-campaign.csv").exists());
     let feed = dir.join("0. Feed.xlsx");
     let campaigns = xlsx_rows(&feed, "Campaigns");
     assert!(
@@ -1262,7 +1271,7 @@ fn generate_with_drive_folders_writes_the_automation_package_locally() {
         feed.is_file(),
         "export without --layout keeps the run's layout"
     );
-    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    assert!(!run.join("google-ads/bulk/1-campaign.csv").exists());
 
     p.mads()
         .arg("export")
@@ -1270,7 +1279,7 @@ fn generate_with_drive_folders_writes_the_automation_package_locally() {
         .args(["--skip-url-check", "--layout", "bulk"])
         .assert()
         .success();
-    assert!(run.join("google-ads/1-campaign.csv").is_file());
+    assert!(run.join("google-ads/bulk/1-campaign.csv").is_file());
     assert!(run.join("google-ads/editor/account.csv").is_file());
     assert!(!run.join("google-ads/automation").exists());
     let bulk = fs::read_to_string(run.join("report.md")).unwrap();
@@ -1283,7 +1292,7 @@ fn generate_with_drive_folders_writes_the_automation_package_locally() {
         .assert()
         .success();
     assert!(feed.is_file());
-    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    assert!(!run.join("google-ads/bulk/1-campaign.csv").exists());
     assert!(
         !run.join("google-ads/editor").exists(),
         "a bulk run re-exported as drive-folders drops the empty editor directory"
@@ -1316,7 +1325,7 @@ fn drive_folders_still_honors_the_ad_group_limit() {
         !run.join("google-ads/automation").exists(),
         "a failed export removes the package"
     );
-    assert!(!run.join("google-ads/1-campaign.csv").exists());
+    assert!(!run.join("google-ads/bulk/1-campaign.csv").exists());
 }
 
 #[test]

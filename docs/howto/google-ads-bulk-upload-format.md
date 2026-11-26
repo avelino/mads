@@ -1,8 +1,10 @@
 # Google Ads bulk upload format
 
-This page describes the five CSV files mads writes by default, column by column, so you can check them, edit them or build tooling around them.
+This page describes the five CSV files mads writes by default in `google-ads/bulk/`, column by column, so you can check them, edit them or build tooling around them.
 
 `--layout drive-folders` writes a different set. See [Ads automation package](google-ads-editor-drive-folders.md).
+
+These files are for the web bulk upload in Google Ads (Tools, Bulk actions, Uploads). Do not import them into Google Ads Editor. Editor takes `google-ads/editor/account.csv`, which holds the same Search campaigns, and importing both creates every Search campaign twice.
 
 These files hold Search campaigns only. Performance Max and Demand Gen campaigns go to a Google Ads Editor file, see [Image campaigns](../guides/image-campaigns.md).
 
@@ -22,7 +24,7 @@ Every file starts with a header row. Every data row has `Action` set to `Add`.
 
 ## Upload order
 
-Upload in numeric order. A row can only point at a campaign or ad group that already exists.
+Upload in numeric order. A row can only point at a campaign or ad group that already exists. The files are in `google-ads/bulk/`.
 
 | File | One row per | Row Type |
 |---|---|---|
@@ -47,7 +49,7 @@ Campaign,Add,Paused,Vinellu - Rotulos - Search,Search,Google search,50,Daily,Man
 | `Networks` | `Google search` |
 | `Budget` | The campaign daily budget. No decimals when whole (`50`), else 2 (`37,50`) |
 | `Budget type` | `Daily` |
-| `Bid strategy type` | `Manual CPC`. No other value is exported today. |
+| `Bid strategy type` | `Manual CPC`. No other value is exported today. Empty when the run comes from `mads optimize` and the campaign report shows another strategy in Google Ads: the cell stays empty so the upload does not overwrite it. Without a campaign report, or when the live strategy is Manual CPC, it is `Manual CPC`. |
 | `Language` | Primary subtag of `business.language` (`pt-BR` gives `pt`) |
 | `Location` | Every `business.locations` entry, separated by `;`. More than one entry has not gone through a real upload yet |
 | `Final URL suffix` | `export.url_suffix` with `{mads_campaign}` replaced by the campaign slug |

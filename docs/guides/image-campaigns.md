@@ -133,7 +133,8 @@ Each picture gets 2 attempts. A failure, a refused prompt or a reference photo t
 
 ```text
 out/<run>/google-ads/
-  1-campaign.csv ... 5-responsive-search-ads.csv   Search campaigns, for the web bulk upload
+  bulk/
+    1-campaign.csv ... 5-responsive-search-ads.csv   Search campaigns, for the web bulk upload
   editor/
     account.csv                                    every campaign, for Google Ads Editor
     images/
@@ -157,7 +158,7 @@ Pictures cannot travel in a file. The web bulk upload takes no image files, and 
 4. For every ad and asset group in the Images table of `report.md`, open its Images field and pick the files listed there. Demand Gen ads and Performance Max asset groups also take `logo.png`. Do it before posting: an App or Demand Gen ad without its pictures fails to post, and its ad group goes up empty, with no active ads.
 5. Post the changes. If an ad failed, filter Ads by errors in Editor, attach what is missing and post again. See [Troubleshooting](../howto/troubleshooting.md#an-app-or-demand-gen-ad-group-has-no-ads).
 
-`account.csv` holds the Search campaigns too, so do not also upload files 1 to 5 on the web: that creates every Search campaign twice. Files 1 to 5 are for an account that has only Search campaigns and no Editor. See [Review and import](review-and-import.md).
+`account.csv` holds the Search campaigns too. Never import the files in `google-ads/bulk/` into Editor, and do not also upload them on the web: that creates every Search campaign twice. Files 1 to 5 are for an account that has only Search campaigns and no Editor. See [Review and import](review-and-import.md).
 
 ### Without Google Ads Editor
 

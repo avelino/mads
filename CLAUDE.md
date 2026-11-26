@@ -17,11 +17,11 @@ Run the whole flow offline with the hidden `replay` provider: see `crates/mads-c
 - `mads-core` never touches the network. It defines the traits (`ChatModel`, `Driver`, `Web`, `SiteFetch`, `ToolHost`) and `mads-providers` implements them. `mads-cli` depends on both.
 - A run is missions: `plan`, then one `campaign:<slug>` per campaign in parallel, then deterministic post-processing (cross negatives, validate, URL check, export). `mads init` is a separate single mission. `mads optimize` prepares a new run from a finished one plus Google Ads report CSVs (`src/perf`, `workspace.live`) and runs the same missions. Reports are told apart by their columns in `src/perf/table.rs`: search terms, keywords, campaigns, by day, ad groups, assets, conversion actions (`src/perf/conversions.rs`) and networks (`src/perf/networks.rs`). With `--app-events` it also reads the advertiser's analytics CSV (`src/perf/app_events.rs`) and gives each App campaign its in-app action numbers. Campaigns outside the run are read too (`src/perf/outside.rs`) and the live account is compared with what the base run exported (`src/perf/drift.rs`): both become findings, a report section and `live_rules`.
 - Agents work only through typed tools (`crates/mads-core/src/tools`, `src/init/tools.rs`). API providers loop over `ChatModel`. Agent CLIs reach the same tools through a per-mission MCP server (`mads-providers/src/mcp.rs`).
-- Output per ad platform: `out/<run>/google-ads/` (five CSVs), plus `report.md`, `workspace.json`, `events.ndjson`, `transcripts/`.
+- Output per ad platform: `out/<run>/google-ads/`: `bulk/` (five CSVs, web bulk upload only) and `editor/account.csv` (the only file to import into Editor), plus `report.md` (it opens with a notice that says so), `workspace.json`, `events.ndjson`, `transcripts/`.
 
 ## Invariants
 
-- `data/` is the golden reference. `crates/mads-core/tests/golden.rs` must keep exporting files 1 to 5 byte for byte.
+- `data/` is the golden reference. `crates/mads-core/tests/golden.rs` must keep exporting files 1 to 5 (under `bulk/`) byte for byte.
 - A tool validates before it writes and never panics. A failed call changes nothing and returns `ok:false` with issues.
 - Tool schemas stay portable: no `$ref`, `anyOf`, `oneOf` or nullable types (a test enforces it).
 - No `unwrap` outside tests. Tests come first and must fail for the right reason before the code exists.
@@ -31,6 +31,8 @@ Run the whole flow offline with the hidden `replay` provider: see `crates/mads-c
 
 - Only `manual_cpc` bidding is accepted. Maximize clicks and conversions return `UNSUPPORTED`.
 - Campaigns outside the run are left alone. Only `--pause-outside-run` writes a `Paused` row, for the enabled ones flagged as spending without converting, in the Editor file and in S1.
+- In `mads optimize`, a bid strategy the live account has and the plan does not (`bids_unlike`) is left alone in both files: `Bid Strategy Type` in `editor/account.csv` and `Bid strategy type` in `bulk/1-campaign.csv` stay empty.
+- Pause rows for keywords of a kept ad group come from `dropped_items` (`google/editor.rs`), shared with the drive-folders layout. With a keyword report, the baseline is the enabled keywords that report lists, of any match type (Broad included). Without one, it is the base run's keywords.
 - Campaign negatives are expanded into every ad group row of `4-negative-keywords.csv`.
 - Sitelinks, callouts and snippets are validated but not exported. M11 waits for real Google templates in `data/templates/`.
 - An app with `optimize_for = "in_app_actions"` writes `In-app actions`, `Conversion action` and `Target CPA` in the Editor file. Only `Installs` was checked against a real export, so those names are unverified and the file has the two extra columns only when such a campaign exists. The drive-folders layout ignores the goal.

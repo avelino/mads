@@ -70,7 +70,7 @@ The dependency rule is strict. `mads-cli` depends on `mads-providers` and `mads-
 4. Run one campaign mission per campaign that is not `Finished`, at most `--parallel` at a time. A failed campaign does not stop the others.
 5. If every mission finished, add cross negatives and run `finalize`. Otherwise exit code `1`.
 6. `finalize` validates the account, checks URLs (unless skipped) and exports the CSVs. Errors give exit code `3`.
-7. Write the CSVs into `google-ads/`, `report.md` and `run.json`. Emit `run_finished`. On any exit code other than `0`, stale CSVs in `google-ads/` are removed first. Every model message or CLI stream line is appended to `transcripts/`.
+7. Write the CSVs into `google-ads/bulk/` and `google-ads/editor/`, `report.md` and `run.json`. Emit `run_finished`. On any exit code other than `0`, stale CSVs in `google-ads/`, `google-ads/bulk/` and `google-ads/editor/` are removed first. Every model message or CLI stream line is appended to `transcripts/`.
 
 Each mission attempt does this.
 

@@ -51,13 +51,13 @@ pub struct ExportOpts {
     pub layout: ExportLayout,
 }
 
-/// Bulk upload files 1 to 5 for Search, then the Editor file for image campaigns.
+/// Bulk upload files 1 to 5 (in `bulk/`) for Search, then the Editor file for image campaigns.
 fn export_all(
     input: &Input,
     account: &Account,
     live: Option<&Live>,
 ) -> Result<Vec<CsvFile>, ExportError> {
-    let mut files = export_csvs(input, account)?;
+    let mut files = export_csvs(input, account, live)?;
     files.extend(export_editor_live(input, account, live));
     Ok(files)
 }
@@ -277,11 +277,11 @@ mod tests {
         assert_eq!(
             names,
             [
-                "1-campaign.csv",
-                "2-ad-groups.csv",
-                "3-keywords.csv",
-                "4-negative-keywords.csv",
-                "5-responsive-search-ads.csv",
+                "bulk/1-campaign.csv",
+                "bulk/2-ad-groups.csv",
+                "bulk/3-keywords.csv",
+                "bulk/4-negative-keywords.csv",
+                "bulk/5-responsive-search-ads.csv",
                 "editor/account.csv"
             ],
             "the web files for Search, and the whole account for Editor"

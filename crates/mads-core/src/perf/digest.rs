@@ -3,12 +3,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
+    conversions,
     model::*,
+    networks::{self, Network},
     table::ReportKind,
-    table::{AD_GROUP, ASSET, CAMPAIGN, DAY, KEYWORD, MATCH, Row, SEARCH_TERM, Table},
+    table::{AD_GROUP, ASSET, CAMPAIGN, DAY, KEYWORD, MATCH, NETWORK, Row, SEARCH_TERM, Table},
 };
 use crate::{
-    google::{Account, AdGroup, Campaign, MatchType, contains_word_sequence, normalize},
+    google::{
+        Account, AdGroup, Campaign, CampaignKind, MatchType, contains_word_sequence, normalize,
+    },
     input::fold,
 };
 
@@ -77,6 +81,14 @@ pub fn digest(files: &[ReportInput], account: &Account) -> Performance {
         finish(c, pass.totals.contains(&i), days, p.mixed_windows);
     }
     mark_untracked(&mut p.campaigns);
+    if pass.actions_read {
+        conversions::analyse(&mut p.campaigns, account);
+    }
+    for (i, rows) in &pass.networks {
+        let app = account.campaigns[*i].kind == CampaignKind::AppInstalls;
+        let c = &mut p.campaigns[*i];
+        (c.networks, c.accidental_display_clicks) = networks::summarize(rows, app);
+    }
     p.idle_budget = idle_budget(&p.campaigns);
     p.missing_reports = missing_reports(&p.reports);
     p
@@ -149,6 +161,10 @@ struct Pass {
     latest_day: BTreeMap<usize, String>,
     /// First day with impressions per campaign.
     first_active: BTreeMap<usize, String>,
+    /// A conversion action report was read: a campaign with no action in it counted none.
+    actions_read: bool,
+    /// Rows of the network report per campaign, added up per network at the end.
+    networks: BTreeMap<usize, Vec<(Network, Metrics)>>,
 }
 
 fn mean(values: &[f64]) -> Option<f64> {
@@ -202,6 +218,15 @@ fn read(p: &mut Performance, pass: &mut Pass, t: &Table, account: &Account) {
                 group(c, &g).search_terms.push(term);
             }
             Assets => group(c, &row.text(AD_GROUP)).assets.push(asset(&row)),
+            ConversionActions => {
+                pass.actions_read = true;
+                conversions::add_row(c, &row);
+            }
+            Networks => pass
+                .networks
+                .entry(ci)
+                .or_default()
+                .push((Network::of(&row.text(NETWORK)), metrics(&row))),
             AdGroups => {
                 let g = group(c, &row.text(AD_GROUP));
                 g.metrics = Some(metrics(&row));

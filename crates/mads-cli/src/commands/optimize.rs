@@ -119,7 +119,9 @@ fn summary(p: &Performance) -> String {
 mod tests {
     use mads_core::{
         input::AppStore,
-        perf::{AppPerf, CampaignPerf, StoreEvents},
+        perf::{
+            AppPerf, CampaignPerf, NO_ACTION_FOR_STORE, Network, NetworkPerf, StoreEvents,
+        },
     };
 
     use super::*;
@@ -152,6 +154,39 @@ mod tests {
             ),
             "{text}"
         );
+    }
+
+    #[test]
+    fn the_summary_names_an_app_campaign_with_no_conversion_action_for_its_store() {
+        let p = Performance {
+            campaigns: vec![
+                CampaignPerf {
+                    name: "App iOS".into(),
+                    untracked: true,
+                    untracked_reason: Some(NO_ACTION_FOR_STORE.into()),
+                    ..Default::default()
+                },
+                CampaignPerf {
+                    name: "App Android".into(),
+                    accidental_display_clicks: true,
+                    networks: vec![NetworkPerf {
+                        network: Network::Display,
+                        cost_share_pct: Some(60.0),
+                        conversions_share_pct: None,
+                        ctr_pct: Some(22.5),
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let text = summary(&p);
+        assert!(
+            text.contains("untracked, no conversion action for this store"),
+            "{text}"
+        );
+        assert!(text.contains("App iOS"), "{text}");
+        assert!(text.contains("Display CTR of App Android is 22.5%"), "{text}");
     }
 
     #[test]

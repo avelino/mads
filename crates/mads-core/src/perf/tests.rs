@@ -1,6 +1,10 @@
 use super::*;
-use crate::google::{
-    Account, AdGroup, BidStrategy, Campaign, Cents, Intent, Keyword, MatchType, Rsa,
+use crate::{
+    google::{
+        Account, AdGroup, BidStrategy, Campaign, CampaignKind, Cents, Intent, Keyword, MatchType,
+        Rsa,
+    },
+    input::AppStore,
 };
 
 fn kw(text: &str, match_type: MatchType) -> Keyword {
@@ -491,4 +495,275 @@ fn an_asset_group_report_gives_group_totals_not_campaign_totals() {
         "the sum of the groups, not the last row"
     );
     assert_eq!(p.missing_reports[0], ReportKind::Campaigns);
+}
+
+/// An Android App campaign, an iOS one and a Search campaign: an account whose goal is installs.
+fn app_account() -> Account {
+    let app = |name: &str, store| {
+        let mut c = campaign(name, &[]);
+        c.kind = CampaignKind::AppInstalls;
+        c.app_store = Some(store);
+        c
+    };
+    Account {
+        brand_kit: None,
+        campaigns: vec![
+            app("App Android", AppStore::GooglePlay),
+            app("App iOS", AppStore::AppStore),
+            campaign("Busca", &[]),
+        ],
+    }
+}
+
+const WINDOW_PT: &str = "1 de outubro de 2026 - 30 de outubro de 2026";
+
+fn app_campaigns(ios_clicks: u32) -> String {
+    format!(
+        "Relatório de campanha\n{WINDOW_PT}\nCampanha,Orçamento,Custo,Conversões,Impr.,Cliques\nApp Android,\"50,00\",\"300,00\",\"400,00\",\"20.000\",900\nApp iOS,\"50,00\",\"200,00\",\"0,00\",\"15.000\",{ios_clicks}\nBusca,\"20,00\",\"100,00\",\"30,00\",\"5.000\",300\n"
+    )
+}
+
+const ACTIONS_PT: &str = "Relatório de campanha\n1 de outubro de 2026 - 30 de outubro de 2026\nCampanha,Ação de conversão,Categoria de conversão,Conversões,Todas as conv.\nApp Android,App (Android) primeira abertura,Download,\"400,00\",\"410,00\"\nApp iOS,--,--,\"0,00\",\"0,00\"\nBusca,Compra no site,Compra,\"20,00\",\"20,00\"\nBusca,Contato,Contato,\"10,00\",\"12,00\"\nBusca,App (Android) primeira abertura,Download,\"0,00\",\"1,00\"\nTotal: Conta,,,\"430,00\",\"443,00\"\n";
+
+fn digest_apps(campaigns: &str, actions: Option<&str>, account: &Account) -> Performance {
+    let mut files: Vec<ReportInput> = vec![("c.csv".into(), read_table(campaigns.as_bytes()))];
+    if let Some(actions) = actions {
+        files.push(("a.csv".into(), read_table(actions.as_bytes())));
+    }
+    digest(&files, account)
+}
+
+#[test]
+fn each_campaign_lists_the_conversion_actions_it_counted_most_first() {
+    let p = digest_apps(&app_campaigns(600), Some(ACTIONS_PT), &app_account());
+    assert_eq!(p.reports[1].kind, ReportKind::ConversionActions);
+    let busca = p.campaign("Busca").unwrap();
+    let names: Vec<&str> = busca
+        .conversion_actions
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "Compra no site",
+            "Contato",
+            "App (Android) primeira abertura"
+        ]
+    );
+    assert_eq!(busca.conversion_actions[1].conversions, 10.0);
+    assert_eq!(busca.conversion_actions[1].all_conversions, Some(12.0));
+    assert_eq!(busca.conversion_actions[1].category, "Contato");
+    assert!(
+        p.campaign("App iOS").unwrap().conversion_actions.is_empty(),
+        "-- is no action"
+    );
+    assert_eq!(p.campaigns[0].metrics.conversions, 400.0, "totals stay");
+}
+
+#[test]
+fn the_conversion_actions_kept_per_campaign_are_capped() {
+    let mut csv = String::from(
+        "Campaign report\nOct 1, 2026 - Oct 30, 2026\nCampaign,Conversion action,Conversions\n",
+    );
+    for i in 0..8 {
+        csv.push_str(&format!("Busca,Action {i},{}\n", i + 1));
+    }
+    let p = digest_apps(&app_campaigns(600), Some(&csv), &app_account());
+    let kept = &p.campaign("Busca").unwrap().conversion_actions;
+    assert_eq!(kept.len(), crate::perf::conversions::ACTIONS_PER_CAMPAIGN);
+    assert_eq!(kept[0].name, "Action 7", "the most conversions stay");
+}
+
+#[test]
+fn an_app_campaign_with_no_action_for_its_store_is_untracked_with_the_reason() {
+    let p = digest_apps(&app_campaigns(600), Some(ACTIONS_PT), &app_account());
+    let ios = p.campaign("App iOS").unwrap();
+    assert!(ios.untracked);
+    assert_eq!(ios.untracked_reason.as_deref(), Some(NO_ACTION_FOR_STORE));
+    let android = p.campaign("App Android").unwrap();
+    assert!(!android.untracked && android.untracked_reason.is_none());
+    assert!(!p.campaign("Busca").unwrap().untracked);
+
+    let f = p.findings();
+    assert!(
+        f.iter().any(|l| {
+            l.starts_with("untracked, no conversion action for this store")
+                && l.ends_with("App iOS")
+        }),
+        "{f:?}"
+    );
+    assert!(
+        f.iter()
+            .all(|l| !(l.starts_with("clicks without conversions") && l.contains("App iOS"))),
+        "the generic line does not repeat it: {f:?}"
+    );
+    assert!(
+        f.iter().any(|l| l.starts_with(
+            "conversion actions of App Android: App (Android) primeira abertura (400)"
+        )),
+        "{f:?}"
+    );
+}
+
+#[test]
+fn an_action_that_names_the_other_store_does_not_count() {
+    let csv = ACTIONS_PT.replace(
+        "App iOS,--,--,\"0,00\",\"0,00\"",
+        "App iOS,App (Android) primeira abertura,Download,\"5,00\",\"5,00\"",
+    );
+    let p = digest_apps(&app_campaigns(600), Some(&csv), &app_account());
+    assert_eq!(
+        p.campaign("App iOS").unwrap().untracked_reason.as_deref(),
+        Some(NO_ACTION_FOR_STORE)
+    );
+    let ok = csv.replace("App iOS,App (Android)", "App iOS,App (iOS)");
+    let p = digest_apps(&app_campaigns(600), Some(&ok), &app_account());
+    assert_eq!(p.campaign("App iOS").unwrap().untracked_reason, None);
+}
+
+#[test]
+fn clicks_not_enough_to_judge_or_no_conversion_report_leave_the_reason_out() {
+    let few = digest_apps(&app_campaigns(50), Some(ACTIONS_PT), &app_account());
+    assert_eq!(few.campaign("App iOS").unwrap().untracked_reason, None);
+
+    let without = digest_apps(&app_campaigns(600), None, &app_account());
+    let ios = without.campaign("App iOS").unwrap();
+    assert!(ios.untracked, "the generic rule still applies");
+    assert_eq!(ios.untracked_reason, None);
+    assert!(
+        without
+            .findings()
+            .iter()
+            .all(|l| !l.contains("for this store"))
+    );
+}
+
+#[test]
+fn an_app_campaign_without_any_action_is_flagged_even_when_nothing_converts() {
+    let nothing = app_campaigns(600).replace("\"400,00\"", "\"0,00\"");
+    let actions = "Campaign report\nOct 1, 2026 - Oct 30, 2026\nCampaign,Conversion action,Conversions\nBusca,Contact,0.00\n";
+    let p = digest_apps(&nothing, Some(actions), &app_account());
+    for name in ["App Android", "App iOS"] {
+        let c = p.campaign(name).unwrap();
+        assert_eq!(
+            c.untracked_reason.as_deref(),
+            Some(NO_ACTION_FOR_STORE),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn search_and_demand_gen_campaigns_counting_what_is_not_installs_are_named() {
+    let p = digest_apps(&app_campaigns(600), Some(ACTIONS_PT), &app_account());
+    let busca = p.campaign("Busca").unwrap();
+    assert_eq!(busca.off_goal_actions, ["Compra no site", "Contato"]);
+    assert!(p.campaign("App Android").unwrap().off_goal_actions.is_empty());
+    let f = p.findings();
+    assert!(
+        f.iter().any(|l| {
+            l.starts_with("Busca optimizes on conversions that are not the goal")
+                && l.ends_with("Compra no site, Contato")
+        }),
+        "{f:?}"
+    );
+
+    let mut account = app_account();
+    account.campaigns[2].kind = CampaignKind::DemandGen;
+    let p = digest_apps(&app_campaigns(600), Some(ACTIONS_PT), &account);
+    assert_eq!(p.campaign("Busca").unwrap().off_goal_actions.len(), 2);
+
+    account.campaigns[2].kind = CampaignKind::PerformanceMax;
+    let p = digest_apps(&app_campaigns(600), Some(ACTIONS_PT), &account);
+    assert!(p.campaign("Busca").unwrap().off_goal_actions.is_empty());
+}
+
+#[test]
+fn without_an_app_campaign_the_goal_is_not_installs() {
+    let site = Account {
+        brand_kit: None,
+        campaigns: vec![campaign("App Android", &[]), campaign("Busca", &[])],
+    };
+    let p = digest_apps(&app_campaigns(600), Some(ACTIONS_PT), &site);
+    assert!(p.campaigns.iter().all(|c| c.off_goal_actions.is_empty()));
+    assert!(p.campaigns.iter().all(|c| c.untracked_reason.is_none()));
+    assert!(p.findings().iter().all(|l| !l.contains("not the goal")));
+}
+
+fn networks_pt(display_clicks: u32) -> String {
+    format!(
+        "Relatório de campanha\n{WINDOW_PT}\nCampanha,Rede (com parceiros de pesquisa),Impr.,Cliques,Custo,Conversões\nApp Android,Pesquisa Google,\"10.000\",400,\"150,00\",\"300,00\"\nApp Android,Rede de Display,\"5.000\",{display_clicks},\"150,00\",\"100,00\"\nTotal: Conta,,\"15.000\",1300,\"300,00\",\"400,00\"\n"
+    )
+}
+
+fn digest_networks(csv: &str, account: &Account) -> Performance {
+    digest(&[("n.csv".into(), read_table(csv.as_bytes()))], account)
+}
+
+#[test]
+fn the_network_report_gives_each_campaign_its_shares_and_ctr() {
+    let p = digest_networks(&networks_pt(750), &app_account());
+    assert_eq!(p.reports[0].kind, ReportKind::Networks);
+    let nets = &p.campaign("App Android").unwrap().networks;
+    assert_eq!(nets.len(), 2);
+    assert_eq!(nets[0].network, Network::Search, "a tie goes by network order");
+    assert_eq!(nets[0].cost_share_pct, Some(50.0));
+    assert_eq!(nets[0].conversions_share_pct, Some(75.0));
+    assert_eq!(nets[0].ctr_pct, Some(4.0));
+    assert_eq!(nets[1].network, Network::Display);
+    assert_eq!(nets[1].conversions_share_pct, Some(25.0));
+    assert_eq!(nets[1].ctr_pct, Some(15.0));
+    assert!(p.campaign("Busca").unwrap().networks.is_empty());
+    assert_eq!(
+        p.campaigns[0].metrics.clicks, 0,
+        "a network report does not stand in for the campaign totals"
+    );
+}
+
+#[test]
+fn display_ctr_on_an_app_campaign_is_flagged_above_the_line_and_not_at_it() {
+    let at = digest_networks(&networks_pt(750), &app_account());
+    assert!(!at.campaign("App Android").unwrap().accidental_display_clicks);
+    assert!(at.findings().iter().all(|l| !l.starts_with("Display CTR")));
+
+    let above = digest_networks(&networks_pt(751), &app_account());
+    assert!(above.campaign("App Android").unwrap().accidental_display_clicks);
+    let f = above.findings();
+    assert!(
+        f.iter().any(|l| {
+            l.starts_with("Display CTR of App Android is 15.02%, above 15%")
+                && l.contains("do not raise its budget on cost per install alone")
+        }),
+        "{f:?}"
+    );
+    let line = "networks of App Android: search 50% of cost, 75% of conversions, CTR 4%; display 50% of cost";
+    assert!(f.iter().any(|l| l.starts_with(line)), "{f:?}");
+}
+
+#[test]
+fn display_ctr_is_flagged_the_same_in_an_english_report() {
+    let csv = "Campaign report\nOct 1, 2026 - Oct 30, 2026\nCampaign,Network (with search partners),Impr.,Clicks,Cost,Conversions\nApp iOS,Display Network,\"5,000\",900,150.00,10.00\nApp iOS,Search Partners,\"1,000\",20,10.00,1.00\n";
+    let p = digest_networks(csv, &app_account());
+    let ios = p.campaign("App iOS").unwrap();
+    assert!(ios.accidental_display_clicks);
+    assert_eq!(ios.networks[0].network, Network::Display);
+    assert_eq!(ios.networks[1].network, Network::SearchPartners);
+}
+
+#[test]
+fn display_ctr_on_a_search_campaign_is_only_a_number() {
+    let csv = networks_pt(900).replace("App Android", "Busca");
+    let p = digest_networks(&csv, &app_account());
+    let busca = p.campaign("Busca").unwrap();
+    assert!(!busca.accidental_display_clicks);
+    assert_eq!(busca.networks.len(), 2);
+}
+
+#[test]
+fn a_single_network_gets_no_line_of_its_own() {
+    let csv = "Campaign report\nOct 1, 2026 - Oct 30, 2026\nCampaign,Network,Impr.,Clicks,Cost\nBusca,Google search,\"1,000\",50,10.00\n";
+    let p = digest_networks(csv, &app_account());
+    assert_eq!(p.campaign("Busca").unwrap().networks.len(), 1);
+    assert!(p.findings().iter().all(|l| !l.starts_with("networks of")));
 }

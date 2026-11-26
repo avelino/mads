@@ -30,10 +30,12 @@ A report with the right header but without the metric columns is read, and its n
 | [Search keywords](#search-keywords) | Audiences, keywords and content, Keywords | Keyword, Match type, Campaign, Ad group, Impr., Clicks, Cost, Conversions | Max. CPC, Quality Score, Status reasons, First page bid, Top of page bid |
 | [Campaigns](#campaigns) | Campaigns | Campaign, Impr., Clicks, Cost, Conversions | Campaign status, Budget, Bid strategy type, Status reasons, Search lost IS (budget), Search lost IS (rank), Conv. value |
 | [Campaigns by day](#campaigns-by-day) | Campaigns, segmented by Day | Day, Campaign, Impr., Clicks, Cost, Conversions | The same as Campaigns |
+| [Conversions by action](#conversions-by-action) | Campaigns, segmented by Conversion action | Campaign, Conversion action, Conversions | Conversion category, Conversion source, All conv. |
+| [Networks](#networks) | Campaigns, segmented by Network | Campaign, Network, Impr., Clicks, Cost, Conversions | The same as Campaigns |
 | [Ad groups](#ad-groups) | Campaigns, Ad groups | Ad group, Campaign, Impr., Clicks, Cost, Conversions | Ad group status, Conv. value |
 | [Assets](#assets) | Assets | Asset, Campaign, Ad group | Asset type, Performance label, Impr. |
 
-At least one report must be there. All six give the best result.
+At least one report must be there. All eight give the best result. The conversions by action and networks reports are optional: without them mads reads the other six as before.
 
 ## Search terms
 
@@ -66,6 +68,25 @@ The same as Campaigns, segmented by **Day**.
 
 - Use it when campaigns started on different days. mads counts the days from the first one with impressions, so a late campaign is not diluted.
 - It can replace the Campaigns report. If both are there, the Campaigns numbers win.
+
+## Conversions by action
+
+The Campaigns report with one row per campaign and conversion action. Open the Campaigns table, click **Segment**, then **Conversions**, then **Conversion action**.
+
+- mads lists the actions each campaign counted, the five with most conversions first.
+- It tells you when an App campaign has no action for its store. An iOS campaign next to an Android download action and nothing else is the usual case. mads reads the store from the words Android, Google Play, iOS, iPhone or App Store in the action name, category or source. An action that names no store counts for both.
+- In an account with an App campaign, it names the Search and Demand Gen campaigns that count actions that are not installs, such as a purchase or a contact. An action counts as an install when its name or category has download, install or first open.
+- **Conversion category** and **Conversion source** are kept when the export has them. **Conversions** is what bidding learns from. **All conv.** also counts the actions that bidding ignores.
+- A campaign that counted no action has `--` in the action cell. mads leaves that row out.
+
+## Networks
+
+The Campaigns report with one row per campaign and network. Open the Campaigns table, click **Segment**, then **Network (with search partners)**.
+
+- mads keeps, for each campaign, the share of its cost and of its conversions per network, and the CTR of each.
+- Search, Search partners, Display, YouTube, Gmail, Maps and Discover are told apart. Any other name, such as a mixed row, is `other`.
+- When the Display CTR of an App campaign is above 15 percent, with at least 30 Display clicks, mads flags its clicks as likely accidental. The plan treats its installs with caution and does not raise its budget on cost per install alone. Both numbers are lines mads draws, not Google rules.
+- It does not replace the Campaigns report. Totals, status and budget still come from there.
 
 ## Ad groups
 

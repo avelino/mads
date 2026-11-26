@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     app_events::AppPerf,
+    conversions::ConversionActionPerf,
+    networks::NetworkPerf,
     table::{ReportKind, Window},
 };
 use crate::google::{Account, MatchType};
@@ -114,6 +116,25 @@ pub struct CampaignPerf {
     /// not measured, or there is none. Its budget buys nothing anyone can see.
     #[serde(default)]
     pub untracked: bool,
+    /// Why it is untracked when the conversion action report says so, such as
+    /// `NO_ACTION_FOR_STORE`. None for the plain case of clicks with no conversion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub untracked_reason: Option<String>,
+    /// Conversion actions it counted, the ones with most conversions first. Only the conversion
+    /// action report knows them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conversion_actions: Vec<ConversionActionPerf>,
+    /// Actions that converted for a Search or Demand Gen campaign and are not installs, in an
+    /// account whose goal is installs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off_goal_actions: Vec<String>,
+    /// Share of cost and conversions and the CTR per network. Only the network report knows them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub networks: Vec<NetworkPerf>,
+    /// An App campaign whose Display CTR is above `DISPLAY_CTR_PCT`: its installs may be
+    /// accidental clicks.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub accidental_display_clicks: bool,
     /// Cost Google does not show by search term: the campaign cost minus the listed terms.
     pub hidden_terms_cost: Option<f64>,
     pub ad_groups: Vec<AdGroupPerf>,
@@ -277,7 +298,7 @@ impl Performance {
                 stalled.join(", ")
             ));
         }
-        let untracked = names(|c| c.untracked);
+        let untracked = names(|c| c.untracked && c.untracked_reason.is_none());
         if !untracked.is_empty() {
             out.push(format!(
                 "clicks without conversions while others convert, no more budget: {}",
@@ -302,6 +323,8 @@ impl Performance {
             out.push(format!("budget unspent every day: {idle:.2}"));
         }
         out.extend(self.app_event_lines());
+        out.extend(self.conversion_lines());
+        out.extend(self.network_lines());
         let blind = self.blind_reports();
         if !blind.is_empty() {
             out.push(format!(

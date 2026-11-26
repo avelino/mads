@@ -498,6 +498,45 @@ mod tests {
     }
 
     #[test]
+    fn conversion_actions_and_networks_are_in_the_performance_section_when_read() {
+        use crate::perf::{ConversionActionPerf, NO_ACTION_FOR_STORE, Network, NetworkPerf};
+        let (mut live, _) = fixture();
+        let mut md = String::new();
+        performance(&mut md, &live);
+        assert!(!md.contains("conversion actions of"), "{md}");
+        assert!(!md.contains("networks of"), "{md}");
+
+        let net = |network, cost, ctr| NetworkPerf {
+            network,
+            cost_share_pct: Some(cost),
+            conversions_share_pct: None,
+            ctr_pct: Some(ctr),
+        };
+        let c = &mut live.performance.campaigns[0];
+        c.conversion_actions = vec![ConversionActionPerf {
+            name: "App (Android) first open".into(),
+            conversions: 12.0,
+            ..Default::default()
+        }];
+        c.untracked = true;
+        c.untracked_reason = Some(NO_ACTION_FOR_STORE.into());
+        c.off_goal_actions = vec!["Purchase".into()];
+        c.networks = vec![net(Network::Search, 40.0, 4.0), net(Network::Display, 60.0, 22.5)];
+        c.accidental_display_clicks = true;
+        let mut md = String::new();
+        performance(&mut md, &live);
+        for needle in [
+            "conversion actions of Catalogo: App (Android) first open (12)",
+            "untracked, no conversion action for this store",
+            "Catalogo optimizes on conversions that are not the goal of this account (installs): Purchase",
+            "networks of Catalogo: search 40% of cost, CTR 4%; display 60% of cost, CTR 22.5%",
+            "Display CTR of Catalogo is 22.5%, above 15%",
+        ] {
+            assert!(md.contains(needle), "missing {needle} in\n{md}");
+        }
+    }
+
+    #[test]
     fn reports_of_different_dates_are_called_out() {
         let (mut live, _) = fixture();
         live.performance.mixed_windows = true;

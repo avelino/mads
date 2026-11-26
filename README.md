@@ -75,7 +75,7 @@ currency = "BRL"
 max_cpc = 3.0
 ```
 
-Read `out/<run-id>/report.md`, review the files in `out/<run-id>/google-ads/`, then upload them in Google Ads under Tools, Bulk actions, Uploads. Upload in numeric order. Campaigns arrive paused.
+Read `out/<run-id>/report.md`, review the files in `out/<run-id>/google-ads/`. To import into Google Ads Editor, use only `google-ads/editor/account.csv`. To upload on the web under Tools, Bulk actions, Uploads, use the five files in `google-ads/bulk/` in numeric order. Never use both. Campaigns arrive paused.
 
 The [tutorial](docs/tutorial.md) walks through a full run with a catalog.
 
@@ -86,11 +86,14 @@ One run directory per `mads generate`.
 ```text
 out/20261001-122850-b51417/
   google-ads/
-    1-campaign.csv
-    2-ad-groups.csv
-    3-keywords.csv
-    4-negative-keywords.csv
-    5-responsive-search-ads.csv
+    bulk/
+      1-campaign.csv
+      2-ad-groups.csv
+      3-keywords.csv
+      4-negative-keywords.csv
+      5-responsive-search-ads.csv
+    editor/
+      account.csv
   report.md
   workspace.json
   events.ndjson

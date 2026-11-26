@@ -17,11 +17,12 @@ out/20261001-122850-b51417/
     catalog.csv                  copy of the catalog, under its original file name
     logo.png                     copy of [brand] logo, when set
   google-ads/                    one folder per ad platform
-    1-campaign.csv               files 1 to 5: Search campaigns only
-    2-ad-groups.csv
-    3-keywords.csv
-    4-negative-keywords.csv
-    5-responsive-search-ads.csv
+    bulk/                        files 1 to 5: Search campaigns only, web bulk upload
+      1-campaign.csv
+      2-ad-groups.csv
+      3-keywords.csv
+      4-negative-keywords.csv
+      5-responsive-search-ads.csv
     editor/                      the whole account, for Google Ads Editor
       account.csv                UTF-16, tab separated, as Editor exports
       images/
@@ -39,8 +40,8 @@ out/20261001-122850-b51417/
 ```
 
 - `google-ads/` has no CSV when the run exits `1` or `3`. That includes `automation/`. Pictures in `editor/images/` stay: they cost money and the next `--resume` or `export` reuses them.
-- Files 1 to 5 hold Search campaigns only, for the web bulk upload, and are not written when the account has none. `editor/account.csv` holds every campaign. Import one or the other, never both. `editor/images/` exists only when the account has an image or App campaign, and with the bulk layout its files are attached by hand in Editor. See [Image campaigns](../guides/image-campaigns.md#import).
-- `--layout drive-folders` writes `automation/<Business> Ads Automation/` and does not write files 1 to 5 or `editor/account.csv`. `<Business>` is `business.name` without the characters a file name cannot hold. The workbooks are `.xlsx` files for upload to Google Drive with conversion on. `0. Feed` has the tabs `Image Campaigns` and `Image Assets`, which the script's `setupImageCampaigns` reads to create the Performance Max, Demand Gen and App campaigns. `Images/` holds a copy of each picture under `<campaign_key>/<file>` and the logo as `logo.<ext>`. The pictures stay in `editor/images/` too. Re-exporting a bulk run with this layout removes an empty `google-ads/editor/` directory. The directory stays when `editor/images/` still holds pictures. A later export with the bulk layout removes `automation/`. See [Ads automation package](../howto/google-ads-editor-drive-folders.md).
+- Files 1 to 5 sit in `bulk/`. They hold Search campaigns only, for the web bulk upload, and are not written when the account has none. Never import them into Google Ads Editor. `editor/account.csv` holds every campaign, Search included. Import one or the other, never both. `report.md` opens with a notice that says so. A new export removes the files an older version wrote straight into `google-ads/`, so a rerun never leaves them in two places. `editor/images/` exists only when the account has an image or App campaign, and with the bulk layout its files are attached by hand in Editor. See [Image campaigns](../guides/image-campaigns.md#import).
+- `--layout drive-folders` writes `automation/<Business> Ads Automation/` and does not write `bulk/` or `editor/account.csv`. `<Business>` is `business.name` without the characters a file name cannot hold. The workbooks are `.xlsx` files for upload to Google Drive with conversion on. `0. Feed` has the tabs `Image Campaigns` and `Image Assets`, which the script's `setupImageCampaigns` reads to create the Performance Max, Demand Gen and App campaigns. `Images/` holds a copy of each picture under `<campaign_key>/<file>` and the logo as `logo.<ext>`. The pictures stay in `editor/images/` too. Re-exporting a bulk run with this layout removes an empty `google-ads/editor/` directory. The directory stays when `editor/images/` still holds pictures. A later export with the bulk layout removes `automation/`. See [Ads automation package](../howto/google-ads-editor-drive-folders.md).
 - `workspace.json` points `input.logo` at the copy in `input/`, so the run does not depend on where the logo was. Each ad platform gets its own folder, so other platforms will not mix with these files.
 - `input/` is a record. `export` and `--resume` read `workspace.json`, not `input/`.
 - `transcripts/` has one file per mission: `<mission>.jsonl` for API providers (every message) and `<mission>.cli.jsonl` for agent CLIs (the raw stream). A `:` in a mission id becomes `-`, so `campaign:vinellu-catalogo` is `campaign-vinellu-catalogo.jsonl`.

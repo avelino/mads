@@ -30,6 +30,9 @@ const GROUP_STATUS: &[&str] = &[
     "status do grupo de recursos",
     "asset group status",
 ];
+/// Exact names: the plain `Status` column of a keywords report is the serving status, such as
+/// Eligible or Limited, not Enabled or Paused.
+const KEYWORD_STATUS: &[&str] = &["status da palavra chave", "keyword status"];
 const ASSET_KIND: &[&str] = &["tipo de recurso", "asset type"];
 
 /// One file of the reports folder: its name and the table, or why it is not a report.
@@ -360,12 +363,14 @@ fn live_status(text: &str) -> Option<LiveStatus> {
     }
 }
 
-fn match_type(text: &str) -> Option<MatchType> {
+fn match_type(text: &str) -> Option<ReportedMatch> {
     let t = fold(text);
     if t.contains("frase") || t.contains("phrase") {
-        Some(MatchType::Phrase)
+        Some(ReportedMatch::Phrase)
     } else if t.contains("exat") || t.contains("exact") {
-        Some(MatchType::Exact)
+        Some(ReportedMatch::Exact)
+    } else if (t.contains("ampla") || t.contains("broad")) && !t.contains("modif") {
+        Some(ReportedMatch::Broad)
     } else {
         None
     }
@@ -378,6 +383,7 @@ fn keyword(row: &Row) -> KeywordPerf {
         // Google writes phrase keywords in quotes and exact ones in brackets.
         text: normalize(row.text(KEYWORD).trim_matches(['"', '[', ']'])),
         match_type: match_type(&row.text(MATCH)),
+        live_status: live_status(&row.text(KEYWORD_STATUS)),
         signals: signals(&reasons, quality_score),
         status_reasons: reasons,
         max_cpc: row.number(MAX_CPC),

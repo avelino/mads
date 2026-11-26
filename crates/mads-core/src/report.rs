@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, fmt::Write};
 use crate::{
     events::Totals,
     google::{
-        Account, CampaignKind, EDITOR_FILE, ExportLayout, Issue, ProductScope, folder_name,
-        product_share,
+        Account, BULK_DIR, CampaignKind, EDITOR_FILE, ExportLayout, Issue, ProductScope,
+        folder_name, product_share,
     },
     images::ImageStepResult,
     input::{ExportStatus, Input},
@@ -49,6 +49,12 @@ const EXAMPLES_PER_CODE: usize = 5;
 
 pub fn render_report(d: &ReportData) -> String {
     let mut md = String::new();
+    if d.layout == ExportLayout::Bulk && matches!(d.status, ReportStatus::Success) {
+        let _ = writeln!(
+            md,
+            "> Import only `google-ads/{EDITOR_FILE}` into Google Ads Editor. Do not import the web bulk CSVs (`google-ads/{BULK_DIR}/`) into Editor.\n"
+        );
+    }
     let model = d.model.as_deref().unwrap_or("default");
     let _ = writeln!(md, "# mads report: {}", d.input.business.name);
     let _ = writeln!(
@@ -388,12 +394,12 @@ fn import_steps(md: &mut String, d: &ReportData) {
     if d.live.is_some() {
         let _ = writeln!(
             md,
-            "## How to import\n\nThis run replaces an account that is already live. Import it with Google Ads Editor only: files 1 to 5 would add every Search campaign a second time. Campaigns already live keep their status, new ones follow `export.status`, and what this run dropped arrives paused.\n\n{editor}"
+            "## How to import\n\nThis run replaces an account that is already live. Import it with Google Ads Editor only: the files in `google-ads/bulk/` would add every Search campaign a second time. Campaigns already live keep their status, new ones follow `export.status`, and what this run dropped arrives paused.\n\n{editor}"
         );
     } else {
         let _ = writeln!(
             md,
-            "## How to import\n\nPick one way. Doing both creates every Search campaign twice. {last}\n\n{editor}"
+            "## How to import\n\nPick one way. The files in `google-ads/bulk/` are for the web upload only: importing them into Editor as well creates every Search campaign twice. {last}\n\n{editor}"
         );
     }
     if has_images(d) {
@@ -419,7 +425,7 @@ fn import_steps(md: &mut String, d: &ReportData) {
     md.push_str(
         "\n### Google Ads on the web, Search campaigns only\n\n\
          1. Open Google Ads, then Tools, Bulk actions, Uploads.\n\
-         2. Upload files 1 to 5 of `google-ads/` in numeric order.\n\
+         2. Upload files 1 to 5 of `google-ads/bulk/` in numeric order.\n\
          3. Preview the changes, fix anything Google flags, then apply.\n",
     );
     if has_images(d) {
@@ -574,13 +580,31 @@ mod tests {
     #[test]
     fn header_and_status_line() {
         let md = render_default();
-        assert!(md.starts_with("# mads report: Vinellu\n"));
+        assert!(md.contains("\n# mads report: Vinellu\n"));
         assert!(
             md.contains("20261001-101200-abc123")
                 && md.contains("anthropic")
                 && md.contains("claude-sonnet-5-5")
         );
         assert!(md.contains("Ready to import"));
+    }
+
+    #[test]
+    fn the_top_of_the_report_says_to_import_only_the_editor_file() {
+        let input = testutil::input();
+        let md = render_default();
+        assert!(
+            md.starts_with(
+                "> Import only `google-ads/editor/account.csv` into Google Ads Editor. Do not import the web bulk CSVs (`google-ads/bulk/`) into Editor.\n"
+            ),
+            "{md}"
+        );
+        let mut d = data(&input, &account());
+        d.layout = ExportLayout::DriveFolders;
+        assert!(!render_report(&d).contains("Import only"));
+        let mut d = data(&input, &account());
+        d.status = ReportStatus::Invalid;
+        assert!(!render_report(&d).contains("Import only"));
     }
 
     #[test]

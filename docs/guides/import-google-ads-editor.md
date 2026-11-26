@@ -13,9 +13,11 @@ mads writes `google-ads/editor/account.csv` the way Editor writes its own export
 | Your account | Import | Where |
 |---|---|---|
 | Any mix of Search, App, Demand Gen and Performance Max | `google-ads/editor/account.csv` | Google Ads Editor |
-| Search only, no Editor | `google-ads/1-campaign.csv` to `5-responsive-search-ads.csv` | Web bulk upload, see [Review and import](review-and-import.md#upload-in-google-ads) |
+| Search only, no Editor | `google-ads/bulk/1-campaign.csv` to `bulk/5-responsive-search-ads.csv` | Web bulk upload, see [Review and import](review-and-import.md#upload-in-google-ads) |
 
-Import one or the other, never both. `account.csv` already holds the Search campaigns, so uploading files 1 to 5 as well adds each one twice.
+The five files in `google-ads/bulk/` are for the web bulk upload only. Never import them into Google Ads Editor. `account.csv` already holds the Search campaigns, so importing files 1 to 5 as well adds each one twice. Editor also makes Broad copies of new keywords, and those and the new Phrase and Exact keywords can stay pending and never reach the account. `report.md` opens with a notice that says the same. Import one or the other, never both.
+
+Older versions of mads wrote files 1 to 5 straight into `google-ads/`. A new export removes those copies, so a rerun leaves the files in `bulk/` only.
 
 ## Before you import
 
@@ -58,8 +60,8 @@ If Google refuses a keyword or an ad in a restricted category, the `Restricted c
 The import changes what the file lists, and an item the file does not name keeps serving.
 
 - A live campaign keeps its status. A new campaign follows `export.status`.
-- A campaign, ad group, asset group or keyword that the new run dropped arrives as a row with status `Paused`. So does an enabled ad group that an older import left in a campaign the run keeps.
-- A bid strategy you changed in Google Ads stays as it is.
+- A campaign, ad group, asset group or keyword that the new run dropped arrives as a row with status `Paused`. With the keywords report, that covers every enabled keyword it lists that the new run does not carry, a Broad keyword included. A keyword the report shows as paused, removed or does not list gets no row. So does an enabled ad group that an older import left in a campaign the run keeps.
+- A bid strategy you changed in Google Ads stays as it is. The `Bid strategy type` cell of `bulk/1-campaign.csv` is empty for that campaign too.
 - A responsive search ad with new texts comes in as another ad next to the old one. The old one stays enabled, so pause it by hand after you check the preview.
 - A negative keyword that the new run dropped stays in Google Ads. Remove it by hand.
 

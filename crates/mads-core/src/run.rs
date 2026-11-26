@@ -16,7 +16,7 @@ use crate::{
     agent::{Driver, DriverCtx, MissionOutcome, MissionReport, MissionSpec, TokenBudget},
     events::{Event, EventSink, Totals},
     finalize::{ExportOpts, Finalized, finalize},
-    google::ExportLayout,
+    google::{BULK_DIR, ExportLayout},
     images::{EDITOR_DIR, ImageModel, ImageStepConfig, ImageStepResult, run_image_step},
     input::Input,
     mission::{PLAN_ID, campaign_id, campaign_mission, plan_mission},
@@ -485,9 +485,14 @@ pub async fn export_run(
 /// A failed export must not leave CSVs from an earlier, different account next to the new report.
 /// Images stay: they cost money and the next export reuses them. An `editor/` directory that
 /// only held `account.csv` is removed, so a bulk run re-exported as drive-folders does not
-/// leave an empty folder behind. The automation package goes whole.
+/// leave an empty folder behind. `bulk/` goes the same way, and the five files an older version
+/// wrote straight into `dir` go too, so a rerun never leaves them in two places. The automation
+/// package goes whole.
 fn remove_stale_csvs(dir: &Path) {
     remove_csvs_in(dir);
+    let bulk = dir.join(BULK_DIR);
+    remove_csvs_in(&bulk);
+    let _ = std::fs::remove_dir(&bulk);
     let editor = dir.join(EDITOR_DIR);
     remove_csvs_in(&editor);
     // `remove_dir` refuses a non-empty directory, so `editor/images/` keeps it alive.
@@ -833,13 +838,17 @@ mod tests {
         let (r, events) = run(cfg(&dir), full_script(), web(&[])).await;
         assert_eq!(r.exit_code, 0, "{events:#?}");
         for f in [
-            "1-campaign.csv",
-            "2-ad-groups.csv",
-            "3-keywords.csv",
-            "4-negative-keywords.csv",
-            "5-responsive-search-ads.csv",
+            "bulk/1-campaign.csv",
+            "bulk/2-ad-groups.csv",
+            "bulk/3-keywords.csv",
+            "bulk/4-negative-keywords.csv",
+            "bulk/5-responsive-search-ads.csv",
         ] {
             assert!(r.run_dir.join(PLATFORM_DIR).join(f).exists(), "{f}");
+            assert!(
+                !r.run_dir.join(PLATFORM_DIR).join(&f[5..]).exists(),
+                "{f} must not also sit in the google-ads root"
+            );
         }
         let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
         assert!(report.contains("Ready to import") && report.contains("Vinellu - Catalogo"));
@@ -875,8 +884,10 @@ mod tests {
     async fn cross_negatives_land_in_the_exported_negatives_file() {
         let dir = tempfile::tempdir().unwrap();
         let (r, _) = run(cfg(&dir), full_script(), web(&[])).await;
-        let negatives =
-            std::fs::read_to_string(r.run_dir.join("google-ads/4-negative-keywords.csv")).unwrap();
+        let negatives = std::fs::read_to_string(
+            r.run_dir.join("google-ads/bulk/4-negative-keywords.csv"),
+        )
+        .unwrap();
         assert!(
             negatives.contains("Vinellu - Catalogo,alamos,vinellu,Phrase match"),
             "{negatives}"
@@ -896,7 +907,7 @@ mod tests {
         );
         let (first, events) = run(cfg(&dir), partial, web(&[])).await;
         assert_eq!(first.exit_code, 1);
-        assert!(!first.run_dir.join("google-ads/1-campaign.csv").exists());
+        assert!(!first.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
         let report = std::fs::read_to_string(first.run_dir.join("report.md")).unwrap();
         assert!(
             report.contains("Incomplete")
@@ -914,7 +925,7 @@ mod tests {
             "plan and catalog were finished, so only marca needs a script"
         );
         assert_eq!(second.run_dir, first.run_dir);
-        assert!(second.run_dir.join("google-ads/1-campaign.csv").exists());
+        assert!(second.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
     }
 
     #[tokio::test]
@@ -927,7 +938,7 @@ mod tests {
         )
         .await;
         assert_eq!(r.exit_code, 3);
-        assert!(!r.run_dir.join("google-ads/1-campaign.csv").exists());
+        assert!(!r.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
         let report = std::fs::read_to_string(r.run_dir.join("report.md")).unwrap();
         assert!(report.contains("Not exported") && report.contains("E15"));
     }
@@ -1060,7 +1071,7 @@ mod tests {
         assert!(
             second
                 .run_dir
-                .join("google-ads/5-responsive-search-ads.csv")
+                .join("google-ads/bulk/5-responsive-search-ads.csv")
                 .exists()
         );
         let report = std::fs::read_to_string(second.run_dir.join("report.md")).unwrap();
@@ -1100,7 +1111,7 @@ mod tests {
             b1.is_file(),
             "no --layout keeps drive-folders from run.json"
         );
-        assert!(!first.run_dir.join("google-ads/1-campaign.csv").exists());
+        assert!(!first.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
 
         let bulk = export_run(
             &first.run_dir,
@@ -1114,7 +1125,7 @@ mod tests {
         .unwrap();
         assert_eq!(bulk.exit_code, 0);
         assert!(!b1.exists(), "an explicit --layout wins over run.json");
-        assert!(first.run_dir.join("google-ads/1-campaign.csv").is_file());
+        assert!(first.run_dir.join("google-ads/bulk/1-campaign.csv").is_file());
     }
 
     #[tokio::test]
@@ -1163,7 +1174,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (first, _) = run(cfg(&dir), full_script(), web(&[])).await;
         assert_eq!(first.exit_code, 0);
-        assert!(first.run_dir.join("google-ads/1-campaign.csv").exists());
+        assert!(first.run_dir.join("google-ads/bulk/1-campaign.csv").exists());
         let ws_path = first.run_dir.join("workspace.json");
         let mut ws = Workspace::load(&ws_path).unwrap();
         ws.account.campaigns[0].daily_budget = crate::money::Cents(100);
@@ -1180,7 +1191,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(again.exit_code, 3);
-        for f in ["1-campaign.csv", "5-responsive-search-ads.csv"] {
+        for f in ["bulk/1-campaign.csv", "bulk/5-responsive-search-ads.csv"] {
             assert!(
                 !first.run_dir.join(PLATFORM_DIR).join(f).exists(),
                 "{f} is stale and must be removed"
@@ -1354,7 +1365,7 @@ mod image_tests {
             assert!(editor.join(f).is_file(), "missing {f}");
         }
         assert!(
-            !r.run_dir.join("google-ads/1-campaign.csv").exists(),
+            !r.run_dir.join("google-ads/bulk/1-campaign.csv").exists(),
             "no search campaign, no bulk files"
         );
         let rows = crate::google::read_editor(&std::fs::read(editor.join("account.csv")).unwrap())
@@ -1533,6 +1544,21 @@ mod image_tests {
         assert!(!editor.join("account.csv").exists());
         assert!(image.is_file(), "pictures stay");
         assert!(editor.is_dir());
+    }
+
+    #[test]
+    fn remove_stale_csvs_drops_bulk_files_and_the_old_ones_in_the_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let platform = dir.path().join("google-ads");
+        let bulk = platform.join("bulk");
+        std::fs::create_dir_all(&bulk).unwrap();
+        std::fs::write(bulk.join("1-campaign.csv"), b"x").unwrap();
+        std::fs::write(platform.join("1-campaign.csv"), b"old").unwrap();
+        std::fs::write(platform.join("5-responsive-search-ads.csv"), b"old").unwrap();
+        remove_stale_csvs(&platform);
+        assert!(!bulk.exists(), "an empty bulk directory is removed");
+        assert!(!platform.join("1-campaign.csv").exists());
+        assert!(!platform.join("5-responsive-search-ads.csv").exists());
     }
 
     #[test]

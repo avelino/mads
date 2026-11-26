@@ -102,7 +102,7 @@ Tools are in `crates/mads-core/src/tools/plan.rs` (plan mission) and `campaign.r
 - Unit tests sit next to the code in `#[cfg(test)] mod tests`.
 - Input tests cover valid and invalid files: unknown key, missing field, bad URL, slug collisions, BOM, CRLF.
 - Rule tests are table-driven, one table per code.
-- The export has a golden test (`crates/mads-core/tests/golden.rs`). Files 1 to 5 must stay byte-identical to `data/`.
+- The export has a golden test (`crates/mads-core/tests/golden.rs`). Files 1 to 5 (written to `google-ads/bulk/`) must stay byte-identical to `data/`.
 - Tool tests send JSON the way an LLM would. They cover success, every reachable error code and unknown fields.
 - Loop and run tests use `ScriptedChatModel`. No test calls a real model.
 - HTTP code is tested with `wiremock`.

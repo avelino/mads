@@ -593,7 +593,7 @@ mod tests {
         input::AppStore,
         perf::{
             AdGroupPerf, AppPerf, CampaignPerf, KeywordPerf, Metrics, Network, NetworkPerf,
-            Performance, Signal, StoreEvents, TermPerf, TermState,
+            Performance, ReportedMatch, Signal, StoreEvents, TermPerf, TermState,
         },
     };
 
@@ -649,7 +649,8 @@ mod tests {
                 keywords: (0..30)
                     .map(|i| KeywordPerf {
                         text: format!("vinho tinto suave numero {i}"),
-                        match_type: Some(MatchType::Phrase),
+                        match_type: Some(ReportedMatch::Phrase),
+                        live_status: None,
                         status_reasons: "raramente exibido; abaixo do lance de primeira página"
                             .into(),
                         signals: vec![Signal::RarelyShown, Signal::BelowFirstPage],

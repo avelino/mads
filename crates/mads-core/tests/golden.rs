@@ -44,21 +44,22 @@ fn reference_account() -> Account {
 
 #[test]
 fn exports_files_1_to_5_byte_identical_to_the_reference_csvs() {
-    let files = export_csvs(&reference_input(), &reference_account()).expect("export");
+    let files = export_csvs(&reference_input(), &reference_account(), None).expect("export");
     let names: Vec<_> = files.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(
         names,
         [
-            "1-campaign.csv",
-            "2-ad-groups.csv",
-            "3-keywords.csv",
-            "4-negative-keywords.csv",
-            "5-responsive-search-ads.csv"
+            "bulk/1-campaign.csv",
+            "bulk/2-ad-groups.csv",
+            "bulk/3-keywords.csv",
+            "bulk/4-negative-keywords.csv",
+            "bulk/5-responsive-search-ads.csv"
         ]
     );
     let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
     for f in files {
-        let expected = std::fs::read(data.join(&f.name)).expect("reference file");
+        let base = f.name.strip_prefix("bulk/").expect("under bulk/");
+        let expected = std::fs::read(data.join(base)).expect("reference file");
         assert_eq!(
             String::from_utf8_lossy(&f.bytes),
             String::from_utf8_lossy(&expected),

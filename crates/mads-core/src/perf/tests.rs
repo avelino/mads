@@ -119,13 +119,45 @@ fn keywords_carry_their_signals() {
     let k = &p.campaigns[0].ad_groups[0].keywords[0];
     assert_eq!(
         (k.text.as_str(), k.match_type),
-        ("malbec", Some(MatchType::Phrase))
+        ("malbec", Some(ReportedMatch::Phrase))
     );
     assert_eq!(k.signals, [Signal::BelowFirstPage]);
     assert_eq!(k.max_cpc, Some(1.2));
     assert_eq!(k.metrics.cost, 76.94);
     let brand = &p.campaigns[1].ad_groups[0].keywords[0];
     assert_eq!(brand.signals, [Signal::RarelyShown, Signal::LowQuality]);
+}
+
+#[test]
+fn keywords_keep_broad_and_the_status_of_the_keyword_itself() {
+    let text = "Relatório de palavras-chave\n3 de outubro de 2026 - 5 de outubro de 2026\nStatus da palavra-chave,Palavra-chave,Tipo de corresp.,Campanha,Grupo de anúncios,Status,Cliques\nAtivado,malbec,Correspondência ampla,\"Catálogo: uvas\",Uvas tintas,Limitado,3\nPausado,\"\"\"malbec\"\"\",Correspondência de frase,\"Catálogo: uvas\",Uvas tintas,Qualificado,2\nRemovido,[malbec],Correspondência exata,\"Catálogo: uvas\",Uvas tintas,Qualificado,1\nAtivado,syrah,Correspondência modificada,\"Catálogo: uvas\",Uvas tintas,Qualificado,1\n";
+    let files: Vec<ReportInput> = vec![("palavras.csv".into(), read_table(text.as_bytes()))];
+    let p = digest(&files, &account());
+    let seen: Vec<_> = p.campaigns[0].ad_groups[0]
+        .keywords
+        .iter()
+        .map(|k| (k.text.as_str(), k.match_type, k.live_status))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("malbec", Some(ReportedMatch::Broad), Some(LiveStatus::Enabled)),
+            ("malbec", Some(ReportedMatch::Phrase), Some(LiveStatus::Paused)),
+            ("malbec", Some(ReportedMatch::Exact), Some(LiveStatus::Removed)),
+            ("syrah", None, Some(LiveStatus::Enabled)),
+        ],
+        "the serving status in the Status column is not the keyword status"
+    );
+    assert!(p.reports.iter().any(|r| r.kind == ReportKind::Keywords));
+}
+
+#[test]
+fn a_keywords_report_without_a_status_column_leaves_the_status_empty() {
+    let text = "Keyword report\nKeyword,Match type,Campaign,Ad group,Clicks\nmalbec,Broad match,\"Catálogo: uvas\",Uvas tintas,3\n";
+    let files: Vec<ReportInput> = vec![("kw.csv".into(), read_table(text.as_bytes()))];
+    let p = digest(&files, &account());
+    let k = &p.campaigns[0].ad_groups[0].keywords[0];
+    assert_eq!((k.match_type, k.live_status), (Some(ReportedMatch::Broad), None));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 # Sponsors
 
-This page lists the companies that fund mads, and how to join them.
+See the companies that fund mads, and how to join them.
 
 ## Current sponsors
 
@@ -12,3 +12,8 @@ This page lists the companies that fund mads, and how to join them.
 ## Become a sponsor
 
 Open an issue on the repository and say you want to sponsor mads. Sponsors are listed here and in the README.
+
+## Next
+
+- [Why mads](explanation/why-mads.md)
+- [Install mads](how-to/install.md)

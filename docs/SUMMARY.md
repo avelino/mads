@@ -1,49 +1,86 @@
 # Table of contents
 
 * [Introduction](README.md)
-* [Why mads](why-mads.md)
-* [Sponsors](sponsors.md)
 
-## First steps
+## Tutorials
 
-* [Getting started](getting-started.md)
-* [Tutorial](tutorial.md)
+* [Your first run](tutorials/first-run.md)
+* [Run a real account](tutorials/run-a-real-account.md)
 
-## Guides
+## Set up
 
-* [The business file](guides/business-file.md)
-* [The catalog](guides/catalog.md)
-* [Providers](guides/providers.md)
-* [Agent CLIs](guides/agent-clis.md)
-* [Init from a URL](guides/init-from-url.md)
-* [How campaigns are built](guides/how-campaigns-are-built.md)
-* [Campaign strategies](guides/strategies.md)
-* [Image campaigns](guides/image-campaigns.md)
-* [Restricted categories](guides/restricted-categories.md)
-* [Review and import](guides/review-and-import.md)
-* [Import into Google Ads Editor](guides/import-google-ads-editor.md)
-* [Resume and export](guides/resume-and-export.md)
-* [Export Google Ads reports](guides/export-google-ads-reports.md)
-* [Optimize a live account](guides/optimize.md)
-* [Cost and limits](guides/cost-and-limits.md)
-* [Docker](guides/docker.md)
-* [GitHub Actions](guides/github-actions.md)
+* [Install mads](how-to/install.md)
+* [Prepare your Google Ads account](how-to/prepare-google-ads.md)
+* [Choose a provider](how-to/choose-a-provider.md)
+* [Run with Ollama](how-to/run-with-ollama.md)
+* [Use an OpenAI-compatible server](how-to/use-an-openai-compatible-server.md)
 
-## How-to
+## Describe your business
 
-* [Troubleshooting](howto/troubleshooting.md)
-* [Run with Ollama](howto/ollama-local.md)
-* [Use an OpenAI-compatible server](howto/openai-compatible.md)
-* [Google Ads bulk upload format](howto/google-ads-bulk-upload-format.md)
-* [Ads automation package](howto/google-ads-editor-drive-folders.md)
+* [Draft the files from your site](how-to/draft-from-your-site.md)
+* [Write the business file](how-to/write-the-business-file.md)
+* [Write a catalog](how-to/write-a-catalog.md)
+* [Pick a campaign strategy](how-to/pick-a-strategy.md)
+* [Add image and app campaigns](how-to/add-image-campaigns.md)
+* [Handle restricted categories](how-to/handle-restricted-categories.md)
+
+## Launch
+
+* [Review a run](how-to/review-a-run.md)
+* [Import into Google Ads Editor](how-to/import-into-google-ads-editor.md)
+* [Upload the bulk CSVs](how-to/upload-bulk-csvs.md)
+* [Go live](how-to/go-live.md)
+
+## Improve
+
+* [Export Google Ads reports](how-to/export-google-ads-reports.md)
+* [Optimize a live account](how-to/optimize-a-live-account.md)
+
+## Automate
+
+* [Run in Docker](how-to/run-in-docker.md)
+* [Run in GitHub Actions](how-to/run-in-github-actions.md)
+* [Use the ads automation package](how-to/use-the-automation-package.md)
+
+## Fix
+
+* [Resume or re-export a run](how-to/resume-a-run.md)
+* [Keep token cost down](how-to/keep-cost-down.md)
+* [Troubleshoot](how-to/troubleshoot.md)
 
 ## Reference
 
-* [CLI reference](reference/cli.md)
-* [business.toml reference](reference/business-toml.md)
-* [catalog.csv reference](reference/catalog-csv.md)
+* [CLI](reference/cli.md)
+* [business.toml](reference/business-toml.md)
+* [catalog.csv](reference/catalog-csv.md)
 * [Validation rules](reference/validation-rules.md)
+* [Exit codes and errors](reference/exit-codes-and-errors.md)
 * [Output files](reference/output-files.md)
+* [report.md](reference/report-md.md)
+* [Google Ads Editor file](reference/editor-file.md)
+* [Bulk upload format](reference/bulk-upload-format.md)
+* [Ads automation package](reference/automation-package.md)
+* [Google Ads reports](reference/google-ads-reports.md)
+* [Providers](reference/providers.md)
+* [Run limits](reference/limits.md)
 * [Environment variables](reference/environment-variables.md)
-* [Architecture](reference/architecture.md)
 * [MCP tools](reference/mcp-tools.md)
+* [Limitations](reference/limitations.md)
+* [Glossary](reference/glossary.md)
+
+## Explanation
+
+* [Why mads](explanation/why-mads.md)
+* [Safe on a live account](explanation/safe-on-a-live-account.md)
+* [How a run works](explanation/how-a-run-works.md)
+* [How optimize decides](explanation/how-optimize-decides.md)
+* [Campaign strategies](explanation/strategies.md)
+* [Image and app campaigns](explanation/image-campaigns.md)
+* [Restricted categories](explanation/restricted-categories.md)
+* [Agent CLIs](explanation/agent-clis.md)
+* [Limits and retries](explanation/limits-and-retries.md)
+* [Architecture](explanation/architecture.md)
+
+## Project
+
+* [Sponsors](sponsors.md)

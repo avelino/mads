@@ -1,0 +1,33 @@
+root: ./
+
+structure:
+  readme: README.md
+  summary: SUMMARY.md
+
+redirects:
+  getting-started: tutorials/first-run.md
+  tutorial: tutorials/run-a-real-account.md
+  why-mads: explanation/why-mads.md
+  guides/agent-clis: explanation/agent-clis.md
+  guides/business-file: how-to/write-the-business-file.md
+  guides/catalog: how-to/write-a-catalog.md
+  guides/cost-and-limits: how-to/keep-cost-down.md
+  guides/docker: how-to/run-in-docker.md
+  guides/export-google-ads-reports: how-to/export-google-ads-reports.md
+  guides/github-actions: how-to/run-in-github-actions.md
+  guides/how-campaigns-are-built: explanation/how-a-run-works.md
+  guides/image-campaigns: how-to/add-image-campaigns.md
+  guides/import-google-ads-editor: how-to/import-into-google-ads-editor.md
+  guides/init-from-url: how-to/draft-from-your-site.md
+  guides/optimize: how-to/optimize-a-live-account.md
+  guides/providers: how-to/choose-a-provider.md
+  guides/restricted-categories: how-to/handle-restricted-categories.md
+  guides/resume-and-export: how-to/resume-a-run.md
+  guides/review-and-import: how-to/review-a-run.md
+  guides/strategies: how-to/pick-a-strategy.md
+  howto/google-ads-bulk-upload-format: reference/bulk-upload-format.md
+  howto/google-ads-editor-drive-folders: how-to/use-the-automation-package.md
+  howto/ollama-local: how-to/run-with-ollama.md
+  howto/openai-compatible: how-to/use-an-openai-compatible-server.md
+  howto/troubleshooting: how-to/troubleshoot.md
+  reference/architecture: explanation/architecture.md

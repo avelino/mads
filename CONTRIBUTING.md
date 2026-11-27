@@ -1,6 +1,6 @@
 # Contributing to mads
 
-This page shows you how to build mads, run the verification gate and add a provider, a validation rule or a tool.
+Build mads, run the verification gate and add a provider, a validation rule or a tool.
 
 ## Build
 
@@ -27,30 +27,35 @@ Clippy runs with `unwrap_used = "warn"` for the workspace, and `-D warnings` tur
 
 ```text
 crates/
-  mads-core/         library, no network IO
+  mads-core/         library, no network access
     prompts/         system prompts embedded with include_str!, the plan one in sections (plan/)
     src/input/       business.toml, catalog.csv, slugify, allowed URLs
-    src/google/      domain model, rules, keyword expansion, RSA merge, CSV export
+    src/google/      domain model, rules, keyword expansion, RSA merge, CSV export, Editor file
+    src/google/automation/  the drive-folders layout
+    src/images/      image briefs, sizes and the picture rules
     src/init/        the init mission: tools, draft state, run
     src/tools/       typed tools, JSON schemas, MissionTools (the ToolHost)
     src/agent/       ChatModel and Driver ports, LoopDriver, scripted driver
     src/run.rs       orchestration, limits, resume, export
+    src/mission.rs   mission prompts and the playbook rules
+    src/workspace.rs the run state saved in workspace.json
     src/perf/        Google Ads report CSVs, the performance digest and the app events CSV
     src/optimize.rs  prepares a `mads optimize` run from a finished one
     src/post.rs      cross negatives, URL check
     src/finalize.rs  validate, URL check, export
-    src/report.rs    report.md
+    src/report.rs    report.md, and report_live.rs for the live account sections
     tests/           golden test against data/
   mads-providers/    GenaiChatModel, provider selection, WebClient, SiteClient (init)
     src/cli/         CliDriver and the claude, codex and gemini agents
     src/mcp.rs       the per-mission MCP server for agent CLIs
   mads-cli/          the mads binary, renderers, exit codes
+    src/commands/    one file per subcommand
 data/                real example output, the golden reference for the export format
 docs/                the documentation (GitBook)
 docs/superpowers/    design specs
 ```
 
-The dependency rule is strict. `mads-cli` depends on `mads-providers` and `mads-core`. `mads-providers` depends on `mads-core`. `mads-core` never touches the network. It defines traits (`ChatModel`, `Driver`, `Web`, `SiteFetch`, `ToolHost`) and `mads-providers` implements them. See [Architecture](docs/reference/architecture.md).
+The dependency rule is strict. `mads-cli` depends on `mads-providers` and `mads-core`. `mads-providers` depends on `mads-core`. `mads-core` never touches the network. It defines traits (`ChatModel`, `Driver`, `Web`, `SiteFetch`, `ToolHost`) and `mads-providers` implements them. See [Architecture](docs/explanation/architecture.md).
 
 ## Add an API provider
 
@@ -59,15 +64,15 @@ API providers go through the `genai` crate.
 1. Add a row to `API_PROVIDERS` in `crates/mads-providers/src/genai_model.rs`. The row holds the mads name, the genai namespace and the API key variable.
 2. Add a `Spec` to `SPECS` in `crates/mads-providers/src/select.rs` with `api(name, Some("ENV_VAR"))`.
 3. Add the name to the lists in the tests in `select.rs` (`api_providers_build_with_a_model_and_no_network` and `listing_has_the_documented_providers_and_hides_replay`).
-4. Document it in `docs/guides/providers.md`, `docs/reference/environment-variables.md` and the table in `README.md`.
+4. Document it in `docs/reference/providers.md`, `docs/reference/environment-variables.md` and `docs/how-to/choose-a-provider.md`.
 
-An agent CLI provider is a different job. Implement `CliAgent` in `crates/mads-providers/src/cli/<name>.rs` (command line, config files, stream parser, executable override variable). Then add it to `SPECS`, `build_drivers` and `preflight` in `select.rs`, and document it in `docs/guides/agent-clis.md`. Test the stream parser against recorded fixtures.
+An agent CLI provider is a different job. Implement `CliAgent` in `crates/mads-providers/src/cli/<name>.rs` (command line, config files, stream parser, executable override variable). Then add it to `SPECS`, `build_drivers` and `preflight` in `select.rs`, and document it in `docs/reference/providers.md` and `docs/explanation/agent-clis.md`. Test the stream parser against recorded fixtures.
 
-An image provider implements `ImageModel` from `mads-core` in `crates/mads-providers/src/image.rs`. Add it to `IMAGE_PROVIDERS` and `image_model_with`, test the request and the answer against wiremock, and document it in `docs/guides/image-campaigns.md` and `docs/reference/environment-variables.md`.
+An image provider implements `ImageModel` from `mads-core` in `crates/mads-providers/src/image.rs`. Add it to `IMAGE_PROVIDERS` and `image_model_with`, test the request and the answer against wiremock, and document it in `docs/how-to/add-image-campaigns.md` and `docs/reference/environment-variables.md`.
 
 ## Add a validation rule
 
-Rules live in `crates/mads-core/src/google/rules.rs` (account, campaign, ad group, text) and `crates/mads-core/src/post.rs` (URL check).
+Most rules live in `crates/mads-core/src/google/rules.rs` and `google/rules/`. The URL check is in `crates/mads-core/src/post.rs`. A few codes are raised elsewhere, for example `finalize.rs`, `mission.rs` and `google/automation/mod.rs`. Search for the code before you pick one.
 
 1. Pick the next free code. Errors are `E##` and block export. Warnings are `W##` and go to the report.
 2. Add the check to the method that owns the path it reports on. Every issue carries a `code`, a `path` and a `message` that names the limit and the actual value.
@@ -83,11 +88,11 @@ A shipped strategy is a `.md` file in the format users write: a TOML header betw
 1. Add `crates/mads-core/prompts/strategies/<name>.md` with `intent`, `min_share` and either `top` or a note that products are required.
 2. Add the name to `SHIPPED` in `crates/mads-core/src/input/strategy.rs`, and embed the file next to the other three there.
 3. Add its values to `shipped_strategies_resolve_with_their_values` in the same file.
-4. Add a row to the "Shipped strategies" table in `docs/guides/strategies.md`, and the name to the `--strategy` text in `docs/reference/cli.md` and `crates/mads-cli/src/cli.rs`.
+4. Add a row to the "Shipped strategies" table in `docs/explanation/strategies.md`, and the name to the `--strategy` text in `docs/reference/cli.md` and `crates/mads-cli/src/cli.rs`.
 
 ## Add a tool
 
-Tools are in `crates/mads-core/src/tools/plan.rs` (plan mission) and `campaign.rs` (campaign missions).
+Tools are in `crates/mads-core/src/tools/`: `plan.rs` (plan mission), `campaign.rs` (campaign missions), `image_campaign.rs` and `live.rs`. The init mission has its own in `crates/mads-core/src/init/tools.rs`.
 
 1. Define an arguments struct with `#[serde(deny_unknown_fields)]` and `#[derive(JsonSchema)]`. Optional fields use `#[serde(default)]`, never `Option<T>`.
 2. Register it in `specs()` with a name, a description and `schema_for::<Args>()`.
@@ -138,8 +143,13 @@ The first publish creates the package as private. Open the package settings once
 
 ## Docs
 
-Docs live in `docs/` and publish through GitBook (`.gitbook.yaml`). Each page starts with an H1 and one sentence that says what the reader can do afterwards. Every command in a page must run against the current binary. Do not edit `docs/superpowers/` unless you are changing a design spec.
+Docs live in `docs/` and publish through GitBook (`docs/.gitbook.yaml`). Each page starts with an H1 and one sentence that says what the reader can do afterwards. Every command in a page must run against the current binary. Do not edit `docs/superpowers/` unless you are changing a design spec.
 
 ## Commits
 
 Keep changes small and focused. Run the gate first.
+
+## Next
+
+- [Architecture](docs/explanation/architecture.md)
+- [Validation rules](docs/reference/validation-rules.md)

@@ -89,8 +89,7 @@ const AD: &[&str] = &[
     "ad type",
 ];
 
-const UNKNOWN: &str =
-    "no known report header (search terms, keywords, campaigns, ad groups or assets)";
+const UNKNOWN: &str = "no known report header (search terms, keywords, campaigns, campaigns by day, ad groups, assets, conversion actions or networks)";
 
 /// Reads one exported report. Err says why the file is not a report mads understands.
 pub fn read_table(bytes: &[u8]) -> Result<Table, String> {
@@ -336,6 +335,23 @@ fn cell_text(cell: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_header_message_lists_every_kind() {
+        let err = read_table(b"a,b\n1,2\n").unwrap_err();
+        for kind in [
+            "search terms",
+            "keywords",
+            "campaigns",
+            "ad groups",
+            "assets",
+            "conversion actions",
+            "networks",
+            "by day",
+        ] {
+            assert!(err.contains(kind), "missing {kind:?} in {err}");
+        }
+    }
 
     const TERMS_PT: &str = "Relatório de termos de pesquisa\n3 de outubro de 2026 - 5 de outubro de 2026\nTermo de pesquisa,Tipo de corresp.,Adicionada/excluída,Campanha,Grupo de anúncios,Código da moeda,Cliques,Impr.,Custo,Conversões\nvinho malbec,Correspondência de frase,Nenhum,Catálogo,Uvas tintas,BRL,5,106,\"5,85\",\"0,00\"\nTotal: Conta,,,,,BRL,5,\"1.106\",\"5,85\",\"0,00\"\n";
 

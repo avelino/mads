@@ -1,10 +1,22 @@
 # MCP tools
 
-This page lists every tool an agent can call, with its arguments, result and errors.
+Look up every tool an agent can call in a mads mission, with its arguments, result and the codes it returns.
 
-These are the tools the agents call. The plan and campaign tools are in `crates/mads-core/src/tools`. The init tools are in `crates/mads-core/src/init`. API providers call them through the model's tool calling. The tool definitions live in one place. Agent CLI providers reach the same definitions through a local MCP server that mads starts for each mission. See [Agent CLIs](../guides/agent-clis.md).
+The plan, campaign and image campaign tools live in `crates/mads-core/src/tools`. The init tools live in `crates/mads-core/src/init/tools.rs`. API providers call them through the model's tool calling. Agent CLI providers reach the same definitions through a per-mission MCP server. For how a run uses them, see [How a run works](../explanation/how-a-run-works.md) and [Agent CLIs](../explanation/agent-clis.md).
 
-A mission sees only its own toolset. Calling any other tool returns `UNKNOWN_TOOL`.
+## Missions and toolsets
+
+A mission sees only its own tools. Any other name returns `UNKNOWN_TOOL`.
+
+| Mission | Tools |
+|---|---|
+| Plan | `get_business`, `query_catalog`, `set_brand_kit`, `set_account_plan`, `finish` |
+| Campaign (kind `search`) | `get_brief`, `upsert_ad_group`, `set_campaign_negatives`, `set_assets`, `validate`, `finish` |
+| Campaign (kind `performance_max`, `demand_gen` or `app_installs`) | `get_brief`, `upsert_asset_group`, `set_image_briefs`, `validate`, `finish` |
+| Both campaign kinds in `mads optimize` | the list above plus `get_ad_group_performance`, second in the list |
+| Init | `fetch_page`, `fetch_sitemap`, `search_site`, `write_business`, `write_research`, `write_design`, `add_catalog_items`, `finish` |
+
+A campaign mission reads and changes only its own campaign.
 
 ## Result format
 
@@ -20,41 +32,128 @@ Failure. The call changed nothing.
 {"ok": false, "errors": [{"code": "E01", "severity": "error", "path": "rsa.headlines[0]", "message": "34 chars, limit is 30"}], "warnings": []}
 ```
 
-Bad arguments.
+Every tool takes `additionalProperties: false`. An unknown field or a bad type is an `ARGS` error with the parser message. Schemas have no `$ref`, `anyOf`, `oneOf` or nullable types.
 
-```json
-{"ok": false, "errors": [{"code": "ARGS", "severity": "error", "path": "", "message": "<parser error>"}], "warnings": []}
-```
+## Codes that belong to the tools
 
-Every tool has `additionalProperties: false`. An unknown field is an `ARGS` error. A mission also has a tool call budget of `--max-turns` times 4. After it, calls return `LIMIT`. Codes are in [Validation rules](validation-rules.md).
+The `E` and `W` codes are in [Validation rules](validation-rules.md). These codes come from the tool layer.
+
+| Code | Returned when |
+|---|---|
+| `ARGS` | The arguments do not parse. The message is the parser error. |
+| `UNKNOWN_TOOL` | The tool is not in the mission's toolset. |
+| `LIMIT` | The mission made more than `--max-turns` times 4 calls, or `fetch_page` hit the page limit. |
+| `NOT_FOUND` | The campaign is gone from the plan, `get_ad_group_performance` ran on a campaign with no live data, or it got a group neither the run nor the reports know. |
+| `LIVE_DETAIL` | In `mads optimize`, `upsert_ad_group` or `upsert_asset_group` got a group that ran before the mission read it with `get_ad_group_performance`. |
+| `UNSUPPORTED` | `set_account_plan` got a Search campaign with a bid strategy other than `manual_cpc`, or an image or App campaign the run cannot build. |
+| `NO_IMAGE_REASON` | Image campaigns are available and the plan has none and no rationale contains `No image campaign:`. |
+| `NO_APP_REASON` | The app is available and the plan has no `app_installs` campaign and no rationale contains `No app campaign:`. |
+| `PERSIST` | The workspace could not be saved to disk. |
+| `HOST` | An init URL is not on the business website. |
+| `FETCH` | An init page or sitemap could not be read. |
+| `QUERY` | `search_site` got a bad list of names. |
+| `INPUT` | An init draft failed the same checks as `business.toml` and `catalog.csv`, or a research field is out of range. |
+
+`NO_IMAGE_REASON` and `NO_APP_REASON` are not asked when `business.toml` sets `[campaigns] formats`.
 
 ## Plan mission
 
-Tools: `get_business`, `query_catalog`, `set_brand_kit`, `set_account_plan`, `finish`.
-
 ### get_business
 
-No arguments. Returns the business profile, the budget and the rules every tool enforces.
+No arguments. Returns the business, the budget and the rules every tool enforces.
 
-```json
-{"business": {}, "budget": {"daily": 50.0, "currency": "BRL", "max_cpc": 3.0, "target_cpa": null, "target_cpi": null}, "catalog_size": 4, "catalog_photos": 1, "image_campaigns": {"available": false, "reason": "no image model in this run (set --image-provider and its API key)"}, "rules": {}}
-```
+| Key | Content |
+|---|---|
+| `business` | The business profile. |
+| `budget` | `daily`, `currency`, `max_cpc`, `target_cpa`, `target_cpi`. `target_cpa_in_app` only when set. |
+| `catalog_size` | Number of catalog items. |
+| `catalog_photos` | Items that have an `image`. |
+| `image_campaigns` | `available`, and `reason` when `false`. Covers Performance Max and Demand Gen. |
+| `app_campaigns` | `available`, and `reason` when `false`. |
+| `apps` | One entry per app, with `store`, `id` and `store_url`. Empty without an app. |
+| `focus` | The `[focus]` table, or `null`. |
+| `rules` | See below. |
+| `strategy` | Only with a campaign strategy. `name`, `intent`, `min_share`, `product_ids`, `prose`. |
+| `research` | Only when `business.toml` has research notes. The Markdown text. |
+| `required_formats` | Only when `[campaigns] formats` is set. |
+| `live_account`, `performance` | Only in `mads optimize`. See below. |
 
-`rules` has the text limits, the count ranges, the intents (`brand`, `catalog`, `generic`, `competitor`), the match types (`phrase`, `exact`), `campaign_kinds` with the bid strategies of each kind, the snippet headers and `max_ad_groups`.
+The `reason` of `image_campaigns` and `app_campaigns` is one of these.
 
-When `business.toml` has `[campaigns] formats`, the result also has `required_formats`, and `set_account_plan` refuses a plan without one of them (`E21`).
+| Reason | Applies to |
+|---|---|
+| `no image model in this run (set --image-provider and its API key)` | Both. |
+| `no logo: set [brand] logo in business.toml` | `image_campaigns`. |
+| `no app: set [app] store and id in business.toml` | `app_campaigns`. |
 
-`focus` is the `[focus]` table of `business.toml`, or null. With a focus, every landing page must be a focus URL (`E22`), and a planned group without entity lands on the first focus URL instead of `business.url`. Both `get_brief` tools return it too.
+`rules` holds these keys.
 
-`strategy` is the campaign strategy, and is absent without one: `name`, `intent`, `min_share`, `product_ids` (the catalog ids of the strategy products) and `prose`. `set_account_plan` checks the budget share of the campaigns that only hold those products.
+| Key | Value |
+|---|---|
+| `headline_max_chars` | 30 |
+| `description_max_chars` | 90 |
+| `path_max_chars` | 15 |
+| `sitelink_text_max_chars` | 25 |
+| `sitelink_description_max_chars` | 35 |
+| `callout_max_chars` | 25 |
+| `snippet_value_max_chars` | 25 |
+| `headline_exclamation_allowed` | `false` |
+| `brand_kit` | Headlines 8 to 12, descriptions 2 to 3 |
+| `rsa_specific` | Headlines 3 to 7, descriptions 1 to 2 |
+| `keywords_per_ad_group` | 1 to 50 |
+| `keyword_spec` | `variants` 1 to 6, `modifiers` 0 to 10, `extra` 0 to 20 |
+| `negatives_per_scope` | 0 to 100 |
+| `campaigns` | 1 to 5 |
+| `sitelinks`, `callouts`, `snippets` | `2 to 8 (4 or more recommended)`, `2 to 10 (4 or more recommended)`, `0 to 2, 3 to 10 values each` |
+| `snippet_headers` | The allowed header names |
+| `intents` | `brand`, `catalog`, `generic`, `competitor` |
+| `match_types` | `phrase`, `exact` |
+| `campaign_kinds` | The bid strategies of each kind, and what a kind needs |
+| `max_ad_groups` | The `--max-ad-groups` value |
 
-`apps` lists the `[app]` and `[[app]]` tables, each with its `store`, `id` and `store_url`, and is empty without one. `app_campaigns.available` says whether `app_installs` can be planned: it needs an image model and an app, not a logo. The planned groups of an App campaign land on the store page of its app.
+`campaign_kinds` is this.
 
-`catalog_photos` counts the catalog items with an `image`. `image_campaigns.available` is `true` only when the run has an image model and `business.toml` has a logo. Otherwise `reason` says which one is missing, `no image model in this run (set --image-provider and its API key)` or `no logo: set [brand] logo in business.toml`.
+| Kind | Bid strategies | Needs |
+|---|---|---|
+| `search` | `manual_cpc` | none |
+| `performance_max` | `maximize_conversions` | `conversion_tracking` |
+| `demand_gen` | `maximize_clicks`, `maximize_conversions` | none |
+| `app_installs` | `maximize_conversions` | `[app]` in `business.toml` |
 
-When `business.toml` has a `[research]` table, the result also has `research`, the Markdown text of that file. Without notes the key is absent.
+In a `mads optimize` run, `live_account.campaigns` lists each campaign as it ran with `name`, `kind`, `intent`, `daily_budget`, `bid_strategy` and `ad_groups` (names). `performance` has these keys.
 
-In a `mads optimize` run the result also has `live_account` and `performance`. `live_account.campaigns` lists every campaign as it ran: name, kind, intent, daily budget, bid strategy and ad group names. `performance` has the report `window`, a `thin_rule` sentence, a `live_rules` sentence, `idle_budget`, `missing_reports`, `ignored_campaigns` and one entry per campaign with its totals, live status, status reasons, impression share lost to budget and rank, `days_running`, `avg_daily_cost`, `budget_use_pct`, `thin`, `stalled`, `untracked` and `hidden_terms_cost`, without ad group detail. A campaign that `E27` limits also has `budget_cap`, the most daily budget it may get, so the plan splits the budget with it instead of finding it in a refused call. When `budget.target_cpa`, `target_cpi` or `target_cpa_in_app` is set, a campaign whose numbers say also has `vs_target`: `within`, `over` or `no_result`. `budget.target_cpa_in_app` is in the result only when it is set. When the conversion action report was read, a campaign also has `conversion_actions` (at most five), an App campaign with no action for its store has `untracked_reason`, and a Search or Demand Gen campaign in an installs account may have `off_goal_actions`. When the network report was read, it has `networks` (share of cost and conversions and CTR per network), and an App campaign with likely accidental Display clicks has `accidental_display_clicks: true`. An App campaign with app events also has an `app` block (`app_installs_seen`, `in_app_actions`, `install_to_action_pct`, `cost_per_in_app_action`, `store_vs_app_install_ratio` and `store_cost`), and its `vs_target` counts in-app actions when `target_cpa_in_app` is set. In that run `set_account_plan` refuses, with `E25`, a plan that leaves out a group that had impressions, unless the campaign `rationale` has a line `Drop <group>: <reason>`, and, with `E27`, more daily budget for a stalled, untracked or over-target campaign. See [Optimize a live account](../guides/optimize.md).
+| Key | Content |
+|---|---|
+| `window` | The report window. |
+| `thin_rule` | A sentence. Defines `thin`. |
+| `live_rules` | A sentence per rule the reports triggered. |
+| `idle_budget` | Daily budget that goes unspent. |
+| `missing_reports` | Report kinds that were not read. |
+| `ignored_campaigns` | Campaigns the run skipped. |
+| `campaigns` | One entry per campaign, below. |
+| `outside_campaigns` | Only when enabled campaigns outside the run spend without converting. `name`, `cost_share_pct`, `clicks`, `conversions`, `paused_by_the_import`. |
+| `drift` | Only when the live account differs from what the last run exported. |
+
+Each entry of `performance.campaigns` has the campaign totals without ad group detail.
+
+| Key | Content |
+|---|---|
+| `name`, `live_status`, `status_reasons`, `budget`, `bid_strategy` | Live state. |
+| `metrics` | Totals. |
+| `lost_to_budget_pct`, `lost_to_rank_pct` | Impression share lost. |
+| `days_running`, `avg_daily_cost`, `budget_use_pct` | Spend. |
+| `thin`, `stalled`, `untracked` | Flags. |
+| `untracked_reason` | An App campaign with no conversion action for its store. |
+| `hidden_terms_cost` | Cost the search terms report does not list. |
+| `conversion_actions` | At most five, when the conversion action report was read. |
+| `off_goal_actions` | When the conversion action report was read. |
+| `networks` | Cost share, conversion share and CTR per network, when the network report was read. |
+| `accidental_display_clicks` | Only when `true`. |
+| `app` | With app events. `store`, `app_installs_seen`, `in_app_actions`, `install_to_action_pct`, `cost_per_in_app_action`, `store_vs_app_install_ratio`, `store_cost`. |
+| `vs_target` | `within`, `over` or `no_result`. Only with a target and enough numbers. |
+| `budget_cap` | Only when `E27` limits the campaign. The most daily budget it may get. |
+
+`performance.campaigns[].vs_target` uses `target_cpi` for App campaigns and `target_cpa` for the others. With app events and `target_cpa_in_app`, an App campaign is judged by in-app actions. See [How optimize decides](../explanation/how-optimize-decides.md).
 
 ### query_catalog
 
@@ -63,24 +162,24 @@ In a `mads optimize` run the result also has `live_account` and `performance`. `
 | `category` | string | `""` | Only items of this category. Exact, case-insensitive. Empty for all. |
 | `contains` | string | `""` | Case-insensitive text searched in id, name and aliases. |
 | `offset` | integer | `0` | Items to skip. |
-| `limit` | integer | `50` | Page size. Clamped to 1 to 200. |
-
-Result.
+| `limit` | integer | `50` | Page size, clamped to 1 to 200. |
 
 ```json
 {"total": 4, "offset": 0, "items": [], "categories": [{"name": "malbec argentino", "count": 2}]}
 ```
 
-`items` are the catalog rows (`id`, `name`, `url`, `category`, `aliases`, `third_party`, `notes`). `categories` counts every category in the whole catalog, not only the filtered items.
+`items` are catalog rows as stored: `id`, `name`, `url`, `category`, `aliases`, `third_party`, `notes` and `image`. `total` counts the filtered items. `categories` counts every non-empty category of the whole catalog. See [catalog.csv](catalog-csv.md).
 
 ### set_brand_kit
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `headlines` | string array | yes | 8 to 12 headlines, 30 characters at most. |
-| `descriptions` | string array | yes | 2 to 3 descriptions, 90 characters at most. |
+| `headlines` | string array | yes | 8 to 12, at most 30 characters. |
+| `descriptions` | string array | yes | 2 to 3, at most 90 characters. |
 
-Checks `E01`, `E02`, `E03`, `E04`, `E05`, `E13`, plus warnings `W01` and `W02`. Replaces the previous kit. Result `{"headlines": 10, "descriptions": 3}`.
+Replaces the previous kit. Result `{"headlines": 10, "descriptions": 3}`.
+
+Codes: `E01`, `E02`, `E03`, `E04`, `E05`, `E13`, `W01`, `W02`.
 
 ### set_account_plan
 
@@ -95,64 +194,61 @@ Each campaign.
 | `name` | string | yes | Campaign name. Its slug is the mission id suffix. |
 | `kind` | string | no | `search` (default), `performance_max`, `demand_gen` or `app_installs`. |
 | `intent` | string | yes | `brand`, `catalog`, `generic` or `competitor`. |
-| `daily_budget` | number | yes | In currency units, at most 2 decimals. All campaigns must sum to `budget.daily`. |
-| `bid_strategy` | object | yes | `{"type": "..."}`. `search` takes `manual_cpc`, other types return `UNSUPPORTED`. `performance_max` and `app_installs` take `maximize_conversions`. `demand_gen` takes `maximize_clicks` or `maximize_conversions`. A mismatch is `E17`. |
+| `daily_budget` | number | yes | Currency units, at most 2 decimals. All campaigns sum to `budget.daily`. |
+| `bid_strategy` | object | yes | `{"type": "manual_cpc"}`, `{"type": "maximize_clicks"}` or `{"type": "maximize_conversions"}`. |
 | `rationale` | string | yes | Why this budget share and bidding. |
-| `app_store` | string | no | `app_installs` only. `google_play` or `app_store`, the store of the app to promote. `auto` (default) takes the only app of the business. With an app on each store, every App campaign names its store (`E24`), and two campaigns cannot share one (`E30`). |
-| `ad_groups` | array | yes | The planned ad groups of a Search campaign, the planned asset groups of an image campaign. |
+| `app_store` | string | no | `app_installs` only. `google_play`, `app_store` or `auto` (default). |
+| `ad_groups` | array | yes | Planned ad groups of a Search campaign, planned asset groups of an image or App campaign. |
 
 Each ad group.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Ad group name. Unique in the campaign. |
-| `theme` | string | yes | What the ad group is about. |
-| `entity_ids` | string array | no | Catalog ids this ad group covers. |
-| `final_url` | string | no | Landing page. Empty resolves to the entity URL (one entity) or `business.url`. |
+| `name` | string | yes | Unique in the campaign. |
+| `theme` | string | yes | What the group is about. |
+| `entity_ids` | string array | no | Catalog ids the group covers. An unknown id is `E12`. |
+| `final_url` | string | no | Landing page. Empty resolves to the entity URL (one entity), else the first `[focus]` URL, else `business.url`. An App campaign always lands on its store page. |
 
-Checks `E06`, `E07`, `E10`, `E11`, `E12`, `E13`, `E17`, `E18`, `E21`, `E33`, unknown catalog ids (`E12`) and `UNSUPPORTED`. An image campaign in a run without an image model or a logo is `UNSUPPORTED`. With image campaigns available, a plan without one needs a rationale with `No image campaign: <reason>` (`NO_IMAGE_REASON`). With the app available, a plan without `app_installs` needs `No app campaign: <reason>` (`NO_APP_REASON`). Neither is asked when `business.toml` sets `[campaigns] formats`. With a strategy, a plan that gives the product campaigns less than `min_share` percent is refused with `E33`, and in a `mads optimize` run it is stored with the warning `W14`. Result.
+`auto` takes the store of the only app. With an app on each store, each App campaign names its store (`E24`).
+
+Result.
 
 ```json
 {"campaigns": [{"name": "Vinellu - Marca", "slug": "vinellu-marca", "ad_groups": 1}]}
 ```
 
+Codes: `E01`, `E06`, `E07`, `E10`, `E12`, `E13`, `E17`, `E18`, `E21`, `E22`, `E24`, `E25`, `E27`, `E30`, `E31`, `E33`, `UNSUPPORTED`, `NO_IMAGE_REASON`, `NO_APP_REASON`. Warning `W14`. `E25`, `E27` and `E31` apply only in `mads optimize`. With a strategy, `E33` becomes `W14` in `mads optimize`, and the plan is stored.
+
 ### finish
 
 No arguments. Fails with `E12` when the brand kit or the plan is missing. Result `{"campaigns": 2}`.
 
-## Campaign mission
-
-Tools: `get_brief`, `upsert_ad_group`, `set_campaign_negatives`, `set_assets`, `validate`, `finish`, plus `get_ad_group_performance` in a `mads optimize` run. A campaign mission reads and changes only its own campaign.
+## Search campaign mission
 
 ### get_brief
 
-No arguments. Returns what the agent needs.
+No arguments.
 
-```json
-{
-  "campaign": {"name": "", "slug": "", "intent": "", "daily_budget": 0.0, "bid_strategy": {}, "rationale": "", "planned_ad_groups": []},
-  "brand_kit": {},
-  "business": {},
-  "budget": {"currency": "BRL", "max_cpc": 3.0},
-  "entities": [],
-  "built_ad_groups": [{"name": "", "keywords": 0, "negatives": 0, "default_cpc": 0.0}],
-  "campaign_negatives": [],
-  "assets_set": false,
-  "rules": {}
-}
-```
+| Key | Content |
+|---|---|
+| `campaign` | `name`, `slug`, `intent`, `daily_budget`, `bid_strategy`, `rationale`, `planned_ad_groups`. |
+| `brand_kit`, `business`, `focus` | As in `get_business`. |
+| `budget` | `currency`, `max_cpc`. |
+| `entities` | Full catalog rows of the entities in this campaign's planned groups. |
+| `built_ad_groups` | `name`, `keywords`, `negatives`, `default_cpc` of each group already saved. |
+| `campaign_negatives` | The campaign level negatives. |
+| `assets_set` | `true` once `set_assets` succeeded. |
+| `rules` | As in `get_business`. |
+| `strategy` | Only with a campaign strategy. `intent`, `product_campaign`, `prose`. |
+| `live`, `performance`, `live_detail` | Only in `mads optimize`. See below. |
 
-`strategy` is present only with a campaign strategy: `intent`, `product_campaign` (true when every planned ad group of this campaign covers only strategy products) and `prose`.
+In `mads optimize`, `live` is the campaign as it ran (`daily_budget`, `negatives`, `ad_groups` with `name`, `default_cpc`, `keywords` and `negatives` as counts, and `asset_groups` as names). It is `null` for a campaign that did not run. `performance` is the campaign entry described under `get_business`, with `ad_groups` replaced by one summary per group, plus `window`, `thin_rule` and `live_rules`. `live_detail` is a hint to call `get_ad_group_performance`.
 
-`entities` are the full catalog rows of the entities in this campaign's ad groups. `built_ad_groups` is what an earlier attempt already saved.
-
-In a `mads optimize` run the result also has `live`, `performance` and `live_detail`, one line per ad group. `live` is this campaign as it ran: daily budget, negatives, and for each ad group its CPC and how many keywords and negatives it had, plus the asset group names. It is null for a campaign that did not run. `performance` is the campaign's totals and, per ad group, its totals (from the ad groups report when there is one, else summed from its keywords), how many keywords had traffic, how many carry each signal (`below_first_page`, `rarely_shown`, `low_quality`), the search term count and the cost of terms without conversions. `live_detail` tells the agent to call `get_ad_group_performance` for the rest. The image campaign `get_brief` returns the same fields.
-
-The detail is a separate tool because one call with every group does not fit. A catalog campaign with 7 ad groups and 200 keywords reached 56,000 characters, and Claude Code saves a tool result that large to a file the agent cannot read. The summary of that campaign takes about 20,000 with the rest of the brief, and each group about 8,000 or less.
+A summary has `name`, `metrics`, `keywords`, `keywords_with_traffic`, `signals` (counts of `below_first_page`, `rarely_shown`, `low_quality`), `search_terms_total`, `cost_without_conversions`, and `not_in_run: true` for a group that serves in Google Ads from an older import.
 
 ### get_ad_group_performance
 
-Only in a `mads optimize` run, for campaign and image campaign missions. Read only.
+Only in `mads optimize`. Read only. Works for Search, Performance Max, Demand Gen and App campaign missions.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -162,9 +258,18 @@ Only in a `mads optimize` run, for campaign and image campaign missions. Read on
 {"ad_group": "", "live": {"name": "", "default_cpc": 0.0, "final_url": "", "keywords": ["\"phrase\"", "[exact]"], "negatives": [], "rsa": {}}, "performance": {"keywords": [], "keywords_without_traffic": {"count": 0, "below_first_page": 0, "rarely_shown": 0, "low_quality": 0, "examples": []}, "search_terms": [], "search_terms_total": 0, "cost_without_conversions": 0.0}}
 ```
 
-`live` is the group as it ran. For an asset group it is the asset group itself. `performance.keywords` lists only the keywords that had impressions, with their numbers, signals, max CPC and, when the report has them, Quality Score and bid estimates. The others are counted in `keywords_without_traffic`. `search_terms` has the 20 most expensive terms with their state, and `assets` the labels Google gave the texts when an assets report was read. `metrics` holds the group totals when an ad groups report was read. Numbers that are zero or missing are left out.
+| Key | Content |
+|---|---|
+| `live` | The group as it ran. For an asset group, the asset group itself. `null` when only the reports know the group. |
+| `performance.keywords` | Only keywords with impressions. `text`, `match_type`, `metrics`, and when present `signals`, `max_cpc`, `quality_score`, `first_page_bid`, `top_of_page_bid`. |
+| `performance.keywords_without_traffic` | `count`, the three signal counts, and up to 5 `examples`. |
+| `performance.search_terms` | The 20 most expensive terms. `text`, `match_type`, `state`, `metrics`. |
+| `performance.search_terms_total` | Terms the group has before the cut. |
+| `performance.cost_without_conversions` | Cost of terms with no conversion. |
+| `performance.assets` | Labels Google gave the texts. Only when an assets report was read. |
+| `performance.metrics` | Group totals. Only when an ad groups report was read. |
 
-A name that neither the run nor the reports know fails with `NOT_FOUND`, and the message lists the groups that ran. `upsert_ad_group` and `upsert_asset_group` refuse a group that ran with `LIVE_DETAIL` until the mission called this tool with it.
+Metrics with a zero or missing value are left out. A name that neither the run nor the reports know fails with `NOT_FOUND`, and the message lists the groups that ran.
 
 ### upsert_ad_group
 
@@ -172,9 +277,9 @@ Creates or replaces one planned ad group.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | A planned ad group of this campaign. |
-| `default_cpc` | number | yes | Currency units, at most 2 decimals. |
-| `cpc_rationale` | string | no | Why this number. Shows in the report. |
+| `name` | string | yes | A planned ad group of this campaign. Compared after `normalize`. |
+| `default_cpc` | number | yes | Currency units, at most 2 decimals, above 0. |
+| `cpc_rationale` | string | no | Shows in the report. |
 | `keywords` | object | yes | The keyword spec. |
 | `negatives` | array | no | Ad group negatives, each `{"text", "match"}`. |
 | `rsa` | object | yes | The ad group specific ad texts. |
@@ -183,12 +288,12 @@ Creates or replaces one planned ad group.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `variants` | string array | yes | 1 to 6 ways people write one name. Variants of different searches fail `E26`. Outside brand campaigns a one-word variant becomes exact only. |
+| `variants` | string array | yes | 1 to 6 ways people write one search. Variants of different searches fail `E26`. |
 | `modifiers` | string array | no | 0 to 10 intent words. |
-| `exact_heads` | boolean | no, default `true` | Add every variant as exact match. |
+| `exact_heads` | boolean | no, default `true` | Adds every variant as exact match. |
 | `extra` | array | no | 0 to 20 explicit `{"text", "match"}` keywords. |
 
-`match` is `phrase` or `exact`.
+`match` is `phrase` or `exact`. A one-word variant is phrase only in a `brand` campaign, or when `exact_heads` is `false`. Otherwise it is exact only.
 
 `rsa`.
 
@@ -197,25 +302,7 @@ Creates or replaces one planned ad group.
 | `headlines` | string array | yes | 3 to 7, at most 30 characters. |
 | `descriptions` | string array | yes | 1 to 2, at most 90 characters. |
 | `path1` | string | no | At most 15 characters. Empty for none. |
-| `path2` | string | no | Needs `path1`. |
-
-Example call.
-
-```json
-{
-  "name": "marca-vinellu",
-  "default_cpc": 0.6,
-  "cpc_rationale": "Termo de marca, concorrência baixa.",
-  "keywords": {"variants": ["vinellu", "vinellu app"], "modifiers": ["baixar", "grátis"], "exact_heads": true},
-  "negatives": [],
-  "rsa": {
-    "headlines": ["Vinellu: app de vinhos", "Baixe o Vinellu grátis", "Vinellu: sua adega"],
-    "descriptions": ["Baixe o Vinellu e fotografe o rótulo de qualquer vinho. Grátis."],
-    "path1": "app",
-    "path2": ""
-  }
-}
-```
+| `path2` | string | no | At most 15 characters. Needs `path1`. |
 
 mads expands the keywords, merges the RSA with the brand kit, validates the ad group and replaces any ad group with the same name. Result.
 
@@ -223,15 +310,15 @@ mads expands the keywords, merges the RSA with the brand kit, validates the ad g
 {"ad_group": "marca-vinellu", "keywords": 8, "negatives": 0, "merged_headlines": 13, "merged_descriptions": 4}
 ```
 
-Checks `E01` to `E05`, `E08`, `E09`, `E11`, `E12`, `E13`, `E14`, plus warnings `W01` to `W04`. Only issues on this ad group are reported.
+Codes: `E01`, `E02`, `E03`, `E04`, `E05`, `E07`, `E08`, `E09`, `E11`, `E12`, `E13`, `E14`, `E22`, `E23`, `E26`. Warnings `W01`, `W02`, `W03`, `W04`, `W09`. In `mads optimize` also `LIVE_DETAIL`, `E28` and `W10`. Only issues on this ad group are reported.
 
 ### set_campaign_negatives
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `negatives` | array of `{"text", "match"}` | yes | Replaces the campaign-level list. |
+| `negatives` | array of `{"text", "match"}` | yes | Replaces the campaign-level list. 0 to 100. |
 
-Checks `E01`, `E02`, `E08`, `E09`, `E13`. A negative that blocks any keyword built so far in the campaign fails with `E09`. Result `{"negatives": 8}`.
+Result `{"negatives": 8}`. Codes: `E01`, `E02`, `E08`, `E09`, `E13`. `E09` fires when a negative blocks a keyword already built in the campaign.
 
 ### set_assets
 
@@ -239,15 +326,15 @@ Checks `E01`, `E02`, `E08`, `E09`, `E13`. A negative that blocks any keyword bui
 |---|---|---|---|
 | `sitelinks` | array | yes | 2 to 8. Each `{"text", "description1", "description2", "url"}`. Only `text` and `url` are required. |
 | `callouts` | string array | yes | 2 to 10, at most 25 characters. |
-| `snippets` | array | no | 0 to 2. Each `{"header", "values"}` with 3 to 10 values. |
+| `snippets` | array | no | 0 to 2. Each `{"header", "values"}` with 3 to 10 values of at most 25 characters. |
 
-Sitelink text has 25 characters at most, descriptions 35 (both or none), `url` must be allowed. `header` is one of `amenities`, `brands`, `courses`, `degree_programs`, `destinations`, `featured_hotels`, `insurance_coverage`, `models`, `neighborhoods`, `service_catalog`, `shows`, `styles`, `types`.
+Sitelink `text` has 25 characters at most. Descriptions have 35, both or none. `url` must be an allowed URL. `header` is one of `amenities`, `brands`, `courses`, `degree_programs`, `destinations`, `featured_hotels`, `insurance_coverage`, `models`, `neighborhoods`, `service_catalog`, `shows`, `styles`, `types`.
 
-Checks `E01`, `E03`, `E05`, `E07`, `E13`, `E14`, plus `W01`, `W02` and `W05`. Result `{"saved": true}`.
+Result `{"saved": true}`. Codes: `E01`, `E02`, `E03`, `E05`, `E07`, `E13`, `E14`. Warnings `W01`, `W02`, `W05`.
 
 ### validate
 
-No arguments. Validates the campaign as it stands and changes nothing. It always returns `ok: true`, with the issues inside the result.
+No arguments. Validates the campaign as it stands and changes nothing. It always returns `ok: true`, with the issues inside `result`.
 
 ```json
 {"ok": true, "result": {"errors": [], "warnings": []}, "warnings": []}
@@ -255,15 +342,25 @@ No arguments. Validates the campaign as it stands and changes nothing. It always
 
 ### finish
 
-No arguments. Needs every planned ad group, assets and zero errors in the campaign. Otherwise it returns the errors. Result `{"ad_groups": 4}`.
+No arguments. Needs every planned ad group, the assets and zero errors, else it returns the errors. Result `{"ad_groups": 4}`.
 
-## Image campaign mission
+## Image and App campaign mission
 
-A `performance_max`, `demand_gen` or `app_installs` campaign gets these tools instead: `get_brief`, `upsert_asset_group`, `set_image_briefs`, `validate`, `finish`. Its system prompt is `prompts/image-campaign.md`.
+Used for `performance_max`, `demand_gen` and `app_installs` campaigns. The tools are `get_brief`, `upsert_asset_group`, `set_image_briefs`, `validate` and `finish`. See [Image and app campaigns](../explanation/image-campaigns.md).
 
 ### get_brief
 
-No arguments. Like the Search `get_brief`, with `design` (the text of `DESIGN.md`, when there is one), `planned_asset_groups`, `built_asset_groups` (`name`, `headlines`, `images`), `entities` with `has_photo`, and `image_rules` with the limits of each kind and the ratios.
+No arguments. Like the Search `get_brief`, with these differences.
+
+| Key | Content |
+|---|---|
+| `campaign` | Adds `kind`. Lists `planned_asset_groups` instead of `planned_ad_groups`. |
+| `entities` | `id`, `name`, `url`, `category`, `notes`, `has_photo`. |
+| `built_asset_groups` | `name`, `headlines`, `images` as counts. |
+| `design` | The text of `DESIGN.md`. Only when there is one. |
+| `image_rules` | Limits per kind, the ratios with their pixel sizes, and the brief rules. |
+
+There is no `budget`, `campaign_negatives` or `assets_set`.
 
 ### upsert_asset_group
 
@@ -272,45 +369,69 @@ Creates or replaces the texts of one planned asset group. Its image briefs are k
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | yes | A planned asset group of this campaign. |
-| `business_name` | string | no | At most 25 characters. App campaigns leave it empty. |
-| `headlines` | string array | yes | Performance Max 3 to 15 of 30 characters. Demand Gen 1 to 5 of 40. App 1 to 5 of 30. |
-| `long_headlines` | string array | no | Performance Max only, 1 to 5 of 90 characters. |
-| `descriptions` | string array | yes | Performance Max 2 to 5 of 90, one of them 60 or fewer. Demand Gen 1 to 5 of 90. |
-| `search_themes` | string array | no | Performance Max only, 0 to 25 of 80 characters. |
+| `business_name` | string | no | At most 25 characters. Not checked for App campaigns. |
+| `headlines` | string array | yes | See the table below. |
+| `long_headlines` | string array | no | Performance Max only, 1 to 5 of at most 90 characters. |
+| `descriptions` | string array | yes | See the table below. |
+| `search_themes` | string array | no | Performance Max only, 0 to 25 of at most 80 characters. |
 
-The final URL comes from the plan. Checks `E01`, `E02`, `E03`, `E04`, `E05`, `E07`, `E12`, `E13`, plus `W01` and `W02`.
+| Kind | Headlines | Descriptions |
+|---|---|---|
+| `performance_max` | 3 to 15 of at most 30, no `!` | 2 to 5 of at most 90, one of at most 60 |
+| `demand_gen` | 1 to 5 of at most 40 | 1 to 5 of at most 90 |
+| `app_installs` | 1 to 5 of at most 30, no `!` | 1 to 5 of at most 90 |
+
+The final URL comes from the plan. Result `{"saved": "asset group <name>"}`.
+
+Codes: `E01`, `E02`, `E03`, `E04`, `E05`, `E07`, `E12`, `E13`, `E22`, `E23`. Warnings `W01`, `W02`. Briefs kept from an earlier call are checked again, so `E16`, `E19`, `W06` and `W07` can appear. In `mads optimize` also `LIVE_DETAIL`.
 
 ### set_image_briefs
 
-Replaces every brief of one asset group. A replaced brief loses its file, so the image step draws it again.
+Replaces every brief of one asset group.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `asset_group` | string | yes | An asset group already created with `upsert_asset_group`, else `E12`. |
-| `images` | array | yes | Up to 20 briefs. |
+| `images` | array | yes | 0 to 20 briefs. |
 
 Each brief.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Slug, unique in the group. It becomes the file name. |
-| `ratio` | string | yes | `landscape` (1.91:1), `square`, `portrait` (4:5) or `vertical` (9:16). |
-| `prompt` | string | yes | 20 to 1500 characters, in English. What the picture shows. |
-| `reference` | string | no | Catalog id whose photo the picture must show. Empty for none. |
+| `ratio` | string | yes | See the table below. |
+| `prompt` | string | yes | 20 to 1500 characters. |
+| `reference` | string | no | Catalog id whose item has an `image`. Empty for none. |
 
-Checks `E13`, `E16`, `E19`, plus `W06` and `W07`.
+| Ratio | Size written | Kinds |
+|---|---|---|
+| `landscape` | 1200 x 628 | all |
+| `square` | 1200 x 1200 | all |
+| `portrait` | 960 x 1200 | all |
+| `vertical` | 1080 x 1920 | `demand_gen` only |
+
+A brief keeps its generated file when its `id`, `ratio` and `prompt` match a brief the group had, or one the live run had. Any other change makes the image step draw it again. Result `{"saved": "<group>: <n> image briefs"}`.
+
+Codes: `E16`, `E19`, `E13`. Warnings `W06`, `W07`.
 
 ### validate and finish
 
-Same as Search. `E20` is left out: the pictures are made after the mission. `finish` also needs briefs in every asset group (`E16`).
+`validate` works as in the Search mission. `finish` also fails with `E16` for an asset group without briefs. Neither reports `E20`, because the pictures are made after the mission. `finish` result `{"asset_groups": 2}`.
 
 ## Init mission
 
-Used by `mads init`. Tools: `fetch_page`, `fetch_sitemap`, `search_site`, `write_business`, `write_research`, `write_design`, `add_catalog_items`, `finish`. See [Init from a URL](../guides/init-from-url.md).
+Used by `mads init`. See [Draft from your site](../how-to/draft-from-your-site.md).
 
-With an agent CLI the init agent can also use the CLI's own web search. That tool is not a mads tool and does not go through the MCP server. See [Agent CLIs](../guides/agent-clis.md#web-search-in-init).
+With an agent CLI, the init agent can also use the CLI's own web search. That tool is not a mads tool and does not go through the MCP server.
 
-The agent only reaches the start host and its `www.` or apex sibling. `robots.txt` is respected. IP-literal hosts and hosts that resolve to loopback, private or link-local addresses are refused. `MADS_ALLOW_PRIVATE_HOSTS=1` lifts that for local development.
+| Rule | Value |
+|---|---|
+| Reachable hosts | The start host and its `www.` or apex sibling. |
+| `robots.txt` | Respected for page fetches. |
+| Refused hosts | IP literals, and names that resolve to loopback, private, link-local, CGNAT, multicast or unspecified addresses. |
+| Override | `MADS_ALLOW_PRIVATE_HOSTS` set to a non-empty value. |
+| Pages per mission attempt | 30. |
+| Call budget | `--max-turns` times 4. |
 
 ### fetch_page
 
@@ -318,13 +439,11 @@ The agent only reaches the start host and its `www.` or apex sibling. `robots.tx
 |---|---|---|---|
 | `url` | string | yes | Absolute URL on the business website. |
 
-Result.
-
 ```json
 {"url": "https://vinellu.com/", "status": 200, "title": "", "description": "", "text": "", "links": [], "image": "https://vinellu.com/share.jpg", "theme_color": "#AD1457"}
 ```
 
-`text` is the visible text, at most 8000 characters. `links` are absolute same-site URLs, at most 200. `image` is the page's `og:image` and `theme_color` its `<meta name="theme-color">`, each absent when the page has none. The theme color goes into `DESIGN.md`. mads also collects logo candidates from the page, which the agent does not see. The page and its links join the set of seen URLs. At most 30 pages per mission attempt. Errors `HOST`, `FETCH`, `LIMIT`.
+`text` is the visible text, at most 8000 characters. `links` are absolute same-site URLs, at most 200. `image` is the `og:image` and `theme_color` the `theme-color` meta tag, each absent when the page has none. Logo candidates and app store links are collected but not shown to the agent. The page and its links join the set of seen URLs. Codes: `HOST`, `FETCH`, `LIMIT`.
 
 ### fetch_sitemap
 
@@ -333,26 +452,36 @@ Result.
 | `url` | string | `""` | Sitemap URL. Empty looks in `robots.txt`, then `/sitemap.xml`. |
 | `contains` | string | `""` | Case-insensitive text the URL must contain. |
 | `offset` | integer | `0` | URLs to skip. |
-| `limit` | integer | `50` | Page size. Clamped to 1 to 200. |
+| `limit` | integer | `50` | Page size, clamped to 1 to 200. |
 
-Result `{"total": 8657, "offset": 0, "urls": [], "skipped": []}`. `total` counts URLs that match `contains`. `skipped` lists each sitemap file that could not be read as `url: reason`. Files up to 50 MB are read. Indexes are followed 2 levels, with at most 50 child sitemaps. `.xml.gz` is supported. The parsed result is cached for the mission. Returned URLs join the set of seen URLs. Errors `HOST`, `FETCH`.
+Result `{"total": 8657, "offset": 0, "urls": [], "skipped": []}`. `total` counts URLs that match `contains`. `skipped` lists each sitemap file that could not be read, as `url: reason`.
+
+| Sitemap limit | Value |
+|---|---|
+| File size | 50 MB |
+| Index depth | 2 levels |
+| Child sitemaps | 50 |
+| URLs kept | 500,000 |
+| Compression | `.xml.gz` is read |
+
+The parsed result is cached for the mission. Returned URLs join the set of seen URLs. Codes: `HOST`, `FETCH`.
 
 ### search_site
 
-Finds the pages of a list of names in the sitemap. One call checks up to 50 names, so a long list of candidates costs one turn, not fifty.
+Finds the pages of a list of names in the default sitemap.
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
-| `names` | string array | | The names to look for, as people write them. 1 to 50. Required. |
-| `limit` | integer | `5` | URLs returned per name. Clamped to 1 to 20. |
+| `names` | string array | required | 1 to 50 names. |
+| `limit` | integer | `5` | URLs returned per name, clamped to 1 to 20. |
 
-Each name and each URL path are turned into slugs first. Accents and case drop, and `%C3%A9` in a URL counts as `é`. A URL matches when every word of the name is in its path. Shorter paths come first, so `alamos-malbec` beats `alamos-malbec-2022`. It reads the default sitemap and shares the `fetch_sitemap` cache. Returned URLs join the set of seen URLs, so they can become catalog items.
+A name and each URL path are turned into slugs first. A URL matches when every word of the name is in its slug. Shorter slugs come first. It shares the `fetch_sitemap` cache. Returned URLs join the set of seen URLs.
 
 ```json
 {"checked": 2, "found": 1, "results": [{"name": "Alamos Malbec", "total": 2, "urls": []}, {"name": "Nope", "total": 0, "urls": []}], "skipped": []}
 ```
 
-`checked` and `found` are what the agent saves as `names_checked` and `names_found` in the research. `skipped` is the same list as in `fetch_sitemap`. When it is not empty, a name with `total` 0 may still have a page. Errors `QUERY` (an empty list, more than 50 names, or a name with no letters or digits, with the path `names[i]`) and `FETCH`. A failed call marks no URL as seen.
+`checked` and `found` are the values to save as `names_checked` and `names_found` in the research. `skipped` is the same list as in `fetch_sitemap`. Codes: `QUERY` (an empty list, more than 50 names, or a name with no letters or digits, with the path `names[i]`), `FETCH`.
 
 ### write_business
 
@@ -362,14 +491,28 @@ Saves the business profile. Replaces the previous one.
 |---|---|---|
 | `name`, `url`, `language`, `goal`, `description` | string | yes |
 | `locations` | string array | yes |
+| `restricted` | string array | yes |
 | `conversion_tracking` | boolean | no |
 | `brand_terms`, `competitors`, `avoid` | string array | no |
 | `pages` | array of `{"name", "url"}` | no |
 | `focus` | `{"name", "urls", "terms"}` | no |
 | `strategy` | `{"products"}` | no |
-| `restricted` | string array | yes | Google Ads restricted content categories, `[]` for none. Values in [Restricted categories](../guides/restricted-categories.md). A call without it fails with `ARGS`. |
 
-The draft is validated like `business.toml`. With `--focus`, `focus` must have a name and list the start URL (`E22`) and have `terms` (`E23`), and its URLs must have been seen (`E07`). Once a focus is set, `add_catalog_items` refuses items whose URL is not a focus URL (`E22`). With a strategy in the task, `strategy.products` holds the pages of the items the agent picked: each one seen (`E07`) and in the focus when there is one (`E22`), at most the strategy's `top` (`E13`). When the task gives the products, the list must be empty (`E12`). With a focus and no products written, the focus pages are the products. Page URLs must have been fetched, listed in the sitemap or returned by `search_site`. Errors `E07`, `E12`, `E13`, `E22` and `INPUT`. Result `{"saved": true}`. The budget and currency come from the CLI flags, not from the agent.
+`restricted` takes `alcohol`, `gambling`, `healthcare`, `financial_services`, `political`, `sexual_content`, or `[]` for none. A call without it fails with `ARGS`. See [Restricted categories](../explanation/restricted-categories.md).
+
+The draft is rendered and parsed like `business.toml`, so the [business.toml](business-toml.md) rules apply. Page and focus URLs must have been fetched, listed in the sitemap or returned by `search_site` (`E07`). The budget and currency come from the CLI flags.
+
+| Situation | Code |
+|---|---|
+| `--focus` and `focus` has no name or lacks the start URL | `E22` |
+| `--focus` and `focus.terms` is empty | `E23` |
+| Strategy products given when the task already sets them | `E12` |
+| A strategy product outside the focus | `E22` |
+| More strategy products than `--top` | `E13` |
+| A strategy with no products | `E32` |
+| The draft fails `business.toml` parsing | `INPUT` |
+
+Result `{"saved": true}`.
 
 ### write_research
 
@@ -381,7 +524,7 @@ Saves what the agent learned. Replaces the previous research.
 | `opportunities` | array | no | At most 20, best expected return first. |
 | `open_questions` | string array | no | At most 10, each 1 to 300 characters. |
 
-Each opportunity has these fields.
+Each opportunity.
 
 | Field | Type | Required | Rule |
 |---|---|---|---|
@@ -391,24 +534,26 @@ Each opportunity has these fields.
 | `demand` | string | yes | `high`, `medium` or `low`. |
 | `competition` | string | yes | `high`, `medium` or `low`. |
 | `evidence` | string | yes | 1 to 600 characters. |
-| `sources` | string array | no | At most 10 absolute http(s) URLs, on the site or elsewhere. |
-| `names_checked` | integer | no | Names from outside the site looked up with `search_site`. Default `0`. |
-| `names_found` | integer | no | How many of them have a page. Cannot pass `names_checked`. Default `0`. |
+| `sources` | string array | no | At most 10 absolute http(s) URLs. |
+| `names_checked` | integer | no | Default `0`. |
+| `names_found` | integer | no | Default `0`. Cannot pass `names_checked`. |
 
-Every problem comes back at once, each with its path, such as `opportunities[0].demand`. Error code `INPUT`.
+Every problem comes back at once as `INPUT`, each with its path, such as `opportunities[0].demand`.
 
-When the mission has web search, the research must cite at least 3 distinct pages outside the business site across all `sources`. Pages on the site, with or without `www.`, do not count. Fewer fail with the path `opportunities[].sources`. Without web search there is no such rule. A failed call keeps the previous research. Result `{"saved": true}`. mads writes the research as `research.md`.
+With web search in the mission, the `sources` of all opportunities must cite at least 3 distinct pages outside the business site. Pages on the site, with or without `www.`, do not count. Fewer fail `INPUT` with the path `opportunities[].sources`. A failed call keeps the previous research. Result `{"saved": true}`.
 
 ### write_design
 
+Optional.
+
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `style` | string | yes | The visual feel of the brand. 1 to 600 characters. |
-| `imagery` | string | no | What the brand's own photos show. At most 600. |
-| `voice` | string | no | How the brand talks. At most 600. |
-| `avoid` | string array | no | What pictures must never show. At most 10. |
+| `style` | string | yes | 1 to 600 characters. |
+| `imagery` | string | no | At most 600. |
+| `voice` | string | no | At most 600. |
+| `avoid` | string array | no | At most 10. |
 
-Optional. Errors `E13`. Replaces the previous draft. mads adds the colors itself and writes `DESIGN.md` after finish.
+Replaces the previous draft. Codes: `E13`. Result `{"saved": true}`.
 
 ### add_catalog_items
 
@@ -416,12 +561,30 @@ Optional. Errors `E13`. Replaces the previous draft. mads adds the colors itself
 |---|---|---|---|
 | `items` | array | yes | Catalog items. |
 
-Each item has `name` and `url` (required) and `category`, `aliases` (string array), `third_party` (boolean), `notes` and `image`. The checks match `catalog.csv`. URLs must have been fetched, listed in the sitemap or returned by `search_site` (`E07`). An `image` must be the `image` of a fetched page (`E07`, path `items[<i>].image`). Duplicates by URL are skipped. More items than `--catalog-limit` fail with `E13`. Result `{"added": 20, "skipped": 0, "total": 20}`.
+Each item has `name` and `url` (required) and `category`, `aliases` (string array), `third_party` (boolean), `notes` and `image`. The same rules apply as for [catalog.csv](catalog-csv.md). A duplicate URL is skipped.
+
+| Situation | Code |
+|---|---|
+| `url` not fetched, listed in the sitemap or returned by `search_site` | `E07`, path `items[<i>].url` |
+| `image` is not the `image` of a fetched page | `E07`, path `items[<i>].image` |
+| A focus is set and `url` is not a focus URL | `E22` |
+| The total would pass `--catalog-limit` | `E13` |
+| The URL is not absolute http(s), or the CSV does not parse | `INPUT` |
+
+Result `{"added": 20, "skipped": 0, "total": 20}`.
 
 ### finish
 
-No arguments. Fails with `E12` when `write_business` or `write_research` was not called. The error path is `business` or `research`. With a strategy it also fails with `E32` (path `strategy.products`) when a product has no catalog item. Result `{"catalog_items": 20}`. After it succeeds, mads downloads the first logo candidate that passes Google's checks into `brand/logo.png`, then writes `business.toml`, `research.md`, `STRATEGY.md` with a strategy and, when there are items, `catalog.csv`.
+No arguments. Fails with `E12` when `write_business` or `write_research` was not called, with the path `business` or `research`. With a strategy it also fails with `E32`, path `strategy.products`, when a product has no catalog item. Result `{"catalog_items": 20}`.
+
+After a successful `finish`, mads writes `business.toml`, `research.md`, `catalog.csv` (when there are items), `DESIGN.md`, `STRATEGY.md` (with a strategy) and `brand/logo.png` (when a logo candidate passes). See [Output files](output-files.md).
 
 ## Progress summaries
 
-Each call emits `tool_called` and `tool_finished` events. The `summary` is a short line a tool writes, such as `rotulo-alamos: 14 kw, 0 neg, rsa 15/4` or `plan: 2 campaigns, 5 ad groups`. The progress output shows it.
+Each call emits `tool_called` and `tool_finished` events. The `summary` is a short line the tool writes, such as `rotulo-alamos: 14 kw, 0 neg, rsa 15/4` or `plan: 2 campaigns, 5 ad groups`.
+
+## Next
+
+* [Validation rules](validation-rules.md) has every `E` and `W` code.
+* [How a run works](../explanation/how-a-run-works.md) shows where each mission runs.
+* [Exit codes and errors](exit-codes-and-errors.md) covers what the CLI prints when a mission fails.

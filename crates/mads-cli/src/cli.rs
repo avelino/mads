@@ -110,10 +110,10 @@ pub struct OptimizeArgs {
     /// business.toml had when it was generated. Without it they stay.
     #[arg(long = "app", value_name = "STORE=ID")]
     pub apps: Vec<String>,
-    /// Status of the campaigns that are not in the account yet: paused or enabled. It replaces the
-    /// export.status of the base run, which has the one business.toml had when it was generated.
-    /// Campaigns already in the account keep the status they have there. Without it the base
-    /// run's status stays.
+    /// Status of the campaigns that are not in the account yet: paused or enabled. Campaigns already
+    /// in the account that the plan keeps are exported enabled, and the import turns them on. It
+    /// replaces the export.status of the base run, which has the one business.toml had when it was
+    /// generated. Without it the base run's status stays.
     #[arg(long, value_enum)]
     pub status: Option<StatusArg>,
     /// The most you pay for one conversion, in the account currency. The plan holds each campaign to
@@ -214,6 +214,7 @@ impl Layout {
 pub struct ExportArgs {
     /// Run directory with a finished run.
     pub run_dir: PathBuf,
+    /// Do not request the final and sitelink URLs.
     #[arg(long)]
     pub skip_url_check: bool,
     /// Ad groups allowed in the whole account.
@@ -314,6 +315,30 @@ mod tests {
     use clap::Parser;
 
     use super::*;
+
+    fn arg_help(sub: &str, arg: &str) -> Option<String> {
+        use clap::CommandFactory;
+        let cmd = Cli::command();
+        let sub = cmd.find_subcommand(sub).expect("subcommand");
+        let arg = sub
+            .get_arguments()
+            .find(|a| a.get_id() == arg)
+            .expect("argument");
+        arg.get_help().map(|h| h.to_string())
+    }
+
+    #[test]
+    fn export_skip_url_check_has_help() {
+        let help = arg_help("export", "skip_url_check");
+        assert!(help.is_some_and(|h| !h.is_empty()));
+    }
+
+    #[test]
+    fn optimize_status_help_matches_editor_behavior() {
+        let help = arg_help("optimize", "status").unwrap_or_default();
+        assert!(help.contains("not in the account yet"), "{help}");
+        assert!(!help.contains("keep the status they have"), "{help}");
+    }
 
     #[test]
     fn durations_accept_units_and_default_to_seconds() {

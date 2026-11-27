@@ -394,7 +394,7 @@ fn import_steps(md: &mut String, d: &ReportData) {
     if d.live.is_some() {
         let _ = writeln!(
             md,
-            "## How to import\n\nThis run replaces an account that is already live. Import it with Google Ads Editor only: the files in `google-ads/bulk/` would add every Search campaign a second time. Campaigns already live keep their status, new ones follow `export.status`, and what this run dropped arrives paused.\n\n{editor}"
+            "## How to import\n\nThis run replaces an account that is already live. Import it with Google Ads Editor only: the files in `google-ads/bulk/` would add every Search campaign a second time. Campaigns the plan keeps arrive enabled, new ones follow `export.status`, and what this run dropped arrives paused.\n\n{editor}"
         );
     } else {
         let _ = writeln!(
@@ -472,7 +472,10 @@ fn after_launch(md: &mut String, d: &ReportData) {
          1. Search terms, with match type, campaign, ad group, cost and conversions.\n\
          2. Search keywords, with Quality Score, its three components and the first page bid estimate.\n\
          3. Campaigns segmented by day, with impression share lost to budget and to rank.\n\
-         4. Ads and assets, with the performance label of every headline and description.\n\n\
+         4. Ad groups, one row per ad group.\n\
+         5. Ads and assets, with the performance label of every headline and description.\n\
+         6. Campaigns segmented by conversion action.\n\
+         7. Campaigns segmented by network.\n\n\
          Keep the campaign and ad group names: they link the reports to this run.\n",
     );
 }
@@ -575,6 +578,22 @@ mod tests {
     fn render_default() -> String {
         let input = testutil::input();
         render_report(&data(&input, &account()))
+    }
+
+    #[test]
+    fn after_launch_lists_every_report_kind() {
+        let md = render_default();
+        for kind in [
+            "Search terms",
+            "Search keywords",
+            "Campaigns segmented by day",
+            "Ad groups",
+            "Ads and assets",
+            "segmented by conversion action",
+            "segmented by network",
+        ] {
+            assert!(md.contains(kind), "missing {kind:?} in {md}");
+        }
     }
 
     #[test]

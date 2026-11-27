@@ -106,7 +106,7 @@ An App campaign without a matching app in `business.toml` gets none of these.
 | `Ad Group Type` | `Standard` |
 | `Languages` | Demand Gen only, same value as above |
 
-Keyword rows set `Criterion Type` to `Phrase` or `Exact`. Negatives use `Negative Phrase` or `Negative Exact`. Their `Status` is `Enabled`. Campaign negatives are expanded into every ad group.
+Positive keyword rows set `Criterion Type` to `Phrase` or `Exact`. Campaign negatives are written once per Search campaign, with `Ad Group` empty and `Criterion Type` `Campaign Negative Phrase` or `Campaign Negative Exact`. Ad-group negatives keep `Negative Phrase` or `Negative Exact` and the Ad Group filled. Their `Status` is `Enabled`. Campaign negatives are not copied onto every ad group: that form has been imported as a positive Phrase keyword.
 
 ## Asset group row
 

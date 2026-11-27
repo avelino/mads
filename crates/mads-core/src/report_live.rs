@@ -349,6 +349,7 @@ mod tests {
 
     fn group(name: &str, cpc: u64, keywords: Vec<Keyword>) -> AdGroup {
         AdGroup {
+            main_keyword: String::new(),
             name: name.into(),
             default_cpc: Cents(cpc),
             cpc_rationale: String::new(),

@@ -181,6 +181,14 @@ mod tests {
             "get_ad_group_performance",
             "lands on a list page",
             "not_in_run",
+            "variants[0]",
+            "E34",
+            "E35",
+            "E36",
+            "E37",
+            "W15",
+            "differentiators",
+            "in any order",
         ] {
             assert!(
                 m.system.contains(rule),
@@ -216,6 +224,11 @@ mod tests {
             "at 90 or more",
             "up to 40",
             "does not spend",
+            "`differentiators`",
+            "under 20 characters",
+            "in any order",
+            "W15",
+            "every item of the account",
         ] {
             assert!(p.system.contains(rule), "plan prompt misses rule: {rule}");
         }

@@ -225,8 +225,15 @@ fn rules_summary(settings: &ToolSettings) -> Value {
         "callout_max_chars": 25,
         "snippet_value_max_chars": 25,
         "headline_exclamation_allowed": false,
-        "brand_kit": {"headlines": "8 to 12", "descriptions": "2 to 3"},
-        "rsa_specific": {"headlines": "3 to 7", "descriptions": "1 to 2"},
+        "brand_kit": {"headlines": "8 to 12", "descriptions": "2 to 3", "differentiators": "2 to 5"},
+        "rsa_specific": {"headlines": "3 to 10", "descriptions": "1 to 2"},
+        "merged_ad": {
+            "headlines": 15,
+            "descriptions": 4,
+            "short_headlines": "3 or more under 20 characters",
+            "first_headline": "the main keyword: keywords.variants[0]",
+            "keyword_headlines": "3 or more equal to a keyword of the group, or all of them when it has fewer"
+        },
         "keywords_per_ad_group": "1 to 50",
         "keyword_spec": {"variants": "1 to 6", "modifiers": "0 to 10", "extra": "0 to 20"},
         "negatives_per_scope": "0 to 100",

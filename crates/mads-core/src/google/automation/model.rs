@@ -228,6 +228,7 @@ pub(crate) fn package(
     let empty = BrandKit {
         headlines: Vec::new(),
         descriptions: Vec::new(),
+        differentiators: Vec::new(),
     };
     let plan = Plan {
         input,

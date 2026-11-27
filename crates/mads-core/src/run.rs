@@ -735,7 +735,13 @@ mod tests {
     }
 
     fn plan_script() -> Value {
-        let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});
+        let kit = json!({"headlines": ["Reviews reais de vinhos", "Notas de quem provou", "Baixe grátis", "Safras comentadas",
+                     "Comunidade de enófilos", "Harmonize seu jantar", "Avalie seus rótulos", "Descubra rótulos novos",
+                     "Guarde sua adega", "Vinellu no celular"],
+       "descriptions": ["Leia reviews de quem provou e escolha melhor. Baixe o app.",
+                        "Safras, notas e harmonizações num lugar só. Cadastre-se grátis.",
+                        "Monte sua adega virtual e siga amigos. Comece agora."],
+       "differentiators": ["Reviews de quem provou o vinho", "Safras comentadas pela comunidade"]});
         let plan = json!({"campaigns": [
             {"name": "Vinellu - Catalogo", "intent": "catalog", "daily_budget": 30.0, "bid_strategy": {"type": "manual_cpc"}, "rationale": "intencao alta",
              "ad_groups": [{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}, {"name": "luigi", "theme": "luigi", "entity_ids": ["luigi-bosca"]}]},
@@ -749,11 +755,20 @@ mod tests {
         ])
     }
 
+    /// The variants as headlines, the main one first, then the first variant with its modifier.
     fn ad_group(name: &str, variants: &[&str]) -> Value {
+        let mut headlines: Vec<String> = variants.iter().map(|v| v.to_string()).collect();
+        headlines.push(format!("{} review", variants[0]));
+        let fillers = [
+            format!("Opinião sobre {name}"),
+            "Compare antes de abrir".into(),
+            "Vale a pena provar".into(),
+        ];
+        headlines.extend(fillers.into_iter().take(5 - headlines.len()));
         json!({"name": name, "default_cpc": 1.5, "cpc_rationale": "estimativa",
                "keywords": {"variants": variants, "modifiers": ["review"], "exact_heads": true},
                "negatives": [{"text": "emprego", "match": "phrase"}],
-               "rsa": {"headlines": texts("Titulo do grupo", 5), "descriptions": ["Descricao do grupo para teste"], "path1": "vinhos", "path2": ""}})
+               "rsa": {"headlines": headlines, "descriptions": ["Descricao do grupo para teste"], "path1": "vinhos", "path2": ""}})
     }
 
     fn assets() -> Value {
@@ -1307,7 +1322,13 @@ mod image_tests {
     }
 
     fn script() -> Arc<dyn Driver> {
-        let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});
+        let kit = json!({"headlines": ["Reviews reais de vinhos", "Notas de quem provou", "Baixe grátis", "Safras comentadas",
+                     "Comunidade de enófilos", "Harmonize seu jantar", "Avalie seus rótulos", "Descubra rótulos novos",
+                     "Guarde sua adega", "Vinellu no celular"],
+       "descriptions": ["Leia reviews de quem provou e escolha melhor. Baixe o app.",
+                        "Safras, notas e harmonizações num lugar só. Cadastre-se grátis.",
+                        "Monte sua adega virtual e siga amigos. Comece agora."],
+       "differentiators": ["Reviews de quem provou o vinho", "Safras comentadas pela comunidade"]});
         let plan = json!({"campaigns": [
             {"name": "Vinellu - Feed", "kind": "demand_gen", "intent": "generic", "daily_budget": 50.0,
              "bid_strategy": {"type": "maximize_clicks"}, "rationale": "criar demanda",

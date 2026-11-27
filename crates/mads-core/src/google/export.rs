@@ -336,6 +336,7 @@ mod tests {
     fn account() -> Account {
         Account {
             brand_kit: Some(BrandKit {
+                differentiators: Vec::new(),
                 headlines: vec!["Kit headline".into()],
                 descriptions: vec!["Kit, with comma".into()],
             }),
@@ -351,6 +352,7 @@ mod tests {
                 rationale: String::new(),
                 planned_ad_groups: vec![],
                 ad_groups: vec![AdGroup {
+                    main_keyword: String::new(),
                     name: "g1".into(),
                     default_cpc: Cents(150),
                     cpc_rationale: String::new(),

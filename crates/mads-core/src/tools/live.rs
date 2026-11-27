@@ -612,6 +612,7 @@ mod tests {
             .collect();
         let groups: Vec<AdGroup> = (0..7)
             .map(|g| AdGroup {
+                main_keyword: String::new(),
                 name: format!("Grupo de uvas numero {g}"),
                 default_cpc: Cents(120),
                 cpc_rationale: String::new(),

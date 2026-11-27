@@ -29,6 +29,7 @@ fn campaign(name: &str, groups: &[(&str, Vec<Keyword>)]) -> Campaign {
         ad_groups: groups
             .iter()
             .map(|(g, keywords)| AdGroup {
+                main_keyword: String::new(),
                 name: (*g).into(),
                 default_cpc: Cents(120),
                 cpc_rationale: String::new(),

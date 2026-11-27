@@ -13,6 +13,10 @@ pub struct Account {
 pub struct BrandKit {
     pub headlines: Vec<String>,
     pub descriptions: Vec<String>,
+    /// What sets the business apart from its competitors, for every ad to use. Empty in kits
+    /// written before mads asked for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub differentiators: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -187,6 +191,10 @@ pub struct PlannedAdGroup {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdGroup {
     pub name: String,
+    /// The most searched way to write the theme: the first keyword variant. Groups built before
+    /// mads recorded it have it empty and skip the rules that need it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub main_keyword: String,
     pub default_cpc: Cents,
     pub cpc_rationale: String,
     pub final_url: String,

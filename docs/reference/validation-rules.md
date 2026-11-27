@@ -58,6 +58,10 @@ Errors block the export. Warnings go to `report.md`, to progress output and, on 
 | `E31` | A live App campaign planned for another store. | Only in `mads optimize`. Google Ads does not move an App campaign to another app. Message `'<name>' runs on <store> in Google Ads and a campaign cannot change its app: keep it on <store>, and plan <other> as a new campaign with another name`. |
 | `E32` | A strategy product with no catalog item. | Only in init with a strategy. `finish` compares pages without a leading `www.` and keeping the query string. Messages `strategy product has no catalog item: <url>` and `strategy has no products: write strategy.products in write_business`. Path `strategy.products`. |
 | `E33` | Product campaigns get less than `min_share` percent of the non-brand budget. | Only with a strategy. The base is the daily budget of campaigns that are not Brand and not App. A product campaign has planned ad groups and every one is a product group, by `entity_ids` that all belong to the strategy's products, or, with empty `entity_ids`, by a landing page that is one of the products. The landing page is the group's `final_url`, else the first `[focus]` URL, else `business.url`. Fails when `product * 100 < min_share * base`, or when the base is 0 and `min_share` is above 0. Message `product campaigns get <share>% of the non-brand budget, the strategy asks for at least <min_share>%: move budget to campaigns that only hold <ids>`, with `<share>` rounded down. Path `campaigns`. |
+| `E34` | A merged RSA has fewer than 15 headlines or fewer than 4 descriptions. | Checks only ad groups with a main keyword, which `upsert_ad_group` records from `keywords.variants[0]`. Ad groups of older runs have none and get `W04` instead. Path ends in `.rsa`. Message `merged ad has <h> headlines and <d> descriptions, it needs 15 and 4: add specific texts that differ from the brand kit`. |
+| `E35` | Fewer than 3 headlines of the merged RSA have under 20 characters. | Same ad groups as `E34`. Path ends in `.rsa.headlines`. Message `merged ad has <n> headlines under 20 characters, it needs 3: write short specific headlines`. |
+| `E36` | The first specific headline is not the main keyword. | Same ad groups as `E34`. The main keyword is `keywords.variants[0]`. Texts are compared after `fold`, so accents, capitals and punctuation may differ. Skipped when the main keyword has more than 30 characters. Path ends in `.rsa.headlines[0]`. Message `headlines[0] must be the main keyword '<keyword>' (the first variant), only accents and capitals may differ`. |
+| `E37` | Fewer than 3 headlines of the merged RSA are keywords of the group. | Same ad groups as `E34`. Counts distinct keywords of 30 characters or fewer, compared after `fold`. A group with fewer such keywords needs all of them. Path ends in `.rsa.headlines`. Message `<n> headlines are keywords of the group, it needs <m>: write keywords as headlines, such as <up to 5 keywords>`. |
 
 ### Text limits
 
@@ -86,7 +90,8 @@ Errors block the export. Warnings go to `report.md`, to progress output and, on 
 | Planned ad groups in the account | up to `--max-ad-groups` (default 50) |
 | Brand kit headlines | 8 to 12 |
 | Brand kit descriptions | 2 to 3 |
-| Specific RSA headlines | 3 to 7 |
+| Brand kit differentiators | 2 to 5, checked by `set_brand_kit` |
+| Specific RSA headlines | 3 to 10 |
 | Specific RSA descriptions | 1 to 2 |
 | Keywords per ad group | 1 to 50 |
 | Keyword spec `variants` | 1 to 6 |
@@ -115,7 +120,7 @@ Errors block the export. Warnings go to `report.md`, to progress output and, on 
 | `W01` | Ad or asset text contains a third-party term. | The terms are every `business.competitors` entry and the name and aliases of every catalog item with `third_party = true`. The match is on whole words, in order, after `normalize`. Message `third-party term '<term>' in ad text (trademark policy risk)`. |
 | `W02` | A word of 4 or more letters fully in uppercase that is not part of a brand term. | Words split on any non-letter. Message `word in all caps`. |
 | `W03` | The same keyword in two ad groups of one campaign: same normalized text, both Exact or both not Exact. mads writes only Phrase and Exact, so in practice it is the same text and match type. | Message `keyword '<k>' is also in ad_groups[<index>]`. |
-| `W04` | Merged RSA with fewer than 15 headlines or fewer than 4 descriptions. | Message `merged ad has <h> headlines and <d> descriptions (15 and 4 recommended)`. |
+| `W04` | Merged RSA with fewer than 15 headlines or fewer than 4 descriptions, in an ad group without a main keyword. | Only ad groups of runs made before `E34`. Message `merged ad has <h> headlines and <d> descriptions (15 and 4 recommended)`. |
 | `W05` | Fewer than 4 sitelinks, fewer than 4 callouts or no structured snippet. | Message `recommended: 4+ sitelinks, 4+ callouts and 1 structured snippet`. |
 | `W06` | Fewer pictures than Google recommends for ad strength. | Performance Max 4 landscape, 4 square and 2 portrait. Demand Gen and App 1 of each. Message `recommended for ad strength: <missing>`. |
 | `W07` | A prompt asks for text in the picture, or shows an object that carries writing. | Text words: `text`, `logo`, `caption`, `headline`, `words`, `lettering`, `typography`, `slogan`, `label that reads`. Writing objects: `menu`, `wine list`, `sign`, `signboard`, `billboard`, `poster`, `book`, `newspaper`, `magazine`, `screen`, `monitor`, `packaging`, `price tag`, `ticket`. Messages `prompt mentions '<word>': Google adds the text, keep the picture clean` and `prompt shows a <object>: the model writes invented text on it, ...`. |
@@ -125,6 +130,7 @@ Errors block the export. Warnings go to `report.md`, to progress output and, on 
 | `W12` | `--layout drive-folders` and an image or App campaign lacks what its type needs. | Missing means no picture files, no logo (Performance Max and Demand Gen) or no app id (App, from `google_ads.app_id` or `[app]`). Does not block. The campaign is left out of the `Image Campaigns` and `Image Assets` tabs. Path `campaigns[<index>]`. Message `<type> campaign '<name>' is left out of the automation package: <missing>.` |
 | `W13` | `--layout drive-folders` and a catalog item name of an automated campaign is over 30 characters. | Does not block. `headline_1` of that `Catalog` row stays empty, so headline 1 of its ad falls back to the template headline in `Ad Templates`. One warning per row. Path `catalog`. |
 | `W14` | The `E33` share rule fails in `mads optimize`. | Does not block. Same message as `E33`. Path `campaigns`. |
+| `W15` | Two texts repeat the same words. | Compares the words of 3 letters or more after `fold`. Two texts with at least 2 such words each and 60% or more of them in common count as one idea. In the brand kit it compares two headlines or two descriptions. In an ad group it compares a specific text with another specific text or with a brand kit text. Headlines that are a keyword of the group are skipped. Path is the first text. Message `'<a>' repeats the words of '<b>': give it another idea`. |
 
 `W08` is not emitted.
 

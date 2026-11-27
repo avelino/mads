@@ -150,6 +150,7 @@ mod tests {
 
     fn group(keywords: &[&str]) -> AdGroup {
         AdGroup {
+            main_keyword: String::new(),
             name: "g".into(),
             default_cpc: Cents(100),
             cpc_rationale: String::new(),

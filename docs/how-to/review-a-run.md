@@ -136,7 +136,8 @@ Errors stop the export, so a run with `Ready to import` has none. Warnings never
 | Code | What to do |
 |---|---|
 | `W01` | A competitor or a catalog item with `third_party = true` is named in ad text. Read each one and decide whether you keep it. |
-| `W04` | The ad works. It has fewer than 15 headlines or 4 descriptions, so it has less room to vary. |
+| `W04` | The ad works. It has fewer than 15 headlines or 4 descriptions, so it has less room to vary. Only runs made before `E34` raise it. |
+| `W15` | Two texts repeat the same words. The ad works, but one slot shows the same idea twice. Rewrite one in the next run. |
 | `W05` | Sitelinks, callouts and snippets are validated but not exported. Add them in Google Ads after the import. |
 
 The path of each example starts with the campaign index in plan order. Every code is in [Validation rules](../reference/validation-rules.md).

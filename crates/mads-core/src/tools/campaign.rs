@@ -40,7 +40,8 @@ struct UpsertAdGroupArgs {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct KeywordsArg {
-    /// 1 to 6 ways people write the name. mads builds the keyword list from variants x modifiers.
+    /// 1 to 6 ways people write the name, the most searched first: it is the main keyword and
+    /// the first headline. mads builds the keyword list from variants x modifiers.
     variants: Vec<String>,
     /// 0 to 10 intent words appended to each variant.
     #[serde(default)]
@@ -68,7 +69,8 @@ struct KwArg {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct RsaArg {
-    /// 3 to 7 headlines of at most 30 characters specific to this ad group.
+    /// 3 to 10 headlines of at most 30 characters specific to this ad group. The first is the
+    /// main keyword (`keywords.variants[0]`).
     headlines: Vec<String>,
     /// 1 to 2 descriptions of at most 90 characters specific to this ad group.
     descriptions: Vec<String>,
@@ -291,8 +293,14 @@ fn build_ad_group(
         extra: keywords(a.keywords.extra),
     };
     let path = |p: String| Some(p.trim().to_string()).filter(|p| !p.is_empty());
+    let main_keyword = spec
+        .variants
+        .first()
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default();
     AdGroup {
         name: planned_name.to_string(),
+        main_keyword,
         default_cpc,
         cpc_rationale: a.cpc_rationale,
         final_url: final_url.to_string(),

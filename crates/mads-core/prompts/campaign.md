@@ -33,7 +33,7 @@ When `business.restricted` is not empty, Google Ads reviews this account under i
 
 You do not write the keyword list. You give a spec and mads builds it:
 
-- `variants`: 1 to 6 ways people write the name or theme: with and without accents, abbreviations, punctuation, the short name. Do not add words that change the meaning.
+- `variants`: 1 to 6 ways people write the name or theme: with and without accents, abbreviations, punctuation, the short name. Do not add words that change the meaning. Put the most searched way first: `variants[0]` is the main keyword of the group and its first headline.
   All variants are one search. Two products, two kinds or two problems are two ad groups, not two variants: one ad and one landing page cannot fit both, Google rates the group low quality and raises its price. The tool refuses variants that look like different searches with `E26`: keep the spellings of one search in variants and put a synonym in `extra`.
 - `modifiers`: 0 to 10 intent words appended to every variant. Match them to the campaign intent and the business goal: evaluation (review, vale a pena, é bom), information (safra, harmonização) or transaction (preço, comprar, onde comprar). Write them in the business language.
 - `exact_heads`: keep true unless the campaign is broad on purpose.
@@ -51,10 +51,15 @@ Brand terms and competitor names are added as negatives to the other campaigns a
 
 ## Ads
 
-Each ad group has specific texts. The brand kit completes the ad to 15 headlines and 4 descriptions at export.
+Each ad has 15 headlines and 4 descriptions: the ad group's own texts first, then the brand kit in its order. `upsert_ad_group` refuses an ad with fewer with `E34`: write more specific texts that differ from the kit.
 
-- 3 to 7 specific headlines, at most 30 characters. No `!` in headlines. Use the entity name in 2 or 3 variants with different angles: a question, a benefit, proof. Do not repeat a brand kit headline.
-- 1 to 2 specific descriptions, at most 90 characters, ending with a call to action.
+- 3 to 10 specific headlines, at most 30 characters. No `!` in headlines.
+- The first headline is the main keyword, `variants[0]`, written as people read it, with accents and capitals (`E36`).
+- At least 3 headlines are keywords of the group word for word, such as the main keyword, another variant, a variant with a modifier (`E37`). A group with fewer keywords that fit 30 characters needs all of them.
+- At least 3 headlines of the whole ad have under 20 characters (`E35`). Count the short ones the brand kit brings. Vary the length of the others.
+- The other headlines apply `brand_kit.differentiators` to this entity: a benefit, proof, a question. Do not repeat a brand kit headline or its words: the tool warns with `W15`.
+- Write each headline to make sense alone and next to any other, in any order: Google picks and orders them.
+- 1 to 2 specific descriptions, at most 90 characters, ending with a call to action. The headlines already name the entity: the description sells a differentiator.
 - `path1` and `path2` (at most 15 characters each) reflect the category and the entity. Leave them empty when unsure.
 - An ad group with several entities lands on a list page. Write about the theme, and never promise one item ("this label", "this model") that the page does not open on.
 - Write all text in the business language. Respect the `avoid` list.

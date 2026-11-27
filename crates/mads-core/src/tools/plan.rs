@@ -51,6 +51,9 @@ struct SetBrandKitArgs {
     headlines: Vec<String>,
     /// 2 to 3 descriptions of at most 90 characters, shared by every ad.
     descriptions: Vec<String>,
+    /// 2 to 5 competitive differentiators, most important first: what this business offers and
+    /// its competitors do not, each a fact of the business description. Every ad builds on them.
+    differentiators: Vec<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -297,8 +300,12 @@ async fn set_brand_kit(t: &MissionTools, a: SetBrandKitArgs) -> ToolOutput {
     let kit = BrandKit {
         headlines: a.headlines,
         descriptions: a.descriptions,
+        differentiators: a.differentiators,
     };
-    let (errors, warnings) = split(Rules::new(&ws.input, t.settings.max_ad_groups).brand_kit(&kit));
+    let rules = Rules::new(&ws.input, t.settings.max_ad_groups);
+    let mut issues = rules.brand_kit(&kit);
+    issues.extend(rules.differentiators(&kit.differentiators));
+    let (errors, warnings) = split(issues);
     if !errors.is_empty() {
         return ToolOutput::fail_issues(
             &errors,

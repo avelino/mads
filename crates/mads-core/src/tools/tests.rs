@@ -54,7 +54,13 @@ fn texts(prefix: &str, n: usize) -> Vec<String> {
 }
 
 fn brand_kit_args() -> Value {
-    json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)})
+    json!({"headlines": ["Reviews reais de vinhos", "Notas de quem provou", "Baixe grátis", "Safras comentadas",
+                     "Comunidade de enófilos", "Harmonize seu jantar", "Avalie seus rótulos", "Descubra rótulos novos",
+                     "Guarde sua adega", "Vinellu no celular"],
+       "descriptions": ["Leia reviews de quem provou e escolha melhor. Baixe o app.",
+                        "Safras, notas e harmonizações num lugar só. Cadastre-se grátis.",
+                        "Monte sua adega virtual e siga amigos. Comece agora."],
+       "differentiators": ["Reviews de quem provou o vinho", "Safras comentadas pela comunidade"]})
 }
 
 fn plan_args() -> Value {
@@ -86,7 +92,7 @@ fn ad_group_args(name: &str) -> Value {
         "name": name, "default_cpc": 1.5, "cpc_rationale": "estimativa conservadora",
         "keywords": {"variants": ["alamos malbec", "alamos"], "modifiers": ["review", "safra"], "exact_heads": true},
         "negatives": [{"text": "emprego", "match": "phrase"}],
-        "rsa": {"headlines": texts("Titulo do grupo", 5), "descriptions": ["Descricao do grupo para teste"], "path1": "vinhos", "path2": ""}
+        "rsa": {"headlines": ["alamos malbec", "alamos malbec review", "alamos malbec safra", "Vale a pena provar", "Compare antes de abrir"], "descriptions": ["Descricao do grupo para teste"], "path1": "vinhos", "path2": ""}
     })
 }
 
@@ -299,6 +305,60 @@ async fn set_brand_kit_stores_valid_kit() {
 }
 
 #[tokio::test]
+async fn set_brand_kit_needs_two_to_five_differentiators() {
+    let ws = shared();
+    let t = plan_tools(&ws).await;
+    for (n, ok) in [(1, false), (2, true), (5, true), (6, false)] {
+        let mut a = brand_kit_args();
+        a["differentiators"] = json!(texts("Diferencial", n));
+        let out = t.call("set_brand_kit", a).await;
+        assert_eq!(!out.is_error, ok, "{n} differentiators: {}", out.content);
+        if !ok {
+            assert_eq!(error_codes(&out), ["E13"]);
+        }
+    }
+    let mut missing = brand_kit_args();
+    missing.as_object_mut().unwrap().remove("differentiators");
+    assert!(t.call("set_brand_kit", missing).await.is_error);
+    let guard = ws.lock().await;
+    let kit = guard.account.brand_kit.as_ref().unwrap();
+    assert_eq!(kit.differentiators.len(), 5, "the last valid kit stays");
+}
+
+#[tokio::test]
+async fn get_brief_carries_the_differentiators() {
+    let ws = planned().await;
+    let out = campaign_tools(&ws, "vinellu-catalogo")
+        .await
+        .call("get_brief", json!({}))
+        .await;
+    let d = &out.content["result"]["brand_kit"]["differentiators"];
+    assert_eq!(d[0], "Reviews de quem provou o vinho", "{}", out.content);
+}
+
+#[tokio::test]
+async fn upsert_ad_group_records_the_main_keyword_and_refuses_another_first_headline() {
+    let ws = planned().await;
+    let t = campaign_tools(&ws, "vinellu-catalogo").await;
+    let mut a = ad_group_args("alamos");
+    a["rsa"]["headlines"][0] = json!("Vale a pena abrir");
+    let out = t.call("upsert_ad_group", a).await;
+    assert!(
+        error_codes(&out).contains(&"E36".to_string()),
+        "{}",
+        out.content
+    );
+    assert!(ws.lock().await.account.campaigns[0].ad_groups.is_empty());
+    let out = t.call("upsert_ad_group", ad_group_args("alamos")).await;
+    assert!(!out.is_error, "{}", out.content);
+    let guard = ws.lock().await;
+    assert_eq!(
+        guard.account.campaigns[0].ad_groups[0].main_keyword,
+        "alamos malbec"
+    );
+}
+
+#[tokio::test]
 async fn set_brand_kit_rejects_long_headline_and_keeps_previous_kit() {
     let ws = shared();
     let t = plan_tools(&ws).await;
@@ -316,7 +376,7 @@ async fn set_brand_kit_rejects_long_headline_and_keeps_previous_kit() {
             .as_ref()
             .unwrap()
             .headlines[0],
-        "Titulo da marca numero 1"
+        "Reviews reais de vinhos"
     );
 }
 
@@ -568,6 +628,13 @@ async fn one_word_heads_stay_phrase_only_in_brand_campaigns() {
     let ws = planned().await;
     let mut a = ad_group_args("marca");
     a["keywords"]["variants"] = json!(["vinellu"]);
+    a["rsa"]["headlines"] = json!([
+        "Vinellu",
+        "Vinellu review",
+        "Vinellu safra",
+        "Vale a pena provar",
+        "Compare antes de abrir"
+    ]);
     let out = campaign_tools(&ws, "vinellu-marca")
         .await
         .call("upsert_ad_group", a)
@@ -589,6 +656,13 @@ async fn variants_about_different_things_are_refused_e26() {
     let t = campaign_tools(&ws, "vinellu-catalogo").await;
     let mut mixed = ad_group_args("alamos");
     mixed["keywords"]["variants"] = json!(["malbec", "cabernet sauvignon", "merlot"]);
+    mixed["rsa"]["headlines"] = json!([
+        "Malbec",
+        "Malbec review",
+        "Malbec safra",
+        "Vale a pena provar",
+        "Compare antes de abrir"
+    ]);
     let out = t.call("upsert_ad_group", mixed).await;
     assert_eq!(error_codes(&out), ["E26"], "{}", out.content);
     assert!(
@@ -607,6 +681,13 @@ async fn variants_about_different_things_are_refused_e26() {
         "cab sauvignon",
         "cs",
         "cabernetsauvignon"
+    ]);
+    spellings["rsa"]["headlines"] = json!([
+        "Cabernet Sauvignon",
+        "Cabernet Sauvignon review",
+        "Cabernét safra",
+        "Vale a pena provar",
+        "Compare antes de abrir"
     ]);
     let out = t.call("upsert_ad_group", spellings).await;
     assert!(!out.is_error, "{}", out.content);
@@ -688,7 +769,7 @@ async fn warnings_are_returned_but_do_not_block() {
     let ws = planned().await;
     let t = campaign_tools(&ws, "vinellu-catalogo").await;
     let mut a = ad_group_args("alamos");
-    a["rsa"]["headlines"][0] = json!("Alamos Malbec vale a pena?");
+    a["rsa"]["headlines"][3] = json!("Alamos Malbec vale a pena?");
     let out = t.call("upsert_ad_group", a).await;
     assert!(!out.is_error);
     let codes: Vec<&str> = out.content["warnings"]

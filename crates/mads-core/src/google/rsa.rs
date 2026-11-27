@@ -43,6 +43,7 @@ mod tests {
 
     fn kit(h: &[&str], d: &[&str]) -> BrandKit {
         BrandKit {
+            differentiators: Vec::new(),
             headlines: h.iter().map(|s| s.to_string()).collect(),
             descriptions: d.iter().map(|s| s.to_string()).collect(),
         }
@@ -97,6 +98,7 @@ mod tests {
         };
         let first = &rows[0];
         let brand = BrandKit {
+            differentiators: Vec::new(),
             headlines: col(first, 11, 20),
             descriptions: col(first, 22, 24),
         };

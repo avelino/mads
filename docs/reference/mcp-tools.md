@@ -98,8 +98,9 @@ The `reason` of `image_campaigns` and `app_campaigns` is one of these.
 | `callout_max_chars` | 25 |
 | `snippet_value_max_chars` | 25 |
 | `headline_exclamation_allowed` | `false` |
-| `brand_kit` | Headlines 8 to 12, descriptions 2 to 3 |
-| `rsa_specific` | Headlines 3 to 7, descriptions 1 to 2 |
+| `brand_kit` | Headlines 8 to 12, descriptions 2 to 3, differentiators 2 to 5 |
+| `rsa_specific` | Headlines 3 to 10, descriptions 1 to 2 |
+| `merged_ad` | 15 headlines and 4 descriptions, 3 or more headlines under 20 characters, the main keyword first, 3 or more keyword headlines |
 | `keywords_per_ad_group` | 1 to 50 |
 | `keyword_spec` | `variants` 1 to 6, `modifiers` 0 to 10, `extra` 0 to 20 |
 | `negatives_per_scope` | 0 to 100 |
@@ -176,10 +177,11 @@ Each entry of `performance.campaigns` has the campaign totals without ad group d
 |---|---|---|---|
 | `headlines` | string array | yes | 8 to 12, at most 30 characters. |
 | `descriptions` | string array | yes | 2 to 3, at most 90 characters. |
+| `differentiators` | string array | yes | 2 to 5 competitive differentiators, most important first, at most 90 characters. `get_brief` passes them to every campaign mission inside `brand_kit`. |
 
 Replaces the previous kit. Result `{"headlines": 10, "descriptions": 3}`.
 
-Codes: `E01`, `E02`, `E03`, `E04`, `E05`, `E13`, `W01`, `W02`.
+Codes: `E01`, `E02`, `E03`, `E04`, `E05`, `E13`, `W01`, `W02`, `W15`.
 
 ### set_account_plan
 
@@ -288,7 +290,7 @@ Creates or replaces one planned ad group.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `variants` | string array | yes | 1 to 6 ways people write one search. Variants of different searches fail `E26`. |
+| `variants` | string array | yes | 1 to 6 ways people write one search, the most searched first. The first is the main keyword and must be the first headline (`E36`). Variants of different searches fail `E26`. |
 | `modifiers` | string array | no | 0 to 10 intent words. |
 | `exact_heads` | boolean | no, default `true` | Adds every variant as exact match. |
 | `extra` | array | no | 0 to 20 explicit `{"text", "match"}` keywords. |
@@ -299,7 +301,7 @@ Creates or replaces one planned ad group.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `headlines` | string array | yes | 3 to 7, at most 30 characters. |
+| `headlines` | string array | yes | 3 to 10, at most 30 characters. The first is the main keyword. |
 | `descriptions` | string array | yes | 1 to 2, at most 90 characters. |
 | `path1` | string | no | At most 15 characters. Empty for none. |
 | `path2` | string | no | At most 15 characters. Needs `path1`. |
@@ -310,7 +312,7 @@ mads expands the keywords, merges the RSA with the brand kit, validates the ad g
 {"ad_group": "marca-vinellu", "keywords": 8, "negatives": 0, "merged_headlines": 13, "merged_descriptions": 4}
 ```
 
-Codes: `E01`, `E02`, `E03`, `E04`, `E05`, `E07`, `E08`, `E09`, `E11`, `E12`, `E13`, `E14`, `E22`, `E23`, `E26`. Warnings `W01`, `W02`, `W03`, `W04`, `W09`. In `mads optimize` also `LIVE_DETAIL`, `E28` and `W10`. Only issues on this ad group are reported.
+Codes: `E01`, `E02`, `E03`, `E04`, `E05`, `E07`, `E08`, `E09`, `E11`, `E12`, `E13`, `E14`, `E22`, `E23`, `E26`. `E34`, `E35`, `E36`, `E37`. Warnings `W01`, `W02`, `W03`, `W04`, `W09`, `W15`. In `mads optimize` also `LIVE_DETAIL`, `E28` and `W10`. Only issues on this ad group are reported.
 
 ### set_campaign_negatives
 

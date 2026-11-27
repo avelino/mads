@@ -495,6 +495,7 @@ mod tests {
 
     fn account() -> Account {
         let group = AdGroup {
+            main_keyword: String::new(),
             name: "alamos".into(),
             default_cpc: Cents(150),
             cpc_rationale: "marca conhecida, clique barato".into(),

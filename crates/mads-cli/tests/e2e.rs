@@ -23,11 +23,31 @@ fn resp(calls: Vec<(&str, Value)>) -> Value {
     json!({"text": null, "tool_calls": tool_calls, "usage": {"input_tokens": 100, "output_tokens": 20, "cost_usd": null}})
 }
 
+/// A kit of distinct ideas, three of them short, as `set_brand_kit` and the ad rules expect.
+fn brand_kit() -> Value {
+    json!({"headlines": ["Reviews reais de vinhos", "Notas de quem provou", "Baixe grátis", "Safras comentadas",
+                         "Comunidade de enófilos", "Harmonize seu jantar", "Avalie seus rótulos", "Descubra rótulos novos",
+                         "Guarde sua adega", "Vinellu no celular"],
+           "descriptions": ["Leia reviews de quem provou e escolha melhor. Baixe o app.",
+                            "Safras, notas e harmonizações num lugar só. Cadastre-se grátis.",
+                            "Monte sua adega virtual e siga amigos. Comece agora."],
+           "differentiators": ["Reviews de quem provou o vinho", "Safras comentadas pela comunidade"]})
+}
+
+/// The variants as headlines, the main one first, then the first variant with its modifier.
 fn ad_group(name: &str, variants: &[&str]) -> Value {
+    let mut headlines: Vec<String> = variants.iter().map(|v| v.to_string()).collect();
+    headlines.push(format!("{} review", variants[0]));
+    let fillers = [
+        format!("Opinião sobre {name}"),
+        "Compare antes de abrir".into(),
+        "Vale a pena provar".into(),
+    ];
+    headlines.extend(fillers.into_iter().take(5 - headlines.len()));
     json!({"name": name, "default_cpc": 1.5, "cpc_rationale": "estimativa",
            "keywords": {"variants": variants, "modifiers": ["review"], "exact_heads": true},
            "negatives": [{"text": "emprego", "match": "phrase"}],
-           "rsa": {"headlines": texts("Titulo do grupo", 5), "descriptions": ["Descricao do grupo para teste"], "path1": "vinhos", "path2": ""}})
+           "rsa": {"headlines": headlines, "descriptions": ["Descricao do grupo para teste"], "path1": "vinhos", "path2": ""}})
 }
 
 fn assets(site: &str) -> Value {
@@ -40,7 +60,7 @@ fn assets(site: &str) -> Value {
 
 fn plan(site: &str) -> Value {
     let _ = site;
-    let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});
+    let kit = brand_kit();
     let plan = json!({"campaigns": [
         {"name": "Vinellu - Catalogo", "intent": "catalog", "daily_budget": 30.0, "bid_strategy": {"type": "manual_cpc"}, "rationale": "intencao alta",
          "ad_groups": [{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}, {"name": "luigi", "theme": "luigi", "entity_ids": ["luigi-bosca"]}]},
@@ -782,7 +802,7 @@ fn init_by_default_blocks_loopback_sites() {
 }
 
 fn image_plan() -> Value {
-    let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});
+    let kit = brand_kit();
     let plan = json!({"campaigns": [
         {"name": "Vinellu - Marca", "intent": "brand", "daily_budget": 20.0, "bid_strategy": {"type": "manual_cpc"}, "rationale": "protege marca",
          "ad_groups": [{"name": "marca", "theme": "vinellu", "entity_ids": []}]},
@@ -963,7 +983,7 @@ const CAMPAIGN_REPORT: &str = "Relatório de campanha\n3 de outubro de 2026 - 5 
 const KEYWORD_REPORT: &str = "Relatório de palavras-chave da rede de pesquisa\n3 de outubro de 2026 - 5 de outubro de 2026\nPalavra-chave,Tipo de corresp.,Campanha,Grupo de anúncios,Motivos do status,CPC máx.,Impr.,Custo,Cliques,Conversões\n\"\"\"alamos review\"\"\",Correspondência de frase,Vinellu - Catalogo,alamos,,\"1,50\",0,\"0,00\",0,\"0,00\"\n\"\"\"vinellu\"\"\",Correspondência de frase,Vinellu - Marca,marca,abaixo do lance de primeira página,\"1,50\",0,\"0,00\",0,\"0,00\"\n";
 
 fn optimize_plan() -> Value {
-    let kit = json!({"headlines": texts("Titulo da marca", 10), "descriptions": texts("Descricao da marca com chamada pra acao", 3)});
+    let kit = brand_kit();
     let plan = json!({"campaigns": [
         {"name": "Vinellu - Catalogo", "intent": "catalog", "daily_budget": 35.0, "bid_strategy": {"type": "manual_cpc"}, "rationale": "3 dias, 35 cliques: so estrutura",
          "ad_groups": [{"name": "alamos", "theme": "alamos", "entity_ids": ["alamos-malbec"]}]},

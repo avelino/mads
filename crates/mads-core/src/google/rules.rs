@@ -1,11 +1,11 @@
+mod ad_copy;
 mod images;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     Account, AdGroup, Assets, BidStrategy, BrandKit, Campaign, CampaignKind, Cents, Intent, Issue,
-    Keyword, MatchType, PlannedAdGroup, Rsa, char_len, contains_word_sequence, merge_rsa,
-    normalize,
+    Keyword, MatchType, PlannedAdGroup, Rsa, char_len, contains_word_sequence, normalize,
 };
 use crate::input::strategy::product_key;
 use crate::input::{AllowedUrls, AppStore, Budget, Business, Input, fold};
@@ -300,6 +300,21 @@ impl<'a> Rules<'a> {
         }
         dups(&mut out, "brand_kit.headlines", &kit.headlines);
         dups(&mut out, "brand_kit.descriptions", &kit.descriptions);
+        ad_copy::same_ideas_within(&mut out, &kit.headlines, "brand_kit.headlines");
+        ad_copy::same_ideas_within(&mut out, &kit.descriptions, "brand_kit.descriptions");
+        out
+    }
+
+    /// The competitive differentiators `set_brand_kit` asks for. Kits written before mads asked
+    /// for them have none, so this is not part of `brand_kit`.
+    pub fn differentiators(&self, items: &[String]) -> Vec<Issue> {
+        let mut out = Vec::new();
+        let path = "brand_kit.differentiators";
+        count(&mut out, path, items.len(), 2, 5, "differentiators");
+        for (i, d) in items.iter().enumerate() {
+            length(&mut out, &format!("{path}[{i}]"), d, DESCRIPTION, "E01");
+        }
+        dups(&mut out, path, items);
         out
     }
 
@@ -441,15 +456,7 @@ impl<'a> Rules<'a> {
         self.ad_group_keywords(&mut out, ag, campaign_negatives, path);
         self.rsa(&mut out, &ag.rsa, &format!("{path}.rsa"));
         if let Some(kit) = kit {
-            let merged = merge_rsa(&ag.rsa, kit);
-            if merged.headlines.len() < 15 || merged.descriptions.len() < 4 {
-                let msg = format!(
-                    "merged ad has {} headlines and {} descriptions (15 and 4 recommended)",
-                    merged.headlines.len(),
-                    merged.descriptions.len()
-                );
-                out.push(Issue::warning("W04", format!("{path}.rsa"), msg));
-            }
+            out.extend(ad_copy::merged_ad(ag, kit, path));
         }
         out
     }
@@ -512,7 +519,7 @@ impl<'a> Rules<'a> {
             &format!("{path}.headlines"),
             rsa.headlines.len(),
             3,
-            7,
+            10,
             "specific headlines",
         );
         count(
@@ -1019,8 +1026,28 @@ mod tests {
 
     fn kit() -> BrandKit {
         BrandKit {
-            headlines: texts("Titulo da marca", 10),
-            descriptions: texts("Descricao da marca com chamada pra acao", 3),
+            differentiators: Vec::new(),
+            headlines: [
+                "Reviews reais de vinhos",
+                "Notas de quem provou",
+                "Baixe grátis",
+                "Safras comentadas",
+                "Comunidade de enófilos",
+                "Harmonize seu jantar",
+                "Avalie seus rótulos",
+                "Descubra rótulos novos",
+                "Guarde sua adega",
+                "Vinellu no celular",
+            ]
+            .map(s)
+            .into(),
+            descriptions: [
+                "Leia reviews de quem provou e escolha melhor. Baixe o app.",
+                "Safras, notas e harmonizações num lugar só. Cadastre-se grátis.",
+                "Monte sua adega virtual e siga amigos. Comece agora.",
+            ]
+            .map(s)
+            .into(),
         }
     }
 
@@ -1033,6 +1060,7 @@ mod tests {
 
     fn ad_group(name: &str) -> AdGroup {
         AdGroup {
+            main_keyword: String::new(),
             name: s(name),
             default_cpc: Cents(150),
             cpc_rationale: s("estimativa"),

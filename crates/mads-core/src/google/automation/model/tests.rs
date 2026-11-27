@@ -84,6 +84,7 @@ fn kw(text: &str, match_type: MatchType) -> Keyword {
 
 fn group(name: &str, keywords: Vec<Keyword>) -> AdGroup {
     AdGroup {
+        main_keyword: String::new(),
         name: name.into(),
         default_cpc: Cents(150),
         cpc_rationale: String::new(),
@@ -177,6 +178,7 @@ fn brand() -> Campaign {
 pub(super) fn account() -> Account {
     Account {
         brand_kit: Some(BrandKit {
+            differentiators: Vec::new(),
             headlines: vec!["Kit headline".into()],
             descriptions: vec!["Kit description".into()],
         }),

@@ -211,6 +211,26 @@ fn each_app_campaign_writes_the_store_of_its_own_app() {
     );
 }
 
+/// Fixture rows that mads now writes once at campaign level. `key` is
+/// `keyword|{campaign}|{ad group}|{term}|Negative Phrase` (or `Negative Exact`).
+fn moved_to_campaign_negative(
+    produced: &std::collections::BTreeSet<String>,
+    missing_key: &str,
+) -> bool {
+    let parts: Vec<&str> = missing_key.split('|').collect();
+    if parts.len() != 5 || parts[0] != "keyword" {
+        return false;
+    }
+    let campaign = parts[1];
+    let term = parts[3];
+    let ctype = match parts[4] {
+        "Negative Phrase" => "Campaign Negative Phrase",
+        "Negative Exact" => "Campaign Negative Exact",
+        _ => return false,
+    };
+    produced.contains(&format!("keyword|{campaign}||{term}|{ctype}"))
+}
+
 #[test]
 fn search_and_app_rows_match_a_real_editor_export() {
     let file = export_editor(&input(), &account()).expect("a file");
@@ -221,7 +241,12 @@ fn search_and_app_rows_match_a_real_editor_export() {
     let want = expected();
     let want_keys: std::collections::BTreeSet<String> = want.iter().map(key).collect();
     // The live account dropped 19 keywords of `data/` after the import. Keywords only in mads
-    // are that drift. Any other extra row, or any missing one, is a format difference.
+    // are that drift. Campaign negatives used to be copied onto every ad group as
+    // `Negative Phrase`; they are now written once as `Campaign Negative Phrase` with an
+    // empty Ad Group, so those expanded fixture rows may be missing and the new campaign
+    // rows may appear as keyword extras. Any other extra row, or any missing one, is a
+    // format difference.
+    let by_key_keys: std::collections::BTreeSet<String> = by_key.keys().cloned().collect();
     let extra: Vec<&String> = by_key
         .keys()
         .filter(|k| !want_keys.contains(*k) && !k.starts_with("keyword|"))
@@ -229,6 +254,7 @@ fn search_and_app_rows_match_a_real_editor_export() {
     let missing: Vec<&String> = want_keys
         .iter()
         .filter(|k| !by_key.contains_key(*k))
+        .filter(|k| !moved_to_campaign_negative(&by_key_keys, k))
         .collect();
     assert!(
         extra.is_empty() && missing.is_empty(),

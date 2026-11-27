@@ -2,16 +2,19 @@
 //!
 //! The format is the one Editor exports (checked against an export of version 2.13.3): UTF-16 LE
 //! with a BOM, tab separated, LF line endings, no row type column (the filled columns say what a
-//! row is), money with a dot and 2 decimals. Search and App rows match that export, and a file with
-//! Search, App and Demand Gen campaigns imported into Editor 2.13.3 with no error and every entity
-//! counted. Performance Max rows follow Google's documented headers, not imported yet. Pictures are
-//! not in the file: Editor neither exports nor imports the link between an ad and its images.
+//! row is), money with a dot and 2 decimals. Search and App rows match that export for campaigns,
+//! ad groups, ads and positive keywords. Campaign negatives are written once per Search campaign
+//! as `Campaign Negative Phrase` or `Campaign Negative Exact` with an empty Ad Group, so Editor
+//! imports them on the Negatives tab rather than as positive Phrase keywords. Ad-group negatives
+//! use `Negative Phrase` or `Negative Exact` with the Ad Group filled. Performance Max rows follow
+//! Google's documented headers, not imported yet. Pictures are not in the file: Editor neither
+//! exports nor imports the link between an ad and its images.
 
 use std::collections::BTreeMap;
 
 use super::{
-    Account, AdGroup, AssetGroup, BrandKit, Campaign, CampaignKind, CsvFile, MatchType,
-    export::effective_negatives, merge_rsa, normalize,
+    Account, AdGroup, AssetGroup, BrandKit, Campaign, CampaignKind, CsvFile, MatchType, merge_rsa,
+    normalize,
 };
 use crate::{
     input::{App, AppGoal, Input},
@@ -102,6 +105,16 @@ fn criterion(m: MatchType, negative: bool) -> &'static str {
         (MatchType::Exact, false) => "Exact",
         (MatchType::Phrase, true) => "Negative Phrase",
         (MatchType::Exact, true) => "Negative Exact",
+    }
+}
+
+/// Editor label for a campaign-level negative. An empty Ad Group plus this value is what
+/// Editor files as a campaign negative. `Negative Phrase` on an ad group row has been
+/// imported as a positive Phrase keyword, so campaign negatives must not use that form.
+fn campaign_negative_criterion(m: MatchType) -> &'static str {
+    match m {
+        MatchType::Phrase => "Campaign Negative Phrase",
+        MatchType::Exact => "Campaign Negative Exact",
     }
 }
 
@@ -492,12 +505,27 @@ impl Ctx<'_> {
             .set("Status", ACTIVE)
     }
 
+    /// A campaign negative: Keyword and Criterion Type, Ad Group left empty.
+    fn campaign_negative(&self, c: &Campaign, text: &str, kind: &str) -> Row {
+        self.under(c)
+            .set("Keyword", text)
+            .set("Criterion Type", kind)
+            .set("Status", ACTIVE)
+    }
+
     fn search_group(&self, c: &Campaign, ag: &AdGroup, out: &mut Vec<Row>) {
         out.push(self.group_row(c, &ag.name, money(ag.default_cpc)));
         for k in &ag.keywords {
             out.push(self.keyword(c, ag, &k.text, criterion(k.match_type, false)));
         }
-        for n in effective_negatives(c, ag) {
+        for n in &ag.negatives {
+            let already_at_campaign = c
+                .negatives
+                .iter()
+                .any(|cn| cn.match_type == n.match_type && same_name(&cn.text, &n.text));
+            if already_at_campaign {
+                continue;
+            }
             out.push(self.keyword(c, ag, &n.text, criterion(n.match_type, true)));
         }
         let Some(kit) = self.kit else {
@@ -562,6 +590,15 @@ impl Ctx<'_> {
     fn rows_of(&self, c: &Campaign) -> Vec<Row> {
         let mut out = vec![self.campaign(c)];
         out.extend(self.locations(c));
+        if c.kind == CampaignKind::Search {
+            for n in &c.negatives {
+                out.push(self.campaign_negative(
+                    c,
+                    &n.text,
+                    campaign_negative_criterion(n.match_type),
+                ));
+            }
+        }
         match c.kind {
             CampaignKind::Search => c
                 .ad_groups
@@ -1360,5 +1397,157 @@ mod tests {
             })
             .collect();
         assert_eq!(found, [("rioja", ReportedMatch::Broad)]);
+    }
+
+    fn keyword_rows(account: &Account) -> Vec<BTreeMap<String, String>> {
+        let file = export_editor(&crate::testutil::input(), account).unwrap();
+        read_editor(&file.bytes)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.get("Keyword").is_some_and(|k| !k.is_empty()))
+            .collect()
+    }
+
+    fn cell(r: &BTreeMap<String, String>, k: &str) -> String {
+        r.get(k).cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn campaign_negatives_are_written_once_with_empty_ad_group() {
+        let mut c = search(
+            "Catalogo",
+            &[("tintos", &["malbec"]), ("brancos", &["riesling"])],
+        );
+        c.negatives = vec![
+            keyword("free", MatchType::Phrase),
+            keyword("jobs", MatchType::Exact),
+        ];
+        c.ad_groups[0].negatives = vec![keyword("recipe", MatchType::Phrase)];
+        let account = Account {
+            brand_kit: None,
+            campaigns: vec![c],
+        };
+        let rows = keyword_rows(&account);
+        let kinds = |text: &str| {
+            rows.iter()
+                .filter(|r| cell(r, "Keyword") == text)
+                .map(|r| {
+                    (
+                        cell(r, "Ad Group"),
+                        cell(r, "Criterion Type"),
+                        cell(r, "Status"),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            kinds("free"),
+            [(
+                "".into(),
+                "Campaign Negative Phrase".into(),
+                "Enabled".into()
+            )],
+            "a campaign phrase negative is written once, Ad Group empty"
+        );
+        assert_eq!(
+            kinds("jobs"),
+            [(
+                "".into(),
+                "Campaign Negative Exact".into(),
+                "Enabled".into()
+            )],
+        );
+        assert_eq!(
+            kinds("recipe"),
+            [("tintos".into(), "Negative Phrase".into(), "Enabled".into())],
+            "an ad-group negative stays on that group"
+        );
+        assert!(
+            kinds("malbec").iter().all(|(_, kind, _)| kind == "Phrase"),
+            "positives stay Phrase, never a negative label"
+        );
+        assert!(
+            rows.iter().all(|r| {
+                let kind = cell(r, "Criterion Type");
+                !(cell(r, "Keyword") == "free" && kind == "Negative Phrase")
+                    && !(cell(r, "Keyword") == "free" && kind == "Phrase")
+                    && !(cell(r, "Keyword") == "jobs" && kind == "Negative Exact")
+                    && !(cell(r, "Keyword") == "jobs" && kind == "Exact")
+            }),
+            "campaign negatives must not be cloned onto ad groups as Negative Phrase or as positives"
+        );
+    }
+
+    #[test]
+    fn a_duplicate_ad_group_negative_is_not_written_when_it_is_already_a_campaign_negative() {
+        let mut c = search("Catalogo", &[("tintos", &["malbec"])]);
+        c.negatives = vec![keyword("free", MatchType::Phrase)];
+        c.ad_groups[0].negatives = vec![keyword("free", MatchType::Phrase)];
+        let account = Account {
+            brand_kit: None,
+            campaigns: vec![c],
+        };
+        let rows = keyword_rows(&account);
+        let free: Vec<_> = rows
+            .iter()
+            .filter(|r| cell(r, "Keyword") == "free")
+            .map(|r| (cell(r, "Ad Group"), cell(r, "Criterion Type")))
+            .collect();
+        assert_eq!(free, [("".into(), "Campaign Negative Phrase".into())]);
+    }
+
+    #[test]
+    fn an_enabled_positive_that_is_only_a_negative_in_the_plan_is_paused() {
+        let mut new = search("Catalogo", &[("tintos", &["malbec"])]);
+        new.negatives = vec![keyword("buy", MatchType::Phrase)];
+        let account = Account {
+            brand_kit: None,
+            campaigns: vec![new],
+        };
+        let mut base = live(
+            vec![search("Catalogo", &[("tintos", &["malbec"])])],
+            &[("Catalogo", LiveStatus::Enabled)],
+        );
+        with_keyword_report(
+            &mut base,
+            "tintos",
+            vec![
+                kperf("malbec", ReportedMatch::Phrase, Some(LiveStatus::Enabled)),
+                kperf("buy", ReportedMatch::Phrase, Some(LiveStatus::Enabled)),
+                kperf("buy", ReportedMatch::Exact, Some(LiveStatus::Enabled)),
+                kperf("jobs", ReportedMatch::Broad, Some(LiveStatus::Enabled)),
+            ],
+        );
+        let paused = paused_keywords(&account, &base);
+        assert_eq!(
+            paused,
+            [
+                ("buy".to_string(), "Exact".to_string()),
+                ("buy".to_string(), "Phrase".to_string()),
+                ("jobs".to_string(), "Broad".to_string()),
+            ],
+            "a leftover Enabled positive is paused even when the plan holds the same text as a negative"
+        );
+        let file = export_editor_live(&crate::testutil::input(), &account, Some(&base)).unwrap();
+        let rows = read_editor(&file.bytes).unwrap();
+        let buy_neg: Vec<_> = rows
+            .iter()
+            .filter(|r| {
+                r.get("Keyword").map(String::as_str) == Some("buy")
+                    && r.get("Criterion Type").map(String::as_str)
+                        == Some("Campaign Negative Phrase")
+            })
+            .map(|r| {
+                (
+                    r.get("Ad Group").cloned().unwrap_or_default(),
+                    r.get("Status").cloned().unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            buy_neg,
+            [("".into(), "Enabled".into())],
+            "the campaign negative stays enabled next to the paused leftover positives"
+        );
     }
 }
